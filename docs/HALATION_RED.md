@@ -423,3 +423,89 @@ CPU-readable, unlike the reduce buffer, whose read crashed (§10e).
 - Limits [I]: 128×128 is coarse, so the result is a broad warm wash around large highlights, not a thin halo. It also takes over the
   slot's vignette. Grid location and resolution per capture are untraced, and that is the next step.
 - Camera test: one warm and one white light; failure mode is a garbled frame (§10b), not a brick.
+
+## 14. Re-evaluation with the CPU grain engine (2026-11-09, research only, nothing built)
+
+**Verdict: feasible.** The CPU grain route (GRAIN_PORT s3/r2) removes both old blockers: the CPU can now read and write the
+finished photo safely (mapper `0x60067146`, camera-proven), and it can do the cross-channel step (luma mask → chroma tint) that no
+combiner can (§11). Recommended design: **H1, all on the CPU**, mask at 1/16 resolution. About **0.6–1.5 s per photo typically,
+up to about 4.5 s worst case**. Effort 2–3 agent sessions, including one chroma probe. Brick risk: none beyond the grain route's.
+
+### 14.1 What the buffer gives us
+
+- **[V]** Buffer 0x1000 is format 0x0302, 2 B/px, 5184 × 3888, with **Y in the even bytes** (d3: the band moved Y only, Cb noise
+  stayed flat). The combiners treat the developed image as YCbCr with signed chroma and offset −128 (§11).
+- **[I strong]** So the odd bytes are chroma, 4:2:2: one Cb and one Cr per pixel pair, offset-binary (128 = neutral).
+  **Not proven:** which odd byte is Cb and which is Cr, and whether chroma is offset-binary or two's complement. Grain never wrote
+  chroma, so no camera result settles it. A probe settles both (§14.5). A wrong guess is a blue or green halo, not a crash.
+- **[V]** Chroma is reachable: the same row writes as grain, on the odd bytes. Grain's survival to the JPEG shows edits before the
+  output pass `0x6035b529` (creative shading, combiner 33) are kept.
+
+### 14.2 Measured throughput
+
+- **[V]** s3/r2's pass is 15.1 instructions per pixel (emulated), about 304 M per photo, with 972 locks and 1944 flushes.
+- **[V camera]** The owner measured about 3–5 s extra per photo (CHANGELOG v0.27; d3 about 5 s including the forced Soft Focus passes).
+- **[I]** So a full-frame pass costs about **0.2–0.33 s per instruction per pixel**, including window and flush overhead. All the
+  estimates below use this.
+
+### 14.3 Design H1 (CPU only)
+
+Hook: grain's plain-look position (`gc_ob`, after the dev request wait `0x60354930`, before `0x6035b529`), on `dev + 0x6035b529`
+lists, so no Soft Focus passes are forced. Halation is a look effect (effect_id 2), so it never coexists with Glow (1) or Clarity
+(3). Art-effect looks would use the blend-hook position, as grain does. Run halation before grain, because film grain sits over
+the glow.
+
+| Pass | Work | Instructions | Time [I] |
+|---|---|---|---|
+| A. Read | Y of every 2nd pixel on every 2nd row (5 M samples); e = max(0, Y − T); sum e into a 324 × 243 cell grid (1/16) | about 4 per sample, about 1 per pixel | 0.2–0.35 s |
+| B. Mask | Separable blur on the grid: 3 running-sum box passes per axis ≈ Gaussian. The cost doesn't depend on radius. Radius 2–6 cells ≈ 30–100 px σ. An optional second, wider scale for a long tail | about 30 per cell × 79 k cells, about 2.4 M | < 0.05 s |
+| C. Write | Per row: lerp two mask rows into a 324-entry line. Skip 16-px spans whose ends are both 0. Elsewhere, g by incremental horizontal lerp, then Y += g·kY (clamped), and per pixel pair Cr += g·kCr, Cb −= g·kCb (clamped). Skip chroma where Y ≥ 250, so cores stay white | about 12 per pixel touched | 2.4–4 s × coverage |
+
+- **Coverage** = the share of the frame inside the glow. For night, stage and window scenes it is about 10–30 %, so C costs about
+  0.25–1.2 s and the total is **0.6–1.5 s**. For a clipped sky over half the frame, the total is about 4.5 s. A coverage cap is
+  advisable: if the grid shows more than about 50 %, scale the gain down or skip, so daylight shots stay fast.
+- Summing the threshold excess (not max-pooling) keeps the glow proportional to the light's area. A 20-px lamp gives a small,
+  real halo instead of nothing (the 160 × 120 average in §10 diluted it).
+- The tint vector (kY, kCb, kCr) per bloom_tint (+45: red, amber, warm, cool), with gain from strength 1..5. That reuses the
+  existing **effect_id 2 + tint + strength** fields: **no LOOKS.BIN, BUNDLES.BIN or share-code change**, and the Control Panel's
+  halation type stays. Today effect 2 renders as plain bloom (§11b), so CineStill-style looks would gain the tint.
+- **Memory** [V limit, I fit]: class-2 malloc caps at 16 KB per block, and the job pool is reachable only through a window
+  (GRAIN_PORT s1). A u8 grid of 79 KB takes 5 blocks (up to 50 rows each), plus one 16-KB scratch for the blur. Any failed malloc means
+  no halation and stock output (a guard, as grain has). Total heap capacity is unmeasured.
+- **Live view:** no tint. lv_art keeps the existing luma-glow preview for effect 2.
+- **Combined with grain:** run them in sequence first. Merging into one row loop later saves one set of locks and flushes (about
+  0.3 s).
+
+### 14.4 Can an ISP stage do the blur?
+
+- **The Soft Focus reduce and upscale (0x1060 → 0x1061)** would give a full-res blurred image for free. Rejected:
+  - it blurs *before* the threshold, so small lights are averaged away;
+  - it costs about 1 s of passes and two 40-MB buffers;
+  - the CPU would still need a full-res pass reading 0x1061 as well as rewriting 0x1000, about 14+ instructions per pixel over
+    the whole frame, with two windows that may need different modes.
+  The blur is the cheap part anyway (pass B, < 0.05 s).
+- **The ISP doing the full-res write (H2):** the only stock cross-channel route is combiner 33, mode 0x1002: a lerp toward a
+  colour word through a 128 × 128 u16 Q10 mask (proven red in §10b, mask format §10c). The CPU would run passes A and B, write
+  the grid as a 0x080C mask, and let `0x6035b529` do the rest. That is about 0.4 s total. Reasons it is a later option, not the
+  plan:
+  - it is a lerp, not an add, so bright areas inside the mask are pulled toward the colour, and core exclusion only works at
+    about 40-px resolution;
+  - the stock mask object comes from a shared 4-entry cache (`0x6036b635`), so writing into it would poison later jobs'
+    shading, unless we allocate a separate object (an untraced message-19 allocation);
+  - it takes over the slot's vignette on that job;
+  - the colour word is fixed per job.
+  Try H2 only if H1's time turns out unacceptable.
+
+### 14.5 Risks and first probe
+
+| Risk | Effect | Handling |
+|---|---|---|
+| Chroma byte order or sign wrong | Blue, green or inverted tint | **Probe first**: a d1-style band on rows 0–63 that sets the odd byte of even pixels to 168 in one half of the width, and the odd byte of odd pixels to 168 in the other half. The JPEG hue shows which byte is Cr and the sign convention |
+| Save time | +0.6–1.5 s typically, about 4.5 s worst; with grain on, both add up | Coverage cap; one shared loop later |
+| Heap | Malloc fails on a busy heap | Guard → stock output |
+| Window crossing, interrupts | As grain | Same row-split and K = 4 code as gr2 |
+| Look in gamma space | The add happens on 8-bit gamma Y, not linear light | Tune kY and the falloff by table. A mild screen curve on Y avoids hard clipping |
+| Loop bug | Hang | Battery pull. No flash or settings writes are involved |
+
+**Next step (needs the owner's go-ahead):** the chroma probe as a one-shot diagnostic on the grain route (0.5 session, one camera
+shot). Then H1 with effect 2 (1–1.5 sessions), then tuning against the §9 LED-strip scene (0.5–1 session).
