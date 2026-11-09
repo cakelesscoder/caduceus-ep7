@@ -29,12 +29,74 @@ Companion to [PORT_EM10IV.md](PORT_EM10IV.md), which did the full edit-by-edit s
 - The component kinds are the same (0x100/101/106/10e/102) and the load addresses are close but not equal
   (main `0x40780020` against `0x406a0020`). The sizes all differ, so unlike the E-M10 IV this is **not** a same-layout container.
   The container still decodes and round-trips byte-identically (`analysis/em5iii/manifest.json`, `roundtrip_identical: true`,
-  analysis base `0x60020020` as for the E-P7).
+  see the E-M5 III-specific analysis mapping below; the E-P7 base must not be reused).
 - The E-M5 III main has Color Creator (`setColorCreatorScpEvent`, `VARIOUS_DRAW_COLOR_CREATOR`, `COLORTONE_COLOR_CREATOR`)
   and no Color/Mono Profile strings.
 - Earlier docs already note: the same TruePic VIII generation as the E-P7; the same C4K sensor drive modes
   ([VIDEO_HIDDEN.md](VIDEO_HIDDEN.md)); the three lens-button records, with longer lists ([LENS_BUTTONS.md](LENS_BUTTONS.md));
   and an older settings layout without the E-P7's 20-byte validator table.
+
+## E-M5 III 1.7 main address mapping (static correction)
+
+For the exact inputs below, decoded main offset zero corresponds to CPU analysis
+address **`0x60021020`**, not the E-P7's `0x60020020`. Using the latter labels
+E-M5 III addresses `0x1000` too low. This matters when locating port hooks or
+translating a matched file offset into a CPU address; it does not validate a patch.
+
+| Input | Bytes | SHA-256 |
+|---|---:|---|
+| `OLY_E_137_1700_0000_0000.BIN` | 118620160 | `939260fc22b4217fce64274eb5a6707d307a499804d8a316b6b39019c4afded2` |
+| Decoded main `00_0100_40780020.decoded.bin` | 25034688 | `4097f57751ac30c24589448865b2824891a754744eae63ab14359fd46c1cf4be` |
+
+Keep three different quantities separate:
+
+- Main payload begins at **container byte offset** `0x20`.
+- `0x40780020` is its **container/header logical payload address**, not a file offset or CPU base.
+- The ten 12-byte section records begin at **decoded main offset** `0x6284`,
+  corresponding to **CPU analysis address** `0x600272a4`.
+
+Read each little-endian record as `(destination, logical_source, duplicate_destination)`.
+All ten satisfy `destination - (logical_source - 0x40780020) == 0x60021020`;
+first record: destination `0x600de000`, source `0x4083d000`.
+The existing static loader analysis at `0x60045e2e` also contains the absolute table
+address `0x600272a4` at instruction `0x60045e40` (decoded offset `0x24e20`).
+It accesses record fields, calls the address-conversion helper `0x600645f0`, and
+passes a section length to `0x6005a177`. This is supporting disassembly, not an
+executed loader or proof that every section is resident. GNU binutils labels an
+instruction in this window `udfu01`; no execution semantics are assigned to it here.
+
+To reproduce the table calculation on an already decoded, locally held main
+component, run from the repository root (Python 3 standard library only):
+
+```sh
+python3 - <<'PY'
+from pathlib import Path
+import hashlib, struct
+p = Path('analysis/em5iii/00_0100_40780020.decoded.bin')
+b = p.read_bytes()
+assert len(b) == 25034688
+assert hashlib.sha256(b).hexdigest() == '4097f57751ac30c24589448865b2824891a754744eae63ab14359fd46c1cf4be'
+for i in range(10):
+    offset = 0x6284 + 12 * i
+    dst, src, duplicate = struct.unpack_from('<III', b, offset)
+    base = dst - (src - 0x40780020)
+    assert duplicate == dst and base == 0x60021020
+    print(i + 1, hex(offset), hex(dst), hex(src), hex(base))
+PY
+```
+
+For independent instruction review, use GNU MN10300/AM33 binutils (the check used
+2.45) with `--adjust-vma=0x60021020` on this main component and the reviewed window
+`--start-address=0x60045dc5 --stop-address=0x60045ea0`, with `-b binary -m mn10300 -D`.
+Do not use the E-P7-only `tools/dis.sh` unchanged. These are read-only checks;
+firmware and disassembly are not included in this contribution.
+
+This corrects the address interpretation, not the historical byte-search counts
+elsewhere in this note: those counts were not rerun here. It does not establish code-space
+availability, section lifetime, settings synchronization, modified-image acceptance
+or independent recovery. No instruction-model result or camera test is claimed
+for this correction. Prepared by Roy Kittrell with AI assistance, building on the
+Caduceus port assessment and the fishcu/community container/tooling research.
 
 ## Signature match (E-P7 v0.20 edits → E-M5 III 1.7 main)
 
