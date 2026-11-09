@@ -9,7 +9,7 @@ recording.
 
 *Named after the caduceus, the staff of Hermes: messenger between gods and mortals and guide of travellers.*
 
-**Latest release: [v0.29a](https://github.com/cakelesscoder/caduceus-ep7/releases/tag/v0.29a)** ·
+**Latest release: [v0.30](https://github.com/cakelesscoder/caduceus-ep7/releases/tag/v0.30)** ·
 **[Install guide](docs/INSTALL.md)** · **[Changelog](CHANGELOG.md)** · **[Caduceus Control Panel](https://cakelesscoder.github.io/caduceus-ep7/)** (make and share looks in your browser) · The camera's Setup › Firmware screen shows the Caduceus version.
 
 > [!WARNING]
@@ -48,6 +48,9 @@ recording.
 | **True log video** | A log curve Olympus left hidden in the firmware, switched on with the **movie** picture mode set to Muted. | Camera-tested |
 | **XPan 65:24 and 21:9** | Panorama (5184×1920) and Wide (5184×2224) in the menu and Super Control Panel, with matching live view and playback framing, `XP` and `21:9` icons in the Super Control Panel option strip, and `XPAN`/`UW` size labels. Boots back to 4:3 each power-on, for safety. | Camera-tested; AF, guides, reboot and SCP icon fixed in v0.29 |
 | **Movie colour** | Movie picture mode Vivid becomes its own colour profile, separate from COLOR1-4 and saved in `EP7MOD/MOVIE.BIN`. Half-press once after switching on to load it, select Vivid in the movie Live Control (it reads `INFO Custom` once loaded), then press **INFO** to edit it. Clips shot before that half-press are stock Vivid. | Camera-tested, long recordings not yet |
+| **AP Custom colour** | On the AP dial position, Vivid becomes its own colour profile, saved in `EP7MOD/AP.BIN`, for Multiple Exposure, Live Composite and the other AP modes. Half-press once after switching on, then on the Super Control Panel press **INFO** on the Vivid picture-mode cell to edit it. | **New in v0.30** |
+| **Live ND** | AP Multiple Exposure › Number of Frames gains **ND3** and **ND4**: 3 or 4 frames averaged at normal brightness (about 2 stops of ND for ND4). Sequential H and hold the shutter: one press. | **New in v0.30** |
+| **Lowest S/S Setting** | The camera's hidden minimum shutter speed for P and A, as a row in Custom Menu E1: Auto or 1/1.3–1/8000. | **New in v0.30** |
 | **Vertical video** | Clips shot in portrait or upside down record their rotation, so players show them the right way up. | Camera-tested, file flags checked in ffmpeg |
 | **More button functions** | REC (◉) and Fn get more choices (AF Home, RAW, ISO/WB, WB/ISO, Level, HDR, BKT, Multi Function and more), and the **right and down arrow keys** can be set in Button Function: Flash, Drive, MF, ISO/WB, WB/ISO, Peaking, Level, Tele-converter, RAW and more. | **New in v0.29** |
 | **Recording limit** | 29-minute and 2-hour caps raised to 9 hours (file, chapter and heat limits still apply). | Camera-tested |
@@ -70,8 +73,8 @@ The builder downloads OM's official 1.1 firmware from OM's server, checks it, an
   - Windows: `Build Caduceus (Windows).bat`
   - macOS: `Build Caduceus (Mac).command` (the first time: right-click › **Open**)
   - Linux: `build-caduceus-linux.sh`
-- **Or from a terminal** in that folder: `python3 caduceus.py build --release v0.29a`
-  (Windows: `py caduceus.py build --release v0.29a`).
+- **Or from a terminal** in that folder: `python3 caduceus.py build --release v0.30`
+  (Windows: `py caduceus.py build --release v0.30`).
 
 It creates a folder with:
 

@@ -45,7 +45,7 @@ Their patch sites are unpublished, so this cannot be checked directly. Likely ov
 | **D-pad right / down** | Same patch: 16 functions, + ISO/WB, WB/ISO, Peaking, Magnify, Level, tele-con, Multi Function, RAW | **In o1** |
 | **D-pad up / left** | Need a validator record that does not exist (`BUTTONS.md` §4.3); repoint an unused one plus a menu row | Later, medium |
 | **AF Home** | The firmware already has it (`setAFHome`, Set Home checkbox). o1 puts AF Home on the ◉/Fn buttons | In o1; camera check: does Set Home appear? |
-| **Minimum shutter speed** (ISO-auto lowest shutter) | Reimplement: find the P/A program's slow-shutter limit and drive it from a new value (Extras-style menu). No string or setting for it exists in the E-P7 1.1. | Not started. Medium/hard. |
+| **Minimum shutter speed** (ISO-auto lowest shutter) | **Stock has it, hidden** (`MIN_SHUTTER.md`): AE logic, sids 1146/1147, the OM ISO-Auto Set submenu and picker are all in the E-P7 1.1. m1 (no SET key) and m2 (row list missed) failed; m3 row shows but its inline column overflowed; m4 opens the stock Lowest S/S picker screen | **Built as test m4** (`0.30m4`, for 0.30b9), not camera-tested |
 | **L-Fn button (#24)** | Sids 54/55/56 and their 28/29-function lists exist, and so do the lens key events (`LENS_BUTTONS.md`). Unknown: whether the Button Function menu shows a lens row. 1) camera probe with an L-Fn lens; 2) if the row is hidden, remove its gate; if it is missing, add a row | Needs an L-Fn lens (12-40 / 40-150 PRO etc.) for the probe |
 | Panasonic aperture ring | Our own `docs/APERTURE_RING.md` (parked: top suspect in the Test 3 bootloop) | Parked |
 | Korean UI, SH2 rates, e-shutter sound, 5 GHz | Not E-P7 features | Out of scope |

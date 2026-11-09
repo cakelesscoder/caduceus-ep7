@@ -1,0 +1,155 @@
+/* E-P7 1.1 Live ND inside Multiple Exposure, test n3 (ep7-firmware, our own code). docs/LIVE_ND.md "As built".
+ * Number of Frames (sid 267) offers 3 and 4 (ND3 / ND4); the ME machinery reads those counts natively. n3 also
+ * unlocks 267 in AP Multiple Exposure (its forced pair 267 = 2 is removed from the mode's preset block), so these
+ * guards make an unlocked 0/1 read as 2 there, as stock AP Multiple Exposure always saw.
+ *   lnd_kg <- rel32 of call {prop},[d2,d3],12 at 0x602a8378 (capture +24141 Auto Gain): 1 while frames >= 3
+ *   lnd_n  <- rel32 of call {get},[],4 with d0 = 267 (ME on, ME controller, ME sequence parts)
+ *   lnd_kn <- rel32 of call {prop},[d2,d3],12 at 0x602a838b (capture +24140 frames, key 0x1841)
+ *   lnd_a  <- rel32 of call {appget},[d2,a2],24 with d0 = 267 (app layer)
+ *   guard: in AP Multiple Exposure Off/1 -> 2 (stock AP ME frames); elsewhere ND3/ND4 -> 2 (ND is AP-only); 2f stock
+ *   lnd_cont <- rel32 of call {flag},[d2],4 at 0x6096b019 (ME parts continuous frame done, flag 0x48000000): after the
+ *             stock call, while ND3/ND4 in AP ME and the shutter is still fully pressed (key state 4), (212,parts) == 0 and
+ *             the stock release check passes, issue the stock sendTakePictureContinue ({cont}, capped at N by the registered
+ *             handles). Stock only ever requests one continue, so its continuous ME burst is 2 frames. Release untouched.
+ *   n7: no continuous-drive change and no release latch. Continuous stays as AP Multiple Exposure's preset forces it (off),
+ *   so ND3 / ND4 take one frame per press in every drive mode (camera on 0.30b7: n6's continuous route stalled after 2
+ *   frames and the release latch turned that into a hang).
+ * Miss paths run the stock getter with the stock arguments in the site's frame. No stores, no mul/div/setlb.
+ */
+ .am33_2
+ .text
+ .global _start
+_start:
+
+lnd_kg:                           /* site: mov 0x1851,d0; mov 0,a0; clr d1; call {prop},[d2,d3],12 */
+ call lnd_ap,[],4                 /* (0,sp) of the [d2,d3],12 frame is the nested return slot */
+ bne 1f                           /* ND exists only in AP Multiple Exposure */
+ mov 267,d0
+ call {get},[],4
+ cmp 3,d0
+ bcs 1f
+ mov 1,d0                         /* ND3 / ND4: Auto Gain On */
+ ret [d2,d3],12
+1:
+ mov 0x1851,d0
+ clr d1
+ mov 0,a0
+ jmp {prop}
+
+lnd_ap:                           /* [],4 (call): Z set when sid 24 == 211 */
+ mov 24,d0
+ call {get},[],4
+ cmp 211,d0
+ ret [],4
+
+lnd_ape:                          /* [],4 (call): d0 = 1 in AP Multiple Exposure (sid 24 == 211), else 0 */
+ mov 24,d0
+ call {get},[],4
+ cmp 211,d0
+ bne 1f
+ mov 1,d0
+ ret [],4
+1:
+ clr d0
+ ret [],4
+
+lnd_n:                            /* site: mov 267,d0; call {get},[],4 (frame [],4: no saved registers) */
+ add -8,sp                        /* (0,sp) nested return slot, (4,sp) scratch */
+ call lnd_ape,[],4
+ mov d0,(4,sp)
+ mov 267,d0
+ call {get},[],4
+ mov (4,sp),d1
+ add 8,sp
+ cmp 2,d0
+ beq 9f                           /* 2f: stock everywhere */
+ cmp 0,d1
+ beq 3f
+ cmp 2,d0                         /* AP Multiple Exposure: Off -> 2 (stock AP ME), ND3 / ND4 as is */
+ bcc 9f
+ mov 2,d0
+ bra 9f
+3:
+ cmp 3,d0                         /* elsewhere: ND3 / ND4 -> 2 (ND is AP-only), Off as is */
+ bcs 9f
+ mov 2,d0
+9:
+ ret [],4
+
+lnd_kn:                           /* site: mov 0x1841,d0; mov 0,a0; clr d1; call {prop},[d2,d3],12 (d2, d3 restored by ret) */
+ call {prop},[d2,d3],12
+ mov d0,d2
+ call lnd_ape,[],4
+ mov d0,d3
+ mov d2,d0
+ cmp 2,d0
+ beq 9f                           /* 2f: stock everywhere */
+ cmp 0,d3
+ beq 3f
+ cmp 2,d0                         /* AP Multiple Exposure: Off -> 2 (stock AP ME), ND3 / ND4 as is */
+ bcc 9f
+ mov 2,d0
+ bra 9f
+3:
+ cmp 3,d0                         /* elsewhere: ND3 / ND4 -> 2 (ND is AP-only), Off as is */
+ bcs 9f
+ mov 2,d0
+9:
+ ret [d2,d3],12
+
+lnd_a:                            /* site: mov 267,d0; call {appget},[d2,a2],24 (d2, a2 restored by ret) */
+ call {appget},[d2,a2],24
+ mov d0,d2
+ call lnd_ape,[],4
+ mov d0,a2
+ mov d2,d0
+ cmp 2,d0
+ beq 9f                           /* 2f: stock everywhere */
+ cmp 0,a2
+ beq 3f
+ cmp 2,d0                         /* AP Multiple Exposure: Off -> 2 (stock AP ME), ND3 / ND4 as is */
+ bcc 9f
+ mov 2,d0
+ bra 9f
+3:
+ cmp 3,d0                         /* elsewhere: ND3 / ND4 -> 2 (ND is AP-only), Off as is */
+ bcs 9f
+ mov 2,d0
+9:
+ ret [d2,a2],24
+
+lnd_cont:                         /* site: mov 0x48000000,d0; mov a2,a0; call {flag},[d2],4; ret [d2,a2],20 */
+ add -12,sp                       /* (0,sp) nested return slot, (4,sp) argument word, (8,sp) parts */
+ mov a0,(8,sp)
+ call {flag},[d2],4               /* the stock frame-done flag, unchanged */
+ call lnd_ape,[],4
+ cmp 0,d0
+ beq 9f                           /* only AP Multiple Exposure */
+ mov 267,d0
+ call {get},[],4
+ cmp 3,d0
+ bcs 9f
+ cmp 5,d0
+ bcc 9f                           /* only ND3 / ND4 */
+ call {keyst},[],0
+ cmp 4,d0
+ bne 9f                           /* shutter no longer fully pressed: the stock release / stop decides */
+ mov (8,sp),a0
+ mov (212,a0),d0
+ cmp 0,d0
+ bne 9f                           /* as entryTAKE_PICTURE_CONT */
+ clr d0
+ mov d0,(4,sp)
+ mov 1,d1
+ mov 0,a1
+ call {relchk},[d2,d3,a2,a3],56   /* stock release check, as entryTAKE_PICTURE_CONT */
+ cmp 1,d0
+ bne 9f
+ mov (8,sp),a0
+ call {cont},[d2,d3,a2,a3],20     /* stock sendTakePictureContinue: no request beyond N, new buffer */
+9:
+ add 12,sp
+ ret [d2],4
+
+ .balign 4
+lnd_end:

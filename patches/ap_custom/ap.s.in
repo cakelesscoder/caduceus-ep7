@@ -1,0 +1,992 @@
+/* E-P7 1.1 AP Custom: the mode dial's AP position, picture mode Vivid = its own INFO Custom slot (ep7-firmware, our own code). docs/AP_CUSTOM.md.
+ * P3 = third 1024 B heap block, a copy of P with the AP slot in COLOR4's row (+224) and name (+592), loaded from EP7MOD/AP.BIN (MOVIE.BIN format).
+ * P: +{am} 'EP7A' (published), +{ap3} P3, +{atr} 'EP7U' (load tried). P3: +{vm} 'EP7V', +{vp} P3, +{vh} P's handle, +{va} ALL values: the movie wheel code
+ * (mv_sw / mv_get / mv_set / mv_exit / Film / Extras) then works on P3 unchanged while the state word holds P3's handle.
+ * AP = sid 44 != 1 and sid 24 in 14, 209..216 (the values for which stock 0x602b6b4f forces sid 1645, the normal list). Pipeline: also 0x9481 == 1 (Vivid).
+ *   ap_get   <- getter rel32 at the capture population (pm, COLOR profile, 12 x S), sc_prop and wb_prop: pm 1 -> 11, profile -> 4, S -> P3
+ *   ap_tx    <- jmp at tbl_x (0x6055e7e7, end of tbl_idx / tbl_off): a COLOR4 row offset -> P3's row
+ *   ap_key / ap_msg / ap_s / ap_tb  <- live view record path, in front of mv_key / sh_msg / mv_s / mv_tbl
+ *   ap_lc    <- Live Control INFO, in front of mv_lc;  ap_ccg <- mv_get's Color Creator guard;  ap_la / ap_lb2 <- label builders, in front of mv_la / mv_lc2
+ *   ap_pre   <- sd_back jmp (save a dirty P3 as AP.BIN, then mv_trig);  ap_post <- mv_trig's tail jmp (first half-press: load AP.BIN, then ed_trig)
+ * Every miss runs the previous owner with the registers it had. All reads but the heap blocks, the state word swap (as mv_lc) and the card files.
+ */
+ .am33_2
+ .text
+ .global _start
+_start:
+ .macro SAVE5
+ add -24,sp
+ mov d0,(4,sp)
+ mov d1,(8,sp)
+ mov a0,(12,sp)
+ mov a1,(16,sp)
+ mov mdr,d0
+ mov d0,(20,sp)
+ mov (4,sp),d0
+ .endm
+ .macro REST5
+ mov (20,sp),d0
+ mov d0,mdr
+ mov (4,sp),d0
+ mov (8,sp),d1
+ mov (12,sp),a0
+ mov (16,sp),a1
+ add 24,sp
+ .endm
+ .macro HV d, a, miss
+ add -1,\d
+ cmp {lim},\d
+ bcc \miss
+ btst 3,\d
+ bne \miss
+ mov \d,\a
+ add {pool},\a
+ mov (\a),\d
+ cmp {bmagic},\d
+ bne \miss
+ .endm
+
+/* ap_P: -> d0 = 1, a0 = P (the unswapped block, also while P2 or P3 is swapped in), else d0 = 0. `call ap_P,[d2],8`. Uses d0, a0. */
+ap_P:
+ movhu ({state}),d2
+ HV d2,a0,9f
+ mov ({vm},a0),d2
+ cmp {vmagic},d2
+ bne 2f
+ mov ({vp},a0),d2
+ cmp a0,d2
+ bne 2f
+ mov ({vh},a0),d2                 /* swapped: P's handle */
+ HV d2,a0,9f
+2:
+ mov 1,d0
+ ret [d2],8
+9:
+ clr d0
+ ret [d2],8
+
+/* ap_q: a0 = P -> d0 = 1, a0 = P3 when published and sound, else d0 = 0. `call ap_q,[d2],8` */
+ap_q:
+ mov ({am},a0),d2
+ cmp {amagic},d2
+ bne 9f
+ mov ({ap3},a0),a0
+ mov a0,d2
+ add {neg_pool},d2
+ cmp {lim},d2
+ bcc 9f
+ btst 3,d2
+ bne 9f
+ mov (a0),d2
+ cmp {bmagic},d2
+ bne 9f
+ mov ({vm},a0),d2
+ cmp {vmagic},d2
+ bne 9f
+ mov ({vp},a0),d2
+ cmp a0,d2
+ bne 9f
+ mov 1,d0
+ ret [d2],8
+9:
+ clr d0
+ ret [d2],8
+
+/* ap_mode: -> d0 = 1, a0 = P3 when the AP slot is loaded and the dial is on AP, else d0 = 0. `call ap_mode,[d2,d3,a2],16`. Clobbers d0, d1, a0, a1. */
+ap_mode:
+ call ap_P,[d2],8
+ cmp 1,d0
+ bne 9f
+ call ap_q,[d2],8
+ cmp 1,d0
+ bne 9f
+ mov a0,a2
+ add -4,sp
+ mov {k44},d0
+ clr d1
+ mov 0,a0
+ call ep7_getter,[d2,d3],12
+ add 4,sp
+ cmp 1,d0
+ beq 9f
+ add -4,sp
+ mov {k24},d0
+ clr d1
+ mov 0,a0
+ call ep7_getter,[d2,d3],12
+ add 4,sp
+ cmp 14,d0
+ beq 1f
+ add -209,d0
+ cmp 8,d0
+ bcc 9f
+1:
+ mov a2,a0
+ mov 1,d0
+ ret [d2,d3,a2],16
+9:
+ clr d0
+ ret [d2,d3,a2],16
+
+/* ap_on: ap_mode and picture mode 0x9481 == 1 (Vivid). Same contract. */
+ap_on:
+ call ap_mode,[d2,d3,a2],16
+ cmp 1,d0
+ bne 9f
+ mov a0,a2
+ add -4,sp
+ mov 38017,d0
+ clr d1
+ mov 0,a0
+ call ep7_getter,[d2,d3],12
+ add 4,sp
+ cmp 1,d0
+ bne 9f
+ mov a2,a0
+ ret [d2,d3,a2],16
+9:
+ clr d0
+ ret [d2,d3,a2],16
+
+/* ap_val: d2 = key, d3 = idx -> d0 = 1, d1 = the AP answer, else d0 = 0. `call ap_val,[d2,d3,a2],16`. Clobbers d0, d1, a0, a1. */
+ap_val:
+ cmp 38017,d2
+ beq 1f
+ cmp 63153,d2
+ beq 1f
+ cmp 63210,d2
+ bne 9f
+ cmp 12,d3
+ bcc 9f
+1:
+ call ap_on,[d2,d3,a2],16
+ cmp 1,d0
+ bne 9f
+ mov 11,d1
+ cmp 38017,d2
+ beq 8f
+ mov 4,d1
+ cmp 63153,d2
+ beq 8f
+ add 257,a0
+ movbu (d3,a0),d1
+ extb d1
+8:
+ mov 1,d0
+ ret [d2,d3,a2],16
+9:
+ clr d0
+ ret [d2,d3,a2],16
+
+/* ap_get: the getter's place (site frame [d2,d3],12; d0 key, d1 idx, a0 = 0 at every site, build-checked). Hit: the real read runs, then d0 = our value. */
+ap_get:
+ mov d0,d2
+ mov d1,d3
+ add -4,sp
+ call ap_val,[d2,d3,a2],16
+ add 4,sp
+ cmp 1,d0
+ bne 1f
+ mov d2,d0
+ mov d1,d2
+ mov d3,d1
+ mov 0,a0
+ call ep7_getter,[d2,d3],12
+ mov d2,d0
+ ret [d2,d3],12
+1:
+ mov d2,d0
+ mov d3,d1
+ mov 0,a0
+ jmp ep7_getter
+
+/* ap_s: live view effective S read (0x6030bd5d, was mv_s): a3 = rec+704, rec+294 == 1 and AP -> P3 S, else mv_s with the site's registers */
+ap_s:
+ movbu (-410,a3),d2
+ cmp 1,d2
+ bne 1f
+ mov d0,d2
+ mov d1,d3
+ add -4,sp
+ call ap_val,[d2,d3,a2],16
+ add 4,sp
+ cmp 1,d0
+ bne 2f
+ mov d1,d0
+ mov d3,d1
+ ret [d2,d3],12
+2:
+ mov d2,d0
+ mov d3,d1
+ mov 0,a0
+1:
+ jmp ep7_mv_s
+
+/* ap_tx: jmp at tbl_x: a0 = table, d3 = byte offset, frame [d2,d3],8. Keeps d0, d1, a1.
+ * The pipeline always reads P's table, also while P2 or P3 is swapped into the state word (a wheel left open, or an SCP open that
+ * ended without an init); COLOR4's row (192..255) in AP + Vivid -> P3 + 32 + d3. */
+ap_tx:
+ add -20,sp
+ mov d0,(4,sp)
+ mov d1,(8,sp)
+ mov a0,(12,sp)
+ mov a1,(16,sp)
+ add -4,sp
+ call ap_P,[d2],8
+ add 4,sp
+ cmp 1,d0
+ bne 1f
+ add 32,a0
+ mov a0,(12,sp)
+1:
+ mov d3,d2
+ add -192,d2
+ cmp 64,d2
+ bcc 3f
+ add -4,sp
+ call ap_on,[d2,d3,a2],16
+ add 4,sp
+ cmp 1,d0
+ bne 3f
+ add 32,a0
+ mov a0,(12,sp)
+3:
+ mov (4,sp),d0
+ mov (8,sp),d1
+ mov (12,sp),a0
+ mov (16,sp),a1
+ add 20,sp
+ add d3,a0
+ ret [d2,d3],8
+
+/* ap_key: jmp at 0x60316bfb (was mv_key): a0 = rec+292, a1 = rec; d2, a3 free. Record Vivid and AP -> key 11. */
+ap_key:
+ movbu (2,a0),d0
+ cmp 1,d0
+ bne 9f
+ SAVE5
+ add -4,sp
+ call ap_on,[d2,d3,a2],16
+ add 4,sp
+ mov d0,d2
+ REST5
+ cmp 1,d2
+ bne 9f
+ mov 11,d0
+ add 925,a1
+ jmp ep7_key_ret
+9:
+ jmp ep7_mv_key
+
+/* ap_msg: jmp at 0x60315900 (was sh_msg): d3 = rec+941, a1 = message. Record Vivid and AP -> message +20 = 4 (S valid). Only d0, a0 change. */
+ap_msg:
+ SAVE5
+ mov d3,a0
+ movbu (-647,a0),d0
+ cmp 1,d0
+ bne 8f
+ add -4,sp
+ call ap_on,[d2,d3,a2],16
+ add 4,sp
+ cmp 1,d0
+ bne 8f
+ REST5
+ mov 4,d0
+ mov 21,a0
+ movbu d0,(20,a1)
+ jmp ep7_msg_ret
+8:
+ REST5
+ jmp ep7_sh_msg
+
+/* ap_tb: lv / tone slot read (was mv_tbl), `call ...,[d2,d3],8`: d1 = mark (mv_prof forced COLOR4) and AP -> a0 = P3 row. Keeps d0, d1, a1. */
+ap_tb:
+ mov {pmark},d2
+ cmp d2,d1
+ bne 9f
+ add -12,sp
+ mov d0,(4,sp)
+ mov a1,(8,sp)
+ add -4,sp
+ call ap_on,[d2,d3,a2],16
+ add 4,sp
+ mov d0,d2
+ mov (4,sp),d0
+ mov (8,sp),a1
+ add 12,sp
+ mov {pmark},d1
+ cmp 1,d2
+ bne 9f
+ add 224,a0
+ ret [d2,d3],8
+9:
+ jmp ep7_mv_tbl
+
+/* ap_lc: jmp at 0x60e5951c (was mv_lc): row 111, GUI value 0 (Vivid), AP slot and AP -> swap to P3 (pending), stock route to key {ckey}. Else mv_lc.
+ * Sid 1337 is not tested: stock blocks art variations with it in movie only, and AP is never movie. */
+ap_lc:
+ cmp 111,d3
+ beq 1f
+ jmp ep7_lc_no
+1:
+ mov (36,sp),d1
+ cmp 0,d1
+ bne 8f
+ SAVE5
+ add -4,sp
+ call ap_mode,[d2,d3,a2],16
+ add 4,sp
+ cmp 1,d0
+ bne 4f
+ call ap_swap,[d2],8
+ add 24,sp
+ mov {ckey},d0
+ jmp ep7_lc_open
+4:
+ REST5
+8:
+ jmp ep7_mv_lc
+
+/* ap_swap: a0 = P3 -> state word = P3's handle, P3 +{pend} = 1 (the next COLOR editor init keeps the swap). `call ap_swap,[d2],8`. Uses d2, a0 */
+ap_swap:
+ mov 1,d2
+ movbu d2,({pend},a0)
+ mov a0,d2
+ add {neg_pool},d2
+ inc d2
+ mov {state},a0
+ movhu d2,(a0)
+ ret [d2],8
+
+/* ap_unswap: state word holds P3 -> P's handle, pending 0; d0 = 1 when it did. `call ap_unswap,[d2,d3,a2],16`. Uses d0, a0 (P2: movie's, untouched) */
+ap_unswap:
+ movhu ({state}),d2
+ HV d2,a0,9f
+ mov ({vm},a0),d2
+ cmp {vmagic},d2
+ bne 9f
+ mov ({vp},a0),d2
+ cmp a0,d2
+ bne 9f
+ mov a0,a2
+ call ap_P,[d2],8
+ cmp 1,d0
+ bne 9f
+ call ap_q,[d2],8
+ cmp 1,d0
+ bne 9f
+ mov a2,d2
+ cmp a0,d2
+ bne 9f
+ clr d0
+ movbu d0,({pend},a0)
+ mov ({vh},a0),d2
+ mov {state},a0
+ movhu d2,(a0)
+ mov 1,d0
+ ret [d2,d3,a2],16
+9:
+ clr d0
+ ret [d2,d3,a2],16
+
+/* ap_scr / ap_scr2: entries of the screen lookups 0x60e4cea8 / 0x60e4cf21 (d0 group, d1 key). In AP, pipeline mode 1, GUI 111 == 0 (Vivid), AP slot -> swap to P3
+ * (pending), key {ckey}, for group 0x12 key {vkey} (sid 119, what OK on the SCP Saturation cell opens: fallback route) and for key 111 (the
+ * picture-mode list) only while ap_sinfo armed it (INFO release on that cell). OK on the picture-mode cell opens the stock list. Then the stock entry, replayed. */
+ap_scr:
+ SAVE5
+ call ap_sc,[d2,d3,a2],16
+ REST5
+ movhu d1,(32,sp)
+ clr d1
+ mov d1,(28,sp)
+ jmp ep7_scr_resume
+
+ap_scr2:
+ SAVE5
+ call ap_sc,[d2,d3,a2],16
+ REST5
+ mov a0,(28,sp)
+ mov a1,d2
+ movhu d2,(34,sp)
+ jmp ep7_scr2_resume
+
+ap_sc:                            /* d0 group, d1 key; the caller's saved d1 is at (24,sp) here: a new key goes there */
+ cmp 0x12,d0
+ bne 9f
+ mov d1,d3
+ exthu d3
+ cmp {vkey},d3                    /* Saturation cell: OK opens the wheel (fallback route) */
+ beq 1f
+ cmp 111,d3                       /* picture-mode list: only when ap_sinfo armed it (INFO), so OK keeps the list */
+ bne 9f
+1:
+ call ap_on,[d2,d3,a2],16
+ cmp 1,d0
+ bne 9f
+ mov a0,a2
+ cmp 111,d3
+ bne 2f
+ movbu ({arm},a2),d0
+ cmp 1,d0
+ bne 9f
+ clr d0
+ movbu d0,({arm},a2)
+ bra 3f
+2:
+ add -4,sp
+ mov 111,d0                       /* GUI picture mode: 0 = Vivid */
+ call ep7_sget,[],4
+ add 4,sp
+ cmp 0,d0
+ bne 9f
+3:
+ mov a2,a0
+ call ap_swap,[d2],8
+ mov {ckey},d0
+ mov d0,(24,sp)
+9:
+ ret [d2,d3,a2],16
+
+/* ap_sinfo: SsMenuLv handler word 24 (0x611a2c68). The machine's matrix is event-major (handler = word[matrix[event_index * 29 +
+ * state - 1]], dispatcher 0x60d11448); handler 24 serves only (state 3 = the SCP, INFO release 0x9015) and cycles sid 281, which
+ * leaves the SCP. d0 = event, d1 / a1 = arguments, return address at (0,sp).
+ * Focused cell sid 111 (0x60e4d144 on the SCP holder 0x61fc4328), AP, pipeline mode 1, GUI 0 (Vivid), AP slot -> arm, key word 111,
+ * rc (4,7), the rc DtlScp returns for OK: state 7 opens the lookup and ap_sc turns it into the wheel. Else the stock handler, registers as on entry. */
+ap_sinfo:
+ cmp {ev_info},d0
+ bne 8f
+ add -4,sp                        /* local: P3 at (24,sp) after SAVE5 */
+ SAVE5
+ add -4,sp
+ call ap_on,[d2,d3,a2],16
+ add 4,sp
+ cmp 1,d0
+ bne 7f
+ mov a0,(24,sp)
+ add -4,sp
+ mov 111,d0
+ call ep7_sget,[],4
+ add 4,sp
+ cmp 0,d0
+ bne 7f
+ add -4,sp
+ mov ({scp_hold}),a0
+ call ep7_cell,[],4
+ add 4,sp
+ exthu d0
+ cmp 111,d0
+ bne 7f
+ mov {scp_key},a0
+ movhu d0,(a0)
+ mov (24,sp),a0
+ mov 1,d0
+ movbu d0,({arm},a0)
+ REST5
+ add 4,sp
+ mov 0x407,d0
+ add -4,sp
+ ret [],4
+7:
+ REST5
+ add 4,sp
+8:
+ jmp ep7_sc_rel
+
+/* ap_init: COLOR1-4 parent records +4 (was po_init). A swap that this open didn't ask for (pending 0) is undone first, so a stills
+ * editor never works on P3. Registers, MDR and the stack as on entry, then po_init. */
+ap_init:
+ SAVE5
+ add -4,sp
+ call ap_P,[d2],8
+ add 4,sp
+ cmp 1,d0
+ bne 8f
+ add -4,sp
+ call ap_q,[d2],8
+ add 4,sp
+ cmp 1,d0
+ bne 8f
+ clr d0
+ movbu d0,({arm},a0)              /* an arm never outlives an editor open */
+ movbu ({pend},a0),d0
+ cmp 1,d0
+ bne 7f
+ clr d0
+ movbu d0,({pend},a0)             /* our open: keep the swap */
+ bra 8f
+7:
+ add -4,sp
+ call ap_unswap,[d2,d3,a2],16
+ add 4,sp
+8:
+ REST5
+ jmp ep7_po_init
+
+/* ap_ccg: mv_get's `call mv_ccg,[],4` (keep the Color Creator switch off): AP slot and AP -> 1, else mv_ccg. Clobbers d0, d1, a0, a1. */
+ap_ccg:
+ add -4,sp
+ call ap_mode,[d2,d3,a2],16
+ add 4,sp
+ cmp 1,d0
+ bne 1f
+ ret [],4
+1:
+ jmp ep7_mv_ccg
+
+/* Labels: in front of mv_la / mv_lc2. String id 1657 ("Vivid"), kind 4, AP slot and AP -> mv_lb's own writer ("INFO Custom"). */
+ap_la:
+ call ap_lbl,[],4
+ cmp 0,d0
+ bne 1f
+ jmp ep7_mv_la
+1:
+ mov d0,d1
+ jmp ep7_ret_a
+
+ap_lb2:
+ call ap_lbl,[],4
+ cmp 0,d0
+ bne 1f
+ jmp ep7_mv_lc2
+1:
+ mov d0,d1
+ jmp ep7_ret_b
+
+ap_lbl:                           /* -> d0 characters drawn, or 0 with d1, a0, a1 kept. Same frame as mv_lb, so its hit tail returns from here */
+ movhu (a3),d0
+ cmp 4,d0
+ bne 8f
+ movhu (2,a2),d0
+ cmp 1657,d0
+ bne 8f
+ add -16,sp
+ mov d1,(4,sp)
+ mov a0,(8,sp)
+ mov a1,(12,sp)
+ add -4,sp
+ call ap_mode,[d2,d3,a2],16
+ add 4,sp
+ cmp 1,d0
+ bne 7f
+ jmp ep7_lb_hit
+7:
+ mov (4,sp),d1
+ mov (8,sp),a0
+ mov (12,sp),a1
+ add 16,sp
+8:
+ clr d0
+ ret [],4
+
+/* ap_pre: jmp from sd_back (was mv_trig; event at (16,sp)). Every half-press: a dirty P3 is saved as AP.BIN and its dirty byte cleared, so mv_trig never sees it. */
+ap_pre:
+ add -16,sp
+ mov d0,(0,sp)
+ mov d1,(4,sp)
+ mov a0,(8,sp)
+ mov a1,(12,sp)
+ mov (32,sp),d0
+ cmp {ev_press},d0
+ bne 9f
+ movm [d2,d3,a2,a3],(sp)
+ add -4,sp
+ mov {boot},a0                    /* .bss byte, 0 at every power-on: the first half-press with a valid P this boot */
+ movbu (a0),d0
+ cmp 0,d0
+ bne 2f
+ call ap_P,[d2],8
+ cmp 1,d0
+ bne 2f
+ clr d0                           /* P is a fresh malloc: heap bytes from an earlier session (DRAM keeps them) must not pass as our marks */
+ mov d0,({vt},a0)
+ mov d0,({vm},a0)
+ mov d0,({am},a0)
+ mov d0,({atr},a0)
+ mov 1,d0
+ mov {boot},a0
+ movbu d0,(a0)
+2:
+ call ap_mode,[d2,d3,a2],16
+ cmp 1,d0
+ beq 1f
+ call ap_unswap,[d2,d3,a2],16            /* off AP (or no slot): no AP wheel can be open */
+1:
+ call ap_P,[d2],8
+ cmp 1,d0
+ bne 8f
+ call ap_q,[d2],8
+ cmp 1,d0
+ bne 8f
+ mov a0,a2
+ movbu ({dirty},a2),d0
+ cmp 1,d0
+ bne 8f
+ clr d0
+ movbu d0,({dirty},a2)
+ call ap_save,[d2,d3,a2,a3],24
+ movbu d0,({status},a2)
+8:
+ add 4,sp
+ movm (sp),[d2,d3,a2,a3]
+9:
+ mov (0,sp),d0
+ mov (4,sp),d1
+ mov (8,sp),a0
+ mov (12,sp),a1
+ add 16,sp
+ jmp ep7_mv_trig
+
+/* ap_post: mv_trig's tail jmp (was ed_trig), same frame. First half-press, after mv_trig's film load and Movie slot load: AP.BIN, once per power-on. */
+ap_post:
+ add -16,sp
+ mov d0,(0,sp)
+ mov d1,(4,sp)
+ mov a0,(8,sp)
+ mov a1,(12,sp)
+ mov (32,sp),d0
+ cmp {ev_press},d0
+ bne 9f
+ movm [d2,d3,a2,a3],(sp)
+ add -4,sp
+ call ap_P,[d2],8
+ cmp 1,d0
+ bne 8f
+ mov a0,a2
+ mov ({vt},a2),d0                 /* mv_trig has run its first-press loads */
+ cmp {vtmagic},d0
+ bne 8f
+ mov ({atr},a2),d0
+ cmp {atmagic},d0
+ beq 8f
+ mov {atmagic},d0
+ mov d0,({atr},a2)
+ clr d0
+ mov d0,({am},a2)
+ call ap_load,[d2,d3,a2,a3],24
+8:
+ add 4,sp
+ movm (sp),[d2,d3,a2,a3]
+9:
+ mov (0,sp),d0
+ mov (4,sp),d1
+ mov (8,sp),a0
+ mov (12,sp),a1
+ add 16,sp
+ jmp ep7_trig
+
+/* ap_load: a2 = P. As mv_load, with AP.BIN and P3. Locals (4,sp) handle. The same range table as mv_load: +49..51 (lens, Grain, Sharp) and NR +24 are the readers' to check */
+ap_load:
+ mov 1024,d0
+ call ep7_malloc,[],4
+ cmp 0,a0
+ beq l_out
+ mov a0,a3
+ mov a3,d0
+ add {neg_pool},d0
+ cmp {lim},d0
+ bcc l_free
+ btst 3,d0
+ bne l_free
+ clr d2
+1:
+ movbu (d2,a2),d0
+ movbu d0,(d2,a3)
+ inc d2
+ cmp 1024,d2
+ bne 1b
+ mov ap_pbin,a0
+ mov ep7_m_r,a1
+ call ep7_fopen,[],4
+ cmp 0,a0
+ beq l_free
+ mov a0,(4,sp)
+ mov a0,a1
+ mov a3,a0
+ add {fb},a0
+ mov 1,d0
+ mov 97,d1
+ call ep7_fread,[d2,d3,a2,a3],24
+ mov d0,d2
+ mov (4,sp),a0
+ call ep7_fclose,[d2,a2,a3],16
+ cmp 96,d2
+ bne l_free
+ mov a3,a1
+ add {fb},a1
+ mov (a1),d0
+ cmp {vfile},d0
+ bne l_free
+ mov (4,a1),d0
+ cmp 1,d0
+ bne l_free
+ mov (8,a1),d0
+ cmp 80,d0
+ bne l_free
+ mov a1,a0
+ add 16,a0
+ mov 80,d0
+ mov -1,d1
+ call ep7_crc,[d2,d3],8
+ not d1
+ mov a3,a1
+ add {fb},a1
+ mov (12,a1),d0
+ cmp d0,d1
+ bne l_free
+ mov a1,a0                        /* H/L +0..23, WB +26/27 -7..7; sat +33..44, B/W +47/48 -5..5; +52..63 zero; name ends NUL */
+ add 16,a0
+ mov 24,d0
+ mov 7,d1
+ call ep7_mv_rng,[d2,d3],8
+ cmp 0,d0
+ bne l_free
+ mov a3,a0
+ add {fb}+16+26,a0
+ mov 2,d0
+ mov 7,d1
+ call ep7_mv_rng,[d2,d3],8
+ cmp 0,d0
+ bne l_free
+ mov a3,a0
+ add {fb}+16+33,a0
+ mov 12,d0
+ mov 5,d1
+ call ep7_mv_rng,[d2,d3],8
+ cmp 0,d0
+ bne l_free
+ mov a3,a0
+ add {fb}+16+47,a0
+ mov 2,d0
+ mov 5,d1
+ call ep7_mv_rng,[d2,d3],8
+ cmp 0,d0
+ bne l_free
+ mov a3,a0
+ add {fb}+16+52,a0
+ mov 12,d0
+ clr d1
+ call ep7_mv_rng,[d2,d3],8
+ cmp 0,d0
+ bne l_free
+ mov a3,a1
+ add {fb}+95,a1
+ movbu (a1),d0
+ cmp 0,d0
+ bne l_free
+ clr d2                           /* slot -> COLOR4's row, name -> COLOR4's */
+2:
+ mov a3,a1
+ add d2,a1
+ add {fb}+16,a1
+ movbu (a1),d0
+ mov a3,a0
+ add d2,a0
+ add 224,a0
+ movbu d0,(a0)
+ inc d2
+ cmp 64,d2
+ bne 2b
+ clr d2
+3:
+ mov a3,a1
+ add d2,a1
+ add {fb}+80,a1
+ movbu (a1),d0
+ mov a3,a0
+ add d2,a0
+ add 592,a0
+ movbu d0,(a0)
+ inc d2
+ cmp 16,d2
+ bne 3b
+ mov {nmagic},d0
+ mov d0,(672,a3)
+ clr d0
+ mov d0,({pend},a3)               /* pending (one aligned word; the file buffer is done with) */
+ clr d0
+ movbu d0,({dirty},a3)
+ mov (1020,a3),d0                 /* LOOKS.BIN loaded: P3 gets its own table L3 (Film checks L+2116 == P) */
+ cmp {fmagic},d0
+ bne l_pub
+ mov {lsize},d0
+ call ep7_malloc,[],4
+ cmp 0,a0
+ bne 4f
+ clr d0
+ mov d0,(1020,a3)                 /* no memory: AP slot without a Film page */
+ bra l_pub
+4:
+ mov (1016,a2),a1
+ clr d2
+5:
+ movbu (d2,a1),d0
+ movbu d0,(d2,a0)
+ inc d2
+ cmp {lsize},d2
+ bne 5b
+ mov a3,(2116,a0)
+ mov a0,(1016,a3)
+ clr d0
+ movbu d0,(2124,a0)
+ movbu d0,(2128,a0)
+ mov a0,a1                        /* a name that is a colour look's resumes on it, as fm_load */
+ add 112,a1
+ add 592,a3
+ clr d3
+6:
+ movbu (-2,a1),d0
+ btst 1,d0
+ beq 9f
+ clr d1
+7:
+ movbu (d1,a1),d0
+ movbu (d1,a3),d2
+ cmp d2,d0
+ bne 9f
+ inc d1
+ cmp 16,d1
+ bne 7b
+ mov d3,d0
+ inc d0
+ movbu d0,(2124,a0)
+ bra 8f
+9:
+ add 64,a1
+ inc d3
+ movbu (2120,a0),d0
+ cmp d0,d3
+ bcs 6b
+8:
+ add -592,a3
+l_pub:
+ add -4,sp
+ mov {all0},d0
+ call ep7_sget,[],4
+ add 4,sp
+ mov d0,({va},a3)
+ add -4,sp
+ mov {all1},d0
+ call ep7_sget,[],4
+ add 4,sp
+ mov d0,({va}+4,a3)
+ movhu ({state}),d0
+ mov d0,({vh},a3)
+ mov a3,({vp},a3)
+ mov {vmagic},d0
+ mov d0,({vm},a3)
+ mov a3,({ap3},a2)
+ mov {amagic},d0
+ mov d0,({am},a2)                 /* last: the pipeline may use the slot from here */
+ bra l_out
+l_free:
+ mov a3,a0
+ call ep7_free,[],4
+l_out:
+ ret [d2,d3,a2,a3],24
+
+/* ap_save: a2 = P3 -> 1 ok, 3 / 4 fail, 2 no memory. As mv_save: .NEW verified, old -> .BAK, .BIN verified */
+ap_save:
+ mov 2048,d0
+ call ep7_malloc,[],4
+ mov a0,a3
+ mov 2,d0
+ cmp 0,a3
+ beq v_ret
+ mov {vfile},d0
+ mov d0,(a3)
+ mov 1,d0
+ mov d0,(4,a3)
+ mov 80,d0
+ mov d0,(8,a3)
+ clr d2
+1:
+ mov a2,a0
+ add d2,a0
+ add 224,a0
+ movbu (a0),d0
+ mov a3,a0
+ add d2,a0
+ add 16,a0
+ movbu d0,(a0)
+ inc d2
+ cmp 64,d2
+ bne 1b
+ clr d2
+2:
+ mov a2,a0
+ add d2,a0
+ add 592,a0
+ movbu (a0),d0
+ mov a3,a0
+ add d2,a0
+ add 80,a0
+ movbu d0,(a0)
+ inc d2
+ cmp 16,d2
+ bne 2b
+ clr d0
+ movbu d0,(95,a3)
+ mov a3,a0
+ add 16,a0
+ mov 80,d0
+ mov -1,d1
+ call ep7_crc,[d2,d3],8
+ not d1
+ mov d1,(12,a3)
+ mov ap_pnew,a0
+ mov a3,a1
+ mov 96,d0
+ call ep7_wfile,[d2,d3,a2,a3],28
+ mov d0,d3
+ mov 3,d0
+ cmp 0,d3
+ bne v_free
+ mov ap_pbin,a0
+ mov ep7_m_r,a1
+ call ep7_fopen,[],4
+ cmp 0,a0
+ beq 4f
+ mov a0,a2
+ mov a3,a0
+ add {old},a0
+ mov 1,d0
+ mov 97,d1
+ mov a2,a1
+ call ep7_fread,[d2,d3,a2,a3],24
+ mov d0,d3
+ mov a2,a0
+ call ep7_fclose,[d2,a2,a3],16
+ cmp 96,d3
+ bne 4f
+ mov ap_pbak,a0
+ mov a3,a1
+ add {old},a1
+ mov d3,d0
+ call ep7_wfile,[d2,d3,a2,a3],28
+4:
+ mov ap_pbin,a0
+ mov a3,a1
+ mov 96,d0
+ call ep7_wfile,[d2,d3,a2,a3],28
+ mov d0,d3
+ mov 4,d0
+ cmp 0,d3
+ bne v_free
+ mov 1,d0
+v_free:
+ mov d0,d2
+ mov a3,a0
+ call ep7_free,[],4
+ mov d2,d0
+v_ret:
+ ret [d2,d3,a2,a3],24
+
+
+ap_end:
+ap_pbin:
+ .asciz "C:\\EP7MOD\\AP.BIN"
+ap_pnew:
+ .asciz "C:\\EP7MOD\\AP.NEW"
+ap_pbak:
+ .asciz "C:\\EP7MOD\\AP.BAK"
+ap_data_end:

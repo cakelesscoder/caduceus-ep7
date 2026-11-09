@@ -66,6 +66,7 @@ Verified loaded FF tails (docs/HSL_PORT.md; section 2 range re-verified via load
 | 0x601e123c–0x601e133b | 1 | **v0.19 Extras sectors 6/7** `tone_x` (patches/v019/tone_x.s.in, docs/TONE_ENDS.md §7; 255 B). Dead EVF gamma step-13 G table (the reverted v0.17 hl_ext LUTs are not in v0.18/v0.19); only ref: step-table word 0x601e3d54 (build-checked by brute scan) | built + emulator-verified (v0.19) |
 | 0x601e133c–0x601e143c | 1 | **v0.19 Blacks/Whites** `tone` piece B, remap (235 B used, 0x601e133c–0x601e1427, rest stock). Dead EVF gamma step-13 B table; only ref: step-table word 0x601e3d58. Step-13 G (0x601e123c, v0.17 hl_ext claim) and step-12 (aspect, from 0x601e1440) untouched | built + emulator-verified (stage 1, not released) |
 | 0x601e24ec–0x601e25ec | 1 | **v0.26 video rotation** rot_start / rot_free / rot_mat (patches/v026_rot, docs/VIDEO_ROTATION.md; 254 B). Dead EVF step-7 G/B tables; only refs: step-table words 0x601e3cf4 (G start, before the range) and 0x601e3cf8; build-checked | built + emulator-verified, not camera-tested |
+| 0x6203c8bb (1 B) | .bss | **ap_custom 0.30b10** boot byte: 0 at power-on (same boot-clear range as the rotation latch), set by ap_pre on the first half-press with a valid P after clearing P's stale marks. Indirect cached byte store only |
 | 0x6203c8ba (1 B) | .bss | v0.26 video rotation latch, cached store. Padding between sensor statics 0x6203c8b8 (u16) and 0x6203c8bc (u32); 0x6203c8bb stays unused | built + emulator-verified, not camera-tested |
 | 0x60210f80–0x60210fe5 (claim to 0x60210ff0); hook 0x60339d3d (4, rel32) | 1 | **grain_fast t1** `gf_dev` (patches/grain_fast, 101 B). Selector call in the request driver -> stub -> stock selector. Overlaps the unbuilt aperture ring `.lens` claim (FF in v0.26): never combine. 0x60210f77–f80 and 0x60210ff0– stay FF | built + emulator-verified, not camera-tested |
 | 0x601e053c–0x601e0aac (claim to 0x601e0b3c); hooks 0x603579b8 (word), 0x603eabd8 (rel32), 0x6055e6b2 (3 B, `bw_default` 600 -> 1024) | 1 | **grain_cpu t1** gc_flag / gc_gs / gc_open / gc_grain / gc_tbl / gc_p1 / gc_p2 + tables, seed word (patches/grain_cpu, 1392 B). Dead EVF gamma tables; only refs step-table words 0x601e3b50/54/58/60/64/68, six false positives pinned in build.py. Replaces non-FF bytes. grain_fast t1 not layered | built + emulator-verified, not camera-tested |
@@ -85,75 +86,50 @@ Verified loaded FF tails (docs/HSL_PORT.md; section 2 range re-verified via load
 
 | OSD 0x101 off 0x15115e0–0x1512768 | OSD res 69 tail | **aspect v8 icons** (patches/aspect/osd_icons.py): 4 payload+descriptor pairs (XPAN/21:9 white+green), runtime 0xa3e22600–0xa3e23788; resource-69 directory size (off 0x454) 0x811600 → 0x812800; bitmap table words ids 5687/5685/4859/4431 (off 0x465218/0x465220/0x463e80/0x464530) | built + decoder-verified (v0.15) |
 
-## Hook sites (stock bytes replaced)
-| Site | Bytes | Owner |
+## live_nd (0.30n8, patches/live_nd, docs/LIVE_ND.md "As built")
+
+Layered on v0.29a. Built + emulator-verified, not camera-tested. n1 (AP tiles, 0x601de540–0x601de96c and its hooks/lists)
+and n2 are superseded; bytes n3 doesn't list are stock.
+
+| Range or site | Section | Owner |
 |---|---|---|
-| 0x60d7f271, 0x60d7f2cd | 7+7 | fw_version (Body value setter call → fw_val) |
-| 0x6115d5e8 | 8 (data) | fw_version v0.16b: Body row label descriptor kind 4 id 0x6bd → kind 5 text 0x61242fc0 "Caduceus" |
-| 0x603b02d9 | 5 | HSL (call builder → jmp); v0.1 and v0.2 are mutually exclusive |
-| 0x60319157, 0x6031915c | 2+2 | recording limit |
-| 0x603d4027 (5), 0x603d4053 (5), 0x61308ad0 (6) | 16 | v0.26 video rotation: REC_START call → rot_start; REC_FREE call → rot_free; tkhd serialiser `add 144,a0; mov a0,(4,sp)` → rot_mat |
-| 0x6030df3d | 5 | video log: `266001f172` (mov 352,a2; add a0,a2) → jmp vlog_hook (test13 probe: 0x601e203c) |
-| 0x6035749f | 7 | grain work-list |
-| 0x603b5249 | 7 | grain combiner selector |
-| 0x601e33d7 | 5 (inside look extras) | v0.22: ex_set grain write → ng_set (u → byte, Noise Filter via the settings manager) |
-| 0x601e32c8 | 5 (inside look extras) | v0.22: ex_get grain read → ng_get (byte → u) |
-| 0x601e248c–0x601e24ec | 1 | **v0.24 saturation on a Film pick** `sp_tail` (patches/v024/sat.s.in; 96 B, dead EVF step-7 tables after look tone) |
-| 0x601e23e3 | 7 (inside look tone) | v0.24: H/M/S loop tail → sp_tail |
-| 0x601e2341 | 5 (inside look tone) | v0.22: lt_post `jmp fm_post` → ng_pick (Noise Filter via facade SetValue) |
-| 0x603a065b (6), 0x603a06dd (6), 0x603a06ed (5, v0.21) | 17 | v0.16 grain boost: combiner-32 handler entry loads → jmp gb_a (replayed + job key → d2); gain-table add → jmp gb_b (key 11: our gb_tab 220/600/1200, else stock 0x604ec0d4) |
-| 0x603eabd7 | 6 | bloom: art-effect flag converter (key 11 → job flag 0x80); clarity builds: same hook, also effect_id 3 |
-| 0x6039fee8 | 6 | bloom: Soft Focus mix-weight getter (key 11 → w); clarity builds: w > 1024 when called from combiner 11 (return address 0x603a04ac) |
-| 0x60302c46, 0x60302c60, 0x60302da3, 0x60302db8, 0x60302e35, 0x60302e4b, 0x60302f23, 0x60302f3b, 0x60302f8f, 0x60302fa8, 0x6030bb5b, 0x6030bb6e, 0x6030eb61, 0x6030eb77 (edit at site+1) | 4 each | per-profile WB: rel32 of `call 0x6005e971,[d2,d3],12` → wb_get (docs/WB_PATCH.md) |
-| 0x60c68a45, 0x60c68a59 | – | RAW-development WB reads: deliberately left stock (do not claim for WB) |
-| 0x60e4cea8 (6), 0x60e4cf21 (7) | 13 | v0.15 mc: screen-lookup entries → jmp mc_scr / mc_scr2 (colour MONO filter key → COLOR key), replayed |
-| 0x609330bf (7) | 7 | v0.15 mc: polygon profile read `call 0x602afa81` (setting 1648) → call mc_prof |
-| 0x61140398, 0x60acb0e4, 0x60acb174, 0x6025aa98, COLOR1-4 records +12/+16, 0x607fa355+1, 0x609330f9+1 | data / rel32 | v0.15 mc chain words (previous targets become mc's miss targets; build_v15.py restores them on rebuild) |
-| 0x603b02bf (6) | 6 | MONO-colour: selector mode test `or d2,d1; cmp 11,d1; bne` → jmp sel |
-| 0x603b134e (5) | 5 | MONO-colour: chroma-stage tone lookup call → jmp chroma |
-| 0x60353db9 (8) | 8 | MONO-colour: packer mono-filter merge `mov (11308,a0),d0; cmp 12,d0; bne` → jmp fg |
-| 0x60210900 table +32 / +33..+44 | data | bundle slot `colour` / `sat[12]` (patches/bundles/layout.json), read by MONO-colour |
-| 0x601f9df7 | 5 | aperture ring: dispatcher `bne; jmp null` → jmp disp_hook |
-| 0x601f5ed7 | 8 | aperture ring: status parser DIS_FCENC store → call parse_hook,[],0; nop |
-| 0x60427ae7 | 5 | aperture ring: AE snapshot `call 0x60429548,[],4` (aperture point 0x80ca) → jmp ae_hook |
-| 0x603537f0 (3), 0x6035390c (2) | 5 | v0.2 job size 15488→15512, tail memset 16→40 |
-| 0x603e66ab (6), 0x603e91f0 (6) | 12 | v0.2 converter transport (replaces the 0x603e669f/0x603e91e4 candidates) |
-| 0x60863e91 | 4 | SD bundle loader v1 (superseded, dead path): rel32 of the mount-OK `call 0x6077d590,[d2],20` at 0x60863e90 → sd_hook (tail-jumps to 0x6077d590) |
-| 0x602c805f | 5 | SD look loader v2: appevent TRIG tracker `call 0x602c818c,[d2,d3,a2,a3],36` (in 0x602c7f5a, task HLS_EVENT) → `jmp sd_hook` (replays the call, returns to 0x602c8064) |
-| 0x60df255f, 0x60df25dc | 6+6 | film menu: label builders A/B kind-4 point `movhu (a3),d0; cmp 1,d0; beq` → `jmp hookA/hookB; nop` (replays the 6 bytes when not drawing a name) |
-| 40 profile entries (label source +4; patches/film_menu/build.py LISTS, lists 0x61168750, 0x61169128/34, 0x61169344, 0x6116992c/38, 0x611895cc, 0x611bdb1c, 0x611cb288) | 4 each | film menu: text word `""` → marker 0x61242e00 + slot (data; kind and string id stay stock). Deferred: 0x611c1b44, 0x611cf2b0, 0x611df788 |
-| 0x60210900–0x60210b00 | data (run time) | SD bundle loader rewrites the v0.2 bundle table in RAM from a valid C:\EP7MOD\BUNDLES.BIN (no flash edit) |
-| 0x604cec18 (4), 0x604cec20 (2) | 10 (one edit) | aspect v4: setting-270 validator record list ptr → 0x60210f70, bytes 5→7 |
-| 0x6117af14 | 8 | aspect: setting-270 option descriptor (count 6→8, list ptr → 0x61242f00) |
-| 0x6115056c (4), 0x61150570 (2) | 6 (one edit) | btn_arrows: Cursor_Move mode-42 record (Button Function rows) list ptr 0x611500f2 → 0x61242fe8, count 2 → 4. Old list unreferenced |
-| 0x611bf7c8 (2) + 0x611bf7cc (4), 0x611ccf34 (2) + 0x611ccf38 (4) | 6 | btn_arrows b5: sid-53 (right) item records, label kind 4 → 5, text word → 0x61242ff0 "Right Fn" |
-| 0x604cb00e (32), 0x604cdadc (2), 0x604cdaf0 (2) | 2 | btn_arrows b5 replaces the buttons/omc arrow edits: 14-code list (stock 8 + ISO/WB, WB/ISO, Peaking, Level, tele-con, RAW), record bytes 28 |
-| 0x61176fc0 (12 B), 0x61175d78 (84 B) | 6 | aspect v3: SCP/Live Control 270 record count 5→7 + list B ptr → 0x61242f60; list A rewritten in place (7 entries over the stock A+B block, referenced only by this record) |
-| 0x60dfac8a, 0x60dfae4f, 0x60d91a58, 0x60d9c401 | 6 each | aspect v8: `mov "%dx%d",d0` → `jmp label stub; nop` (XPAN/UW size text) |
-| 0x601929a4 | 6 | aspect v2 boot clamp: boot tail `mov 0x601e7090,a0` (0x60192961, after the stock per-boot resets) → `jmp 0x60210e90; nop` (replayed in the stub) |
-| 0x60b04428/2c, 0x60b04454/58, 0x60b0daf8/fc, 0x60b0e0ec/f0, 0x60af4a18/1c, 0x60b01548/4c | 4 each | aspect: jump-table entries ids 6/7 (S1–S6, sec 5); v6: 0x60b01e60/64, 0x60b01e8c/90, 0x60b01eb8/bc, 0x60b1f364/68 (S7–S10), rec-view 0x6053e246 / 0x6053e258 (4 B each, data) |
-| 0x604cae3c (46 B of 72), 0x604cb00e (32 B) + records 0x604cda08/1c/30, 0x604cdad0/e4 (+4 ptr, +12 bytes) | data (sec 2) | buttons: in-place validator lists for sids 47/48/49 and arrow 51/53 (patches/buttons, docs/BUTTONS.md). Stock lists at 0x604cae54/6c and 0x604cb01e are absorbed; 0x604cae6a–0x604cae84 left stock, unreferenced |
-| ~90 table rows for aspect ids 6/7 (patches/aspect/edits.json, `why` = table@addr) | 4–16 each | aspect: size/geometry tables |
-| 0x6053de4c/7c (W), 0x6053dffc/e02c (H) 48 B each; 0x6053dd3c/40; 0x60236e20 (4, .data); 0x604e0702 (8); 0x604d9d02 (16) | data | aspect v5: capture size rows ids 6/7, ORF-frame fit entries, LV/AF ratio pairs (u8, u16), 320-grid bounds (docs/ASPECT.md §1d) |
-| 0x601751f4 | 5 | Log View Assist: display reply tail `movhu (44,sp),d0; clr d2; mov d0,d1` → jmp va_hook |
-| 0x601e3c40 | 12 (data) | Log View Assist: TFT gamma step-17 slot R/G/B pointers NULL → 0x601e383c |
-| 0x607fa355 | 7 | look editor: GUI setter `call 0x60827440,[d2,d3,a2],16` → ed_set |
-| 0x60acb0e4, 0x60acb174 | 4+4 (data) | look editor: facade vtable GetValue/GetDefault → ed_get/ed_default |
-| 0x61185be0/c18/c50/c88, 0x61185c08/c40/c78/cb0 | 4 each (data) | look editor 12d: COLOR1–4 parent records +4 init → ed_init, +44 INFO (0x60e22579) → ed_info (+36/+52 stock again; the look_extras layer re-points +44 to ex_event, which falls through to ed_info) |
-| 0x61187534, 0x61187578 | 4+4 (data) | look editor 12d key probe (`--no-probe` drops it): editor parent vtable +0 (0x60dd5250) → ed_oprobe, +68 router (0x60e20cdc) → ed_rprobe |
-| 0x605b7420 | 5 (inside the loader edit) | look editor: loader sd_back `jmp 0x602c8064` → jmp ed_trig |
-| 0x61185c10/c48/c80/cb8 | 4 each (data) | look editor 12b: COLOR1–4 parent records +52 (Movie 0x9012, stock 0) → ed_event (stock again since 12d) |
-| 0x61185c00/c38/c70/ca8 | 4 each (data) | look editor 12e: COLOR1–4 parent records +36 (stock 0x60e22191) → ed_page (MENU / PLAYBACK page key; every other event falls through) |
-| 0x61185be8/bec, c20/c24, c58/c5c, c90/c94 | 4 each (data) | film menu v2: COLOR1–4 records +12 Up (0x60e20e0a) / +16 Down (0x60e2107a) → fm_up / fm_down (Film page only, else jmp stock) |
-| 0x609330f9 | 7 | look editor 13: wheel polygon. C3d producer 0x60932fa6 (view vtable +4972), case 1 sector read `call 0x602afa81,[],4` → `call ed_poly,[],4` (H/L/X: facade GetValue value; Film: 0; else jmp 0x602afa81 with registers intact) |
-| 0x603a04e8 | 8 | bloom colour (test13b; red bloom test13): combiner-11 tail `mov d1,(136,a3); mov d3,(140,a3)` → `jmp halo; nop×3` (stub replays both stores; chroma gains only for the 20 tinted weights; exits with the stock `ret [d2,d3,a2,a3],20`) |
-| 0x61185ea8/ee0/f18/f50 (filter), 0x61185f88/fc0/ff8, 0x61186030 (shading) | 4 each (data) | mono presets (test13): MONO1–4 colour-filter / shading editor records +44 (INFO; stock 0x60e22d8b / 0x60e22fae = `mov 3,d0; retf`) → mp_info_f / mp_info_s |
-| look editor ed_keys word `ed_cfg_fm` | 4 (data, inside the ed_keys blob) | film menu v2 (test13): → fm_mod (the Film label's `*`) |
-| 0x6025aa98 | 4 (data, .data init image) | look editor 12c: Color Profile view part table 0x61fc27d0 entry 3 `0x60decbfc` (guide label) → ed_guide |
-| 0x60acb0e4, 0x60acb174, 0x607fa355 (+1, rel32), 0x6025aa98, COLOR1–4 record axis-key word (+52 or +44) | 4 each (data) | look extras: re-points words the look editor already owns (ed_get/ed_default/ed_set/ed_guide/axis key) to ex_*, which fall through to the editor |
-| 0x603b02de | 6 | live-view bundle H/L: selector resume `mov (60,a2),d0; btst 2,d0` → `jmp lv; nop` (resumes 0x603b02e4; bundles `hl` and MONO-colour still jump to 0x603b02de) |
-| 0x60353c6f | 6 | lv_art: job constructor pre-dispatch `mov a3,a0; call 0x60354709,[d2,a2,a3],16` → `jmp lv_art; nop` (replayed; gate = return word 0x60321eaf) |
-| 0x603b14ff | 7 | v0.19 Blacks/Whites: stage list after the luminance-LUT builder `mov d3,a0; call 0x603b0c66,[d2,d3,a2,a3],72` → `call tone,[d2,d3,a2,a3],72` (d32 form; same mask/frame/return address 0x603b1506; tone replays `mov d3,a0` and jumps to 0x603b0c66) |
+| 0x601de540–0x601de76c (556 B, claim to 0x601de780) | 1 | **live_nd n8**: lnd_kg / lnd_ap / lnd_ape / lnd_n / lnd_kn / lnd_a / lnd_cont (304 B), "ND3"/"ND4", sid-267 validator list, five 4-entry Number of Frames lists. Dead EVF gamma table 4 tail + table 5; only refs: step-table words (0x601e3c18 -> 0x601de63c; 0x601e3c14 -> 0x601de53c). Five pinned false positives in build.py. **0x601de780–0x601df13c stays free** (ap_custom claims 0x601df13c–0x601dfc2c) |
+| 0x602a8379, 0x602a838c (4 each, rel32) | hooks | live_nd: capture population Auto Gain (key 0x1851) -> lnd_kg, frames (key 0x1841) -> lnd_kn. Not ap_custom's capture sites (0x602a8577+) |
+| 0x608296d8, 0x60919ec8, 0x6091a848, 0x6091b068, 0x6096b2cb, 0x6096ca1d (4 each, rel32) | hooks | live_nd: sid-267 reads (ME on, ME controller, ME sequence parts) -> lnd_n |
+| 0x60cdcd27, 0x60cddb18, 0x60cde34c, 0x60cea731 (4 each, rel32) | hooks | live_nd: app-layer sid-267 reads via 0x60ccf9f3 -> lnd_a |
+| 0x6096b01a (4, rel32) | hook | live_nd n8: ME parts continuous frame-done flag call `call 0x60947b55,[d2],4` at 0x6096b019 -> lnd_cont (stock call, then one more stock sendTakePictureContinue while ND3/ND4 in AP ME, shutter held, (212) == 0 and the stock release check passes) |
+| (withdrawn in n7) | – | n5/n6 continuous route: 0x602b9b8b, 0x602b9860, 0x609351be, 0x60935637, 0x6094b00d, 0x60965c38 (rel32), 0x604345b4, 0x6043ad10, 0x60b4ffac (data) are **stock again** (camera 0.30b7: hang) |
+| 0x604cebc8 (10) | data | live_nd: validator record 438 (sid 267) list pointer + byte count 2 -> 4 |
+| 0x611bf20c, 0x611cc978, 0x611bf21c, 0x611cc988 (8 each), 0x6117b156 (6) | data | live_nd: Number of Frames descriptors 0x611bf200 / 0x611cc96c, both lists (+12 row, +28 popup) pointer + count 2 -> 4; Shooting Menu row summary {267, count, list} at 0x6117b154 count 2 -> 4 + list |
+| 0x60ade969 (1) | data | live_nd: menu grey-out table 0x60adf518, id 267 (record 0x60adfa1c, 39 condition bytes at 0x60ade957): condition 24 (`sid 24 == 211`, AP Multiple Exposure) -> 23 (`sid 24 == 210`, already in the list). Bytes not shared with any other id |
+| 0x604760b0–0x604765a0 (1264 B), 0x6047a808 (2) | data | live_nd: AP Multiple Exposure forced-value block 0x60475e88 (index 0x6047a530, entry 0x6047a800): pair 267 = 2 removed (tail shifted down), count 227 -> 226. **Any layer editing AP-mode preset blocks must merge** |
+
+## ap_custom (0.30a1, patches/ap_custom, docs/AP_CUSTOM.md; built + emulator-verified, not camera-tested)
+
+| Range or site | Section | Owner |
+|---|---|---|
+| 0x601df0e0–0x601dfa8c (2650 B in 0.30b10, claim 0x601df0e0–0x601dfc2c) | 1 | ap_P / ap_q / ap_swap / ap_unswap / ap_scr / ap_scr2 / ap_sc / ap_sinfo / ap_init / ap_mode / ap_on / ap_val / ap_get / ap_s / ap_tx / ap_key / ap_msg / ap_tb / ap_lc / ap_ccg / ap_la / ap_lb2 / ap_lbl / ap_pre / ap_post / ap_load / ap_save + AP.BIN paths. Dead EVF gamma tables whose only refs are step-table words 0x601e3ba0/a4/a8, 0x601e3bb0/b4/b8, 0x601e3bc0/c4/c8, 0x601e3bd4/d8 plus the tail of the 0x601df03c table (ref 0x601e3bd0 points at its start, outside) (build-checked on stock and v0.29a; the false positive 0xa01df0cc at 0x606c1305 is below the claim). 0x601dfc2c–0x601dfc3c stays stock before grain. **0x601dea3c–0x601df0e0 unclaimed** (live_nd took 0x601de540–0x601dea3c); grain's block can no longer grow down |
+| 0x602a8577, 0x602a85b7, 0x602a85cd, 0x602a85e5 + 0x14·k (k 0..10) | hooks (rel32) | capture population getter calls (pm, COLOR profile, S 0..11) -> ap_get |
+| 0x601e3a5c (inside v0.25), 0x6055e79b (inside wb) | hooks (rel32) | sc_prop / wb_prop getter calls -> ap_get |
+| 0x6055e7e7 (5) | hook | tbl_x `add d3,a0; ret [d2,d3],8` -> jmp ap_tx |
+| 0x60316bfb, 0x60315900, 0x60e5951c, 0x60df255f, 0x60df25dc, 0x605b7420, 0x601e0bdf (jmp rel32); 0x6030bd5d, 0x601e0ee2, 0x601e110a, 0x601e202d (call rel32) | hooks (chained) | re-pointed from mv_key / sh_msg / mv_lc / mv_la / mv_lc2 / mv_trig / ed_trig / mv_s / mv_tbl ×2 / mv_ccg to ap_key / ap_msg / ap_lc / ap_la / ap_lb2 / ap_pre / ap_post / ap_s / ap_tb ×2 / ap_ccg; every miss falls through to the previous target |
+| 0x60e4cea8 (6), 0x60e4cf21 (7) jmp; 0x61185be0/c18/c50/c88 (data, were po_init) | hooks | 0.30b3: screen lookup entries -> ap_scr / ap_scr2 (SCP route; v0.15 mc's sites, mc is not in the line); COLOR1-4 records +4 -> ap_init -> po_init |
+| heap P +984 'EP7A', +988 P3, +992 'EP7U'; P3 +808 pending, +809 armed (0.30b7; no probe) | heap |
+| 0x611a2c68 (data word) | hook | 0.30b7: SsMenuLv handler word 24 (state 3 = SCP, INFO release, 0x60e56f3f) -> ap_sinfo. 0x611a2d40 / 0x611a2eab (b6) and 0x611a2c3c (b5) are stock again | AP slot marks (free in v0.29a: movie +960..983, grain +1000, mono +1004.., film +1016..) |
+
+## min_ss (0.30m4, patches/min_ss, docs/MIN_SHUTTER.md; built + emulator-verified, not camera-tested)
+
+m1's two OK-table words (0x6114883c, 0x611488fc) are stock again in m2.
+
+| Range or site | Section | Owner |
+|---|---|---|
+| 0x601dea50–0x601df014 (1476 B, claim 0x601dea3c–0x601df03c) | 1 | min_ss data: sid-1147 label list (40 × 12), the two Custom Menu OK tables + {1, 1147 -> (8, 0x1aa)} (9 + 8 × 24), page-0x13cc row-info arrays of both menu trees + Lowest S/S record (2 × 8 × 36), E1 row list [273, 112, 1147, 143, 35] (m3). Dead EVF gamma tables at 0x601dea3c..0x601def3c; only refs are step-table words; four instruction-byte false positives pinned in build.py. 0x601df03c–0x601df0e0 stays free (ap_custom from 0x601df0e0) |
+| 0x6117ea54 (4), 0x6117ea5e (2), 0x61160fb8 (4), 0x61160fc2 (2) | 6 data | D1 page entries (both trees): rows pointer -> copy, count 7 -> 8 |
+| 0x61150b7e (6) | 6 data | E1 (column mode 93) row-list record: count 4 -> 5, list -> our copy (was RAM .data 0x61fc1f3e) |
+| 0x6114c290 (16), 0x6114c2b4 (16) | 6 data | 2CNL kinds 0x4b / 0x4c: both OK-table pointers + counts 8/7 -> 9/8 (items stock again in m4) |
+| 0x611d8bdc (8) | 6 data | stock Lowest S/S picker label list 0x611d8b24: value 0 kind 5 "1''" -> kind 4 string 71 "Auto" |
+| 0x604d1c74 (4), 0x604d1c7c (2) | 2 data | validator record 1061 (sid 1147): list -> stock list + 30, bytes 110 -> 80 |
+| 0x604279c9–0x604279f5 (44) | 2 code | AE record builder, rewritten in place: +30 = (1147 == 0) ? 0x7eee : 1147 (calls 0x6005e971, same frame) |
 
 ## E-M10 IV 1.1 (separate image, generated/em10iv_vivid; not camera-tested)
 

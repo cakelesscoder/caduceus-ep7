@@ -3,6 +3,14 @@
 Caduceus firmware patches for the Olympus PEN E-P7 (firmware 1.1). Releases from v0.25 are betas; earlier ones
 were early-development pre-releases. Use at your own risk (see the README).
 
+## v0.30 — 2026-11-09 (beta)
+
+- **AP Custom colour:** on the AP dial position, picture mode Vivid becomes its own colour profile, as Movie colour does for movies, saved in `EP7MOD/AP.BIN`. Half-press once after switching on; Vivid then reads `INFO Custom`. On the Super Control Panel, highlight the picture-mode cell on Vivid and press **INFO** (or press OK on the Saturation cell) to open the full colour wheel; INFO in Live Control works too. Use it with Multiple Exposure, Live Composite and the other AP modes.
+- **Live ND (ND3 / ND4):** with the dial on AP and Multiple Exposure selected, Shooting Menu 2 › Multiple Exposure › Number of Frames is no longer greyed out and offers Off / 2f / **ND3** / **ND4**. ND3 and ND4 average 3 or 4 frames (about 1.6 and 2 stops) at normal brightness, with less noise. Set drive to **Sequential H** and hold the shutter to take all frames with one press. In Sequential L it can stop after 2 frames (release and press again); in Single drive it takes one press per frame. 2f and Off work as stock.
+- **Lowest S/S Setting:** a new row in Custom Menu E1, under ISO-Auto Set, opens the camera's own hidden Lowest S/S picker: Auto (stock) or 1/1.3 to 1/8000. In P and A, the camera raises ISO before going slower than that speed.
+- **Fix:** after some restarts the Movie slot could fail to load until a battery pull. Both slots now load on the first half-press every time.
+- Firmware screen shows `Caduceus: 0.30`.
+
 ## v0.29a — 2026-11-08 (beta)
 
 - **Fewer presses to change film:** the colour wheel now opens on **Film**, and INFO goes Film → Saturation → Saturation·All → Hue → Light → Extras. If you close it on Saturation·All, it reopens there. Without `LOOKS.BIN` it behaves as before. The Movie wheel uses the same order.
