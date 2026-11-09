@@ -2,14 +2,16 @@
 
 [![Buy Me a Coffee](https://img.shields.io/badge/Buy%20me%20a%20coffee-cakelesscoder-FFDD00?logo=buymeacoffee&logoColor=000)](https://buymeacoffee.com/cakelesscoder)
 
-**Caduceus** is a set of open-source firmware patches for the **Olympus PEN E-P7** (firmware 1.1). It adds
-film simulations you pick and edit in the camera, per-colour hue and lightness, bloom, clarity and Art
-Effects on your colour profiles, B&W film presets, true log video, XPan and 21:9 stills, and longer video
-recording.
+**Caduceus** is a set of open-source firmware patches for the **Olympus PEN E-P7** (firmware 1.1). Its heart is
+**HSLFX**: every Colour Profile gets **H**ue, **S**aturation and **L**ightness per colour, plus **FX** (film
+grain, tinted halation, bloom, clarity, Art Effects, Blacks/Whites, noise reduction and sharpening control),
+all edited on the camera's own colour wheel. On top of that: 29 film simulations, B&W film presets, its own
+colour profiles for Movie and AP modes, Live ND, a minimum shutter speed, true log video, XPan and 21:9
+stills, and longer video recording.
 
 *Named after the caduceus, the staff of Hermes: messenger between gods and mortals and guide of travellers.*
 
-**Latest release: [v0.30](https://github.com/cakelesscoder/caduceus-ep7/releases/tag/v0.31)** ·
+**Latest release: [v0.31](https://github.com/cakelesscoder/caduceus-ep7/releases/tag/v0.31)** ·
 **[Install guide](docs/INSTALL.md)** · **[Changelog](CHANGELOG.md)** · **[Caduceus Control Panel](https://cakelesscoder.github.io/caduceus-ep7/)** (make and share looks in your browser) · The camera's Setup › Firmware screen shows the Caduceus version.
 
 > [!WARNING]
@@ -34,7 +36,7 @@ recording.
 | Feature | What you get | Status |
 |---|---|---|
 | **Film simulations** | 29 colour looks in `EP7MOD/LOOKS.BIN`: Velvia, Astia, Classic Chrome, Classic Neg, Provia 400, Reala Ace, Eterna, Bleach Bypass, Kodachrome 25 and 64, Portra 160 and 400, Ektar 100, Gold 200, Ektachrome, UltraMax 400, CineStill 50D and 800T, Vision3 250D and 500T, Pro 400H, Fujicolor 200, Cuban Neg (inspired by Osan's Classic Cuban Neg), Agfa Vista, Cibachrome, Polaroid, Cross Process, Atrophy (inspired by [Gx]Ace) and Faux IR (an infrared-inspired false-colour look). Pick one per Colour Profile slot; its name shows in Picture Mode. | Camera-tested |
-| **On-camera look editor** | The stock Colour Profile wheel gains pages: Film, Saturation, Hue, Light and Extras (INFO cycles). It opens on Film, and the wheel shows each film's saturation shape as you turn through them. The wheel follows the page; modified looks are marked `*`. | Camera-tested |
+| **On-camera look editor (HSLFX)** | The stock Colour Profile wheel gains pages: Film, Saturation, Hue, Light and Extras (FX: grain, halo, bloom/clarity, Art Effects, tone ends, WB shift, NR, sharpening) (INFO cycles). It opens on Film, and the wheel shows each film's saturation shape as you turn through them. The wheel follows the page; modified looks are marked `*`. | Camera-tested |
 | **Looks on the SD card** | Looks load from `EP7MOD/BUNDLES.BIN` on the first half-press. Edits made in the camera save back to the card (with a `.BAK` of the previous file). | Camera-tested |
 | **Tone per look** | Every film look carries its own tone curve: Highlights, Midtones and Shadows (applied through the camera's own tone control) plus new **Blacks** and **Whites** that move the very ends of the curve (crushed slide-film blacks, faded instant-film blacks, rolled-off negative highlights). Picking a look applies it, and from v0.24 sets the look's per-colour saturation too; Blacks/Whites are also adjustable per profile (Extras 6/7). Shown in live view too. | New in v0.20 |
 | **LCD colour fix** | The rear screen no longer looks slightly pink (+8 % green by default), and Monitor Adjust's colour slider becomes a green ↔ magenta slider (−7..+7, about 2.3 % per step) instead of warm/cool. Display only: photos, movies and HDMI are unchanged. | New in v0.20 |
@@ -274,7 +276,6 @@ Grouped by how likely and how hard each item is. Feasibility notes for the video
 - ISO Auto in movie M: the movie ISO list already includes Auto; the dynamic gate in the AE code still has to be found.
 - Blacks/Whites page on the camera's own tone-curve screen (today they live on Extras 6/7; `docs/TONE_ENDS.md` §8).
 - An added vignette for colour profiles, using the stock shading stage (`docs/VIGNETTE.md`).
-- Tinted halation (red glow around white lights), probably via a mask built from the exposure meter grid.
 - Maybe: use the ART position on the mode dial as a quick "silent shutter" switch.
 - **Lens buttons (L-Fn / AF stop on Pro lenses):** the key events, the button settings (sids 54-56 with 28-29-function lists)
   and the movie-mode key gate all exist in the E-P7 firmware; whether the Button Function menu shows a lens row, and
