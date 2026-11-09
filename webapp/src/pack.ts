@@ -23,7 +23,12 @@ export const FILM_GRAINS = ['off', 'low', 'med', 'high'] as const;
 export type FilmGrain = (typeof FILM_GRAINS)[number];
 export const COLOR_SLOTS = ['COLOR1', 'COLOR2', 'COLOR3', 'COLOR4'] as const;
 export type ColorSlot = (typeof COLOR_SLOTS)[number];
-export interface ProfileSettings { grain: FilmGrain; nr: Grain }
+// v0.28 Sharp (+51) and v0.31h2 Halo (+52) are optional so older packs and share links stay the same; missing = Camera / Look.
+export const SHARPS = ['camera', 'off'] as const;
+export type Sharp = (typeof SHARPS)[number];
+export const HALOS = ['look', 'off', 'low', 'med', 'high'] as const;   // slot byte +52 = index (0 = follow the look)
+export type Halo = (typeof HALOS)[number];
+export interface ProfileSettings { grain: FilmGrain; nr: Grain; sharp?: Sharp; halo?: Halo }
 export const defaultProfile = (): ProfileSettings => ({ grain: 'off', nr: 'off' });
 export const EFFECTS = ['none', 'bloom', 'halation', 'clarity'] as const;
 export const TINTS = ['neutral', 'red', 'amber', 'warm', 'cool'] as const;
@@ -44,6 +49,28 @@ export type MonoFilter = (typeof MONO_FILTERS)[number];
 export type SlotName = (typeof SLOT_NAMES)[number];
 
 export interface Effect { type: Exclude<EffectType, 'none'>; strength: number; tint?: Tint }
+
+/** A look's halation as the E-P7 (0.31h2) reads it: a halation effect (no tint = red), or a bloom with a tint; strength
+ *  1-2 Low, 3-4 Med, 5 High. The halo shares the Glow strength: Low / Med / High set Glow 2 / 4 / 5. */
+export type HaloStage = 'off' | 'low' | 'med' | 'high';
+export const HALO_STAGES = ['off', 'low', 'med', 'high'] as const;
+export const HALO_TINTS = ['red', 'amber', 'warm', 'cool'] as const;
+export const HALO_STRENGTH = { low: 2, med: 4, high: 5 } as const;
+export function lookHalo(l: { effect: Effect | null }): { stage: HaloStage; tint: (typeof HALO_TINTS)[number] } {
+  const e = l.effect;
+  const tint = e?.tint && e.tint !== 'neutral' ? e.tint : 'red';
+  if (!e || e.type === 'clarity' || (e.type === 'bloom' && (!e.tint || e.tint === 'neutral')) || !(e.strength >= 1 && e.strength <= 5))
+    return { stage: 'off', tint };
+  return { stage: e.strength <= 2 ? 'low' : e.strength <= 4 ? 'med' : 'high', tint };
+}
+/** Set a look's halo. Off keeps the Glow (a plain bloom); Low / Med / High make it a tinted bloom (a clarity look loses its clarity). */
+export function setLookHalo(l: { effect: Effect | null }, stage: HaloStage, tint: (typeof HALO_TINTS)[number]): void {
+  if (stage === 'off') {
+    if (l.effect && l.effect.type !== 'clarity') l.effect = { type: 'bloom', strength: l.effect.strength };
+    return;
+  }
+  l.effect = { type: 'bloom', strength: HALO_STRENGTH[stage], tint };
+}
 export interface Advice {
   tone?: { highlights: number; shadows: number; midtones: number };
   contrast?: number;
@@ -191,8 +218,11 @@ export function parsePack(v: unknown): Pack {
   if (isObj(v.profiles)) {
     for (const [k, ps] of Object.entries(v.profiles)) {
       if (!(COLOR_SLOTS as readonly string[]).includes(k)) throw new Error(`pack: profiles: unknown COLOR profile ${k}`);
-      if (!isObj(ps)) throw new Error(`pack: profiles ${k} must be {"grain", "nr"}`);
-      profiles[k as ColorSlot] = { grain: oneOf(ps.grain, FILM_GRAINS, `${k} grain`, 'off'), nr: oneOf(ps.nr, GRAINS, `${k} NR`, 'off') };
+      if (!isObj(ps)) throw new Error(`pack: profiles ${k} must be {"grain", "nr", "sharp", "halo"}`);
+      const pr: ProfileSettings = { grain: oneOf(ps.grain, FILM_GRAINS, `${k} grain`, 'off'), nr: oneOf(ps.nr, GRAINS, `${k} NR`, 'off') };
+      if (ps.sharp !== undefined) pr.sharp = oneOf(ps.sharp, SHARPS, `${k} sharp`, 'camera');
+      if (ps.halo !== undefined) pr.halo = oneOf(ps.halo, HALOS, `${k} halo`, 'look');
+      profiles[k as ColorSlot] = pr;
     }
   }
   return { schema: PACK_SCHEMA, name: typeof v.name === 'string' ? v.name : 'My pack', looks, slots, ...(Object.keys(profiles).length ? { profiles } : {}) };

@@ -541,3 +541,234 @@ Why there is no fix yet:
 **Single drive + hold:** Single never enters the continuous state, so this mechanism doesn't apply.
 
 **Recommendation for now:** use Sequential H with Live ND. n8 is unchanged.
+
+## Burst-length model after v0.30 (2026-11-09) [V code unless marked]
+
+The capture side, not the ME parts, runs a continuous burst:
+- In Sequential drive the capture engine sends a "continue request" per extra frame.
+- The ME parts' override of the base handler (vtable slot +3668: base 0x609553cf, ME 0x6096ca8a) takes a buffer
+  (0x6082e9ef), registers it (0x6096b462) and counts it (0x6096b3a1).
+- The base frame counter (sequence +162) calls the stock stop 0x6094f064 when it reaches `continueMaxShootCount`
+  (+156, at 0x6094490d).
+- +156 is set at 0x60950cc1 from 0x6091dbf2(controller +680, 0x607698f9(), 0). That goes to 0x608a2d19, a virtual
+  call into the capture buffer manager (object at +508, vtable +40), then to a minimum with remaining shots
+  (0x60932177; capture +312 ← 0x602d3a7e).
+- n8's lnd_cont adds frames a second way (its own sendTakePictureContinue). That fits Seq H timing and races the
+  engine in Seq L [I], which matches "reliable in H, picky in L".
+
+**Robust fix direction:** make the capture side's burst length N for ND in AP ME, at +156 or its buffer-manager
+source, then drop lnd_cont. The stock loop would then take all N frames in both speeds, with stock release and stop.
+**Open:** what the buffer manager's vtable +40 returns for ME, and whether its buffers can hold N continuous frames.
+
+### Static trace of the +156 source (2026-11-09) [V code unless marked]
+
+- **The capacity call.** 0x6091dbf2 → 0x608a2d19 → the +508 object's vtable +40. That object is the singleton
+  0x622f4a70 + 72 (getter 0x60a3d162, vtable 0x60b8e90c). Slot +40 is 0x60a3d39c → **0x602e79b6 → 0x602f05b9**,
+  from DevRec_Rec.cpp ("Calculate_RecRemain_Ext2"). It is a remaining-shots count for the image-size key that the
+  +744 object's vtable +4 gives, not an ME buffer count [I strong].
+- **The ME frame cap is N, not 2.** (224, parts) = sid 267 (0x6096b2c1), and every ME path compares with it:
+  - sendTakePictureContinue 0x6096b73c stops at the registered handles (0x6096b53f) ≥ N;
+  - the CONT frame-done handler 0x6096af89 stops at count ≥ N;
+  - the take-picture path at 0x6096a2fc continues while the count is under N and the key is 4.
+- **The engine burst limit is +156.** The capture engine's continuous loop compares +160 (continue requests sent) and
+  +162 (continuous frames) with +156 (0x6094b4cd, 0x6094b5d9, 0x6094490d, 0x60970d42). +156 is set from the
+  capacity at 0x60950cc1 (or from +158 / 65535 at 0x60950ce5 / 0x60950cf7), then min'd with remaining shots +312 at
+  0x60932177.
+- **Where the 2 comes from is not proven statically.** The camera shows the engine stopping after 2 frames. The
+  capacity call is the main +156 source, so it is the best-guess cause. The +158 path (0x60950ce5) and a different stop
+  in the engine are not excluded.
+- **Buffer room for 4 frames: confirmed on the camera, not statically.** n8 took 4 frames per press in Sequential H
+  (0.30b10). Those buffers come from the same ME pool (584, parts) via 0x6082f6b2. The ME parts frees each frame after
+  combining it (0x6082f3b0 at frame done). The 0.31n1 fix asks for no more frames than n8 did. So ND4 stays.
+
+## As built 0.31n1 (one readout build) [V code, emulator]
+
+**Fix (best guess):** `lnd_cap` takes the call at 0x60950cba, the source of +156. While ND3/ND4 is set in AP Multiple
+Exposure, it returns N, so the engine's own continuous loop asks for N frames and stops itself. A stock 0 stays 0 (no
+room). Everything else gets the stock value. The remaining-shots minimum (0x60932177) still applies afterwards.
+**n8's lnd_cont is removed**, and release and stop are stock. If the engine's 2 has a source other than the capacity,
+ND3/ND4 in Seq L/H will show n7's behaviour (2 frames, then grey until release, no hang). The readout will then show
+which limit fired.
+
+**Readout (0.31n1 only; `build.py --no-log` builds without it):**
+- **Block.** 784 B from malloc. Its pointer is at heap P+996, and it starts with 'LNDL'. It is allocated on a
+  half-press, only in AP Multiple Exposure.
+- **Hooks.** Each one only reads camera state and appends a 24-B record to a 32-record ring:
+  - **C:** the cap site. Stock capacity, N, and the value returned.
+  - **Q:** each engine continue request into the ME parts (vtable +3668 word → lnd_req, which then jumps to the
+    stock 0x6096ca8a).
+  - **F:** each ME frame done (0x6096b019, after the stock flag call). It holds the gate states: key, busy (212),
+    the stock release check (run only as n8 ran it), frames done and registered handles.
+  - Every record also holds +156/+158, +160/+162, the flags at +464 and the key state word. (An 'M' record of the
+    remaining-shots read was dropped for space; its effect shows in +156 on every later record.)
+- **File.** The loader's sd_back (the half-press save path, as LOGDBG.TXT in v0.14) chains to lnd_trig. It writes
+  **C:\EP7MOD\LNDLOG.BIN** (the raw block) when there are new records, then jumps to the previous target (ap_pre).
+  Nothing is written during a burst. Decode it with `python3 -I tools/lnd_log.py LNDLOG.BIN`.
+- **Ring.** 32 records hold about 3 ND4 bursts (C, about 3 Q, 4 F each).
+- **Placement.** Readout A 0x601de880–0x601dea18, B 0x601df040–0x601df0c2 (clear of grain_kind 0x601de800–0x601de880).
+- **Combined test build 0.31t1:** patches/v031 = the v030 chain (with this layer) + patches/recview (which applies
+  patches/grain_kind). The save-path jmp chains sd_back → lnd_trig → ap_pre.
+
+**Test (0.31n1):**
+1. AP Multiple Exposure, ND4, Sequential L. Half-press, then press and hold until it stops. Release.
+2. The same in Sequential H.
+3. Half-press once more, so the second burst is written. Then copy EP7MOD/LNDLOG.BIN.
+4. Optional: ND3, and Single drive with a hold.
+
+**Verifier:**
+- K: the real 0x60950cb6..cc1 with the capacity stubbed. N for ND in AP ME, stock otherwise, with and without the
+  block. A 'C' record holds the right fields.
+- L: real F and Q entry paths. Every register and return value matches stock, with and without the block. lnd_trig
+  from the real sd_back jmp writes (block, 1, 784, handle) only on a half-press with new records. It allocates only in
+  AP ME and reaches the previous target with every register intact.
+- H, G, F, D, P as before. P allows the sd_back rel32 inside the loader edit.
+
+## After 0.31n1 (2026-11-09): withdrawn, and the custom self-timer plan
+
+**0.31n1 result.** Sequential H crashed; the camera recovered by itself, with no battery pull. Sequential L took about
+2 frames, then showed bare AF boxes and no ME indicator until release. No LNDLOG.BIN was written. The user also
+reports that n8 (v0.30) was not reliable in Sequential H either.
+
+**Likely crash mechanism [V code for the paths, I for the exhaustion].** The engine's continue requests are served at
+0x6096ca8a. Each one builds a **new** frame object (0x6082e9ef → 0x6082f793: `new` 76 B plus three attribute regions),
+then stores and registers it with **no null check** (0x6096cb45 → 0x6096b462). n8's own path, 0x6082f6b2, reuses the
+reserved frame (292,a0) first and checks for null. With +156 = 4 at Seq H rate, requests ran ahead of combine and
+free; a failed or partial frame was then registered.
+
+**Withdrawn.** lnd_cap (+156) is gone. n8's lnd_cont is not built either. patches/live_nd now builds the n7 floor
+(0.31n2): ND3/ND4 take one frame per press in every drive mode. The readout is built only with `--log`. The
+verifier's K group checks that 0x60950cba, 0x60932170, 0x60b50038 and 0x6096b019 are stock.
+
+**The stock auto-repeat route [V code].**
+- After each single take, the ME parts' take-end entry 0x6096a330 (vtable 0x60b4f278) calls the base take-end
+  0x6094a4ba when (212) == 0. That routine is the custom self-timer's "CUSTOMSELF NEXT / LAST" step. It compares frames
+  done (+196) with **sid 469**, read through the rules getter 0x602afa81. Below 469 it re-arms (0x60945efa) and goes to
+  the self-timer wait. At the end of the wait, the ME override 0x6096af38 makes the same single take a press makes
+  (0x6096b80b).
+- Vtable +200 is a no-op (0x60934331, the same in all 10 sequence vtables), so those flag calls don't gate anything.
+- The drive comes from sid 0: 1 = self-timer, 5 = custom self-timer (setSelfTimerFunction 0x60951715).
+- The AP Multiple Exposure preset forces sid 0 = 0 on mode entry. The user can change the drive afterwards, which is
+  how Seq L/H were tested.
+- sid 469 is read at 8 places, all through 0x602afa81 with `mov 469,d0; call …,[],4`: 0x602e7d9e, 0x602f08e9,
+  0x609350bb, 0x60942687, 0x60945bc9, 0x6094a591, 0x6094de09, 0x6096093b. They include the remaining-shots count, the
+  sequencer setup and the take end. Each compares 469 with +196.
+
+**Plan, to build once the stock test passes** (P mode, ME 2f, Custom Self-timer 2 frames: one press → 2 frames
+combined; then the same in AP ME):
+- `lnd_st` on all 8 sid-469 reads, the same getter-guard shape as lnd_n, with no stores.
+- While sid 24 == 211, 267 is 3 or 4 and sid 0 == 5, it returns N. Otherwise it returns stock.
+- In AP ME with ND3/ND4 and the drive on Custom Self-timer, one press then takes N stock single frames through the
+  stock re-arm chain, and the ME parts combines them as it would 2 presses.
+- The user's custom self-timer delay and interval apply. Abort (keys, menu, mode) is stock. The burst engine and +156
+  are never touched. Every other drive stays per-press.
+- If AP ME greys out Custom Self-timer, unlocking it is a separate, riskier step (preset and grey-out), proposed only
+  after the result.
+
+## As built 0.31n2 / 0.31t2: one press via the stock custom self-timer (2026-11-09) [V code, emulator]
+
+**Why Custom Self-timer was greyed in AP Multiple Exposure.** The cause is the settings rule engine 0x602b2961. Its
+rules are checked in order, the first rule whose conditions all match wins, and conditions are 8-byte entries
+`{u16 sid, i16 value, u32 getter}`. A value check passes only if the value is a result value of that rule's map;
+otherwise it returns 256, and the drive list skips that value (0x602b64f3).
+- **Drive values.** The drive setting is sid 3281, record 72 (0x6045eb9c). Custom Self-timer is stored as 24. That
+  comes from drive-list value 5, whose string 2417 is "Custom Self-timer" (UI string table: 2417 + 21 = 2438, "High
+  Res Shot").
+- **In P.** Rules 4–7 (P/A/S/M) also need sid 1592 == 1, so normally P falls through to rule 55 (stills, no Wi-Fi
+  remote). Rule 55 allows 24.
+- **In AP ME.** Rule 10 (sid 24 == 211) is the first match. It allows {0, 1, 4, 5, 11, 12, 23}, so 24 is out. Silent
+  single is greyed, and Silent Seq H/L are converted to plain Seq H/L (30 → 0, 31 → 1, 32 → 11).
+- **Emulator check (R).** The verifier runs the real engine with record 72. Stock: 24 is allowed in P and returns 256
+  in AP ME. Patched: 24 is allowed in AP ME. Value 1 is allowed, value 30 is still 256, and mode 210 is still 256.
+
+**Unlock (one halfword).** The map entry at 0x6043fc38 goes from (24 → 0) to (24 → 24) (u16 at 0x6043fc3a). Only rule
+10 uses that map, so the change applies only in AP Multiple Exposure. Custom Self-timer becomes selectable there,
+whether or not ND is chosen.
+
+**lnd_st (reads only).** It guards the 8 reads of sid 469 and the timer start's two reads, 470 at 0x6095218d and 471
+at 0x609521d0, all `call 0x602afa81,[],4`. The guard applies while sid 24 == 211, 267 is 3 or 4, and drive 3281 == 24:
+- 469 returns N;
+- 470 returns 5 (0.5 s interval);
+- 471 returns 1 (1 s delay), the validator minimums.
+
+The menu still shows the user's own values, and every other case reads stock.
+
+**What this does.** In AP ME with ND3/ND4 and the drive on Custom Self-timer, one press waits 1 s, then takes N
+stock single frames 0.5 s apart. The stock CUSTOMSELF NEXT step (base take-end 0x6094a4ba, reached from the ME parts at
+0x6096a482) re-arms the timer. The ME parts' self-timer end (0x6096af38) makes the same single take a press makes. The
+burst engine and +156 are never used. Abort (keys, menu, mode) is stock. All other drives stay one frame per press.
+
+**Verifier:**
+- S: all 10 real sites × ND / AP / drive.
+- R: the rule engine, as above.
+- K: the burst-engine sites are stock.
+- H, G, F, D, P as before.
+
+**Test (0.31t2):**
+1. AP ME, ND4, drive Custom Self-timer (now selectable). One press: about 1 s, then 4 frames 0.5 s apart, one combined
+   file.
+2. ND3 the same.
+3. Seq L / Single in AP ME with ND4: one frame per press, no hang.
+4. P with ME 2f and Custom Self-timer: stock behaviour.
+
+## 0.31t2 hang, and 0.31t3 (2026-11-09)
+
+**Camera on 0.31t2** (AP ME, ND4, Custom Self-timer): 4 shots 0.5 s apart, then a hang. The screen was black with the
+AF assist lamp lit. The battery was really low and its icon was flashing. The power switch had no effect: the first
+hang that needed a battery pull.
+
+**0.31t3 = the floor.** `apply(..., selftimer=False)`, the default, builds none of lnd_ns / lnd_st, none of the 10
+getter hooks, and not the 0x6043fc3a rule edit. The verifier's S and R groups then check that those bytes are stock.
+patches/v031 builds it (v030 chain → recview → halation). It is not flashed until the hang's cause is reported.
+
+**Hang, static findings so far** [V code unless marked]:
+- **Where the repeat is decided.** CUSTOMSELF NEXT / LAST is decided only in the base take-end 0x6094a4ba. The ME parts
+  reaches it from its take-end entry 0x6096a330 (vtable 0x60b4f278), and only while (212,parts) == 0 (0x6096a455).
+  - (212) is set and cleared by 0x6095180d, which has about 34 callers in the capture-device event code. One
+    clears it when job 0x04060061 completes (0x6096c16d) [I: a pending capture-job handle].
+  - While (212) != 0, the take-end instead runs 0x6094828d, 0x60945efa, 0x609469be(1) and 0x6096c416(job). That path
+    never compares frames done with sid 469.
+- **Frames done (+196).** It is incremented only in 0x6094ddcf, reached from the base handlers at vtable +3360 /
+  +3368 / +3372 / +3376. The ME parts keeps all four. 0x6094ddcf compares at once with 469, which is one of the
+  guarded reads, at 0x6094de09.
+- **The ME side keeps its own count to N.** That is (224) and the controller index 0x61faccb8. It finishes the
+  combine at N independently of the self-timer's +196 / 469.
+- **Leading hypotheses, not yet separated:**
+  - **(A)** At frame N, the ME finish (combine and save; pending job, (212) != 0) and the custom self-timer's
+    end-of-run step both act, in an order the sequence doesn't expect.
+  - **(B)** The self-timer is re-armed after frame N. The lamp, which doubles as the self-timer lamp, is lit, and a
+    timer-end take reaches an ME parts that has no frame left. The ME override 0x6096af38 → 0x6096b80b takes no
+    count guard.
+  - The low battery blocking the save is not excluded [I].
+- **No camera test of this route** until one of these is shown in code.
+
+**Trace 1 result [V code].** (212, parts) is **not** a capture-job handle. 0x6095180d is the error-sequence entry. Its
+writers are `startErrorSequenceCtrl` ("ShootGuard ON", "Timer Stop", "TimeLapseGuard"), `evTraCmpShc_ErrorEvent`
+and the ME parts' own error event (0x6096c5d4, `CmpSqp_SequencePartsMultiExposure.cpp`). The take-start
+(`TIMING[2]_TAKEPIC_START`, 0x6096c16d) clears it. So at each take-end:
+- (212) == 0, no error: the base take-end runs, and with it CUSTOMSELF NEXT / LAST.
+- (212) != 0, an error is active: the error path 0x6096c416(code) runs instead, and frames done vs 469 is never
+  checked.
+
+The self-timer has its own error controls (`execStateErrorCtrlIn_SELFTIMER_WAIT` 0x6095cfa1,
+`execStateErrorCtrlIn_CUSTOMSELFAF_WAIT`). They dispatch error codes 0x01000102–0x041c0006 through the tables at
+0x60b48840 / 0x60b48940 and can end with "SelfTimer COMPLETE_SUCCESS()".
+
+**Status.** Not separated with confidence:
+- 4 shots, then a stop, fits a working +196 count and LAST at frame 4.
+- A lit AF assist lamp fits a custom self-timer AF wait (CUSTOMSELFAF_WAIT) that never got its AF OK / NG event.
+- An error (battery, for example) during the sequence would divert the take-end into the error path above.
+
+Which error code low battery raises, and what its handler does, was not mapped. So the battery is neither ruled in
+nor ruled out.
+
+**After the full-battery retry (2026-11-10).** 0.31t2 hangs the same way after 4 frames with a mostly full battery, so
+low battery is ruled out. t3 is flashed. **The self-timer route is parked.**
+- **sid 680** (validator {0, 1}) is read only when a custom self-timer starts (setSelfTimerFunction 0x6095179c). It sets
+  bit 1 of 0x61facd98. The re-arm uses that bit (0x60934afe → 0x60934b40(1)) to choose wait state 34 over 18. It is
+  most likely the custom self-timer's **"Every Frame AF"** [I: the UI string exists; the id link is not proven].
+  Forcing it Off for ND would match a stock user setting.
+- **Not pinned.** Per-frame AF ran fine between frames 2–4, and the hang comes after the last frame. The last-shot
+  path (0x6094a5a2 → 0x6094a655) only reaches the common sequence end (states 29 / 19). No code was found that enters
+  an AF wait after the last shot. So neither the AF wait nor the ME finish is shown to be the cause.
+- **The cheapest discriminator** is test (a) on t3, which is fully stock: P mode, ME 2f, Custom Self-timer, 2 frames.
+  If stock hangs too, the ME + custom self-timer chain is broken in stock, and the route stays parked.

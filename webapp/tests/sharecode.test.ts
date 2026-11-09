@@ -109,7 +109,9 @@ describe('look codes', () => {
       CineStill800: '1BM9Y-B0K8X-PVAC8-KB9ND-BFVKG-0YAYT-SC59H-5W548-8TYZ0',
     };
     for (const [name, code] of Object.entries(OLD)) {
-      const want = pack.looks.find((l) => l.name === name)!;
+      const lib = pack.looks.find((l) => l.name === name)!;
+      // 0.31h2 gave Gold 200 a Low amber halo; the v0.18 code is of the look before that
+      const want = name === 'Gold 200' ? { ...lib, effect: null } : lib;
       const got = decodeLookCode(code);
       expect(got.tone).toEqual(zeroTone());
       expect(essence(got), name).toEqual(essence({ ...want, tone: zeroTone() }));

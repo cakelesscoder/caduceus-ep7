@@ -7,14 +7,13 @@
  *   lnd_kn <- rel32 of call {prop},[d2,d3],12 at 0x602a838b (capture +24140 frames, key 0x1841)
  *   lnd_a  <- rel32 of call {appget},[d2,a2],24 with d0 = 267 (app layer)
  *   guard: in AP Multiple Exposure Off/1 -> 2 (stock AP ME frames); elsewhere ND3/ND4 -> 2 (ND is AP-only); 2f stock
- *   lnd_cont <- rel32 of call {flag},[d2],4 at 0x6096b019 (ME parts continuous frame done, flag 0x48000000): after the
- *             stock call, while ND3/ND4 in AP ME and the shutter is still fully pressed (key state 4), (212,parts) == 0 and
- *             the stock release check passes, issue the stock sendTakePictureContinue ({cont}, capped at N by the registered
- *             handles). Stock only ever requests one continue, so its continuous ME burst is 2 frames. Release untouched.
+ *   0.31n2: no burst-engine code (0.31n1's lnd_cap crashed Seq H; n8's lnd_cont was never reliable). One press = the stock
+ *   custom self-timer: lnd_st <- rel32 of call {rget},[],4 at the 8 sid-469 reads and the timer start's 470 / 471 reads.
+ *   While ND3/ND4 in AP ME and drive 3281 == 24 (Custom Self-timer): 469 -> N, 470 -> 5 (0.5 s), 471 -> 1 (1 s).
  *   n7: no continuous-drive change and no release latch. Continuous stays as AP Multiple Exposure's preset forces it (off),
  *   so ND3 / ND4 take one frame per press in every drive mode (camera on 0.30b7: n6's continuous route stalled after 2
  *   frames and the release latch turned that into a hang).
- * Miss paths run the stock getter with the stock arguments in the site's frame. No stores, no mul/div/setlb.
+ * Miss paths run the stock getter with the stock arguments in the site's frame. No stores (the log part, lnd_log.s.in, writes only its own heap block), no mul/div/setlb.
  */
  .am33_2
  .text
@@ -118,38 +117,64 @@ lnd_a:                            /* site: mov 267,d0; call {appget},[d2,a2],24 
 9:
  ret [d2,a2],24
 
-lnd_cont:                         /* site: mov 0x48000000,d0; mov a2,a0; call {flag},[d2],4; ret [d2,a2],20 */
- add -12,sp                       /* (0,sp) nested return slot, (4,sp) argument word, (8,sp) parts */
- mov a0,(8,sp)
- call {flag},[d2],4               /* the stock frame-done flag, unchanged */
+lnd_nd:                           /* [],8 (call): d0 = N (3 / 4) while ND3 / ND4 in AP Multiple Exposure, else 0 */
  call lnd_ape,[],4
  cmp 0,d0
- beq 9f                           /* only AP Multiple Exposure */
+ beq 9f
  mov 267,d0
  call {get},[],4
  cmp 3,d0
- bcs 9f
+ bcs 8f
  cmp 5,d0
- bcc 9f                           /* only ND3 / ND4 */
- call {keyst},[],0
- cmp 4,d0
- bne 9f                           /* shutter no longer fully pressed: the stock release / stop decides */
- mov (8,sp),a0
- mov (212,a0),d0
- cmp 0,d0
- bne 9f                           /* as entryTAKE_PICTURE_CONT */
+ bcs 9f
+8:
  clr d0
+9:
+ ret [],8
+
+/*@st*/
+lnd_ns:                           /* [d2],12 (call): d0 = N while ND3/ND4 in AP ME and the drive (3281) is Custom Self-timer (24), else 0 */
+ call lnd_nd,[],8                 /* (0,sp) of the [d2],12 frame is the nested return slot */
+ cmp 0,d0
+ beq 9f
+ mov d0,d2
+ mov 3281,d0
+ call {rget},[],4
+ cmp 24,d0
+ bne 8f
+ mov d2,d0
+ ret [d2],12
+8:
+ clr d0
+9:
+ ret [d2],12
+
+lnd_st:                           /* site: mov 469|470|471,d0; call {rget},[],4 (frame [],4: no saved registers) */
+ add -12,sp                       /* (0,sp) nested return slot, (4,sp) sid, (8,sp) N or 0 */
  mov d0,(4,sp)
- mov 1,d1
- mov 0,a1
- call {relchk},[d2,d3,a2,a3],56   /* stock release check, as entryTAKE_PICTURE_CONT */
- cmp 1,d0
- bne 9f
- mov (8,sp),a0
- call {cont},[d2,d3,a2,a3],20     /* stock sendTakePictureContinue: no request beyond N, new buffer */
+ call lnd_ns,[d2],12
+ mov d0,(8,sp)
+ mov (4,sp),d0
+ call {rget},[],4                 /* stock value */
+ mov (8,sp),d1
+ cmp 0,d1
+ beq 9f                           /* not ND + Custom Self-timer: stock */
+ mov (4,sp),a0
+ cmp 469,a0
+ bne 1f
+ mov d1,d0                        /* custom self-timer frames = N */
+ bra 9f
+1:
+ cmp 470,a0
+ bne 2f
+ mov 5,d0                         /* interval: 0.5 s, the validator's minimum */
+ bra 9f
+2:
+ mov 1,d0                         /* 471, start delay: 1 s, the validator's minimum */
 9:
  add 12,sp
- ret [d2],4
+ ret [],4
+/*@endst*/
 
  .balign 4
 lnd_end:

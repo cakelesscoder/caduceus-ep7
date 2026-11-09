@@ -1,5 +1,5 @@
 {
- "_comment": "Look library v3 (docs/LIBRARY_V1.md, section \"Library v3\"): library v2 + 12 classic colour looks (recipes sim/recipes/library_v3.json). 32 looks: the LOOKS.BIN form for the 32-look loader (v2 order kept, new looks after the colour looks, mono last). Atrophy (inspired by GxAce) replaced Provia (= stock profile at zero). Cuban Neg (inspired by Osan's Classic Cuban Neg) replaced Superia 400 (redundant with Classic Neg). Provia 400 (Provia 400X) replaced Nostalgic.",
+ "_comment": "Look library v3 (docs/LIBRARY_V1.md, section \"Library v3\"): library v2 + 12 classic colour looks (recipes sim/recipes/library_v3.json). 32 looks: the LOOKS.BIN form for the 32-look loader (v2 order kept, new looks after the colour looks, mono last). Atrophy (inspired by GxAce) replaced Provia (= stock profile at zero). Cuban Neg (inspired by Osan's Classic Cuban Neg) replaced Superia 400 (redundant with Classic Neg). Provia 400 (Provia 400X) replaced Nostalgic. Halation (0.31h2, docs/HALATION_RED.md §17): a bloom with a tint is a halo; strength 1-2 Low, 3-4 Med, 5 High. CineStill800 Med red, CineStill50D / Vision3 500T Low red, Portra 400 / Polaroid Low warm, Gold 200 Low amber.",
  "looks": {
   "velvia": {
    "name": "Velvia",
@@ -119,7 +119,8 @@
    "grain": "low",
    "effect": {
     "type": "bloom",
-    "strength": 1
+    "strength": 1,
+    "tint": "warm"
    },
    "notes": "Warm pastel portrait negative: glowing skin, soft contrast.",
    "tone": {
@@ -146,6 +147,11 @@
    "name": "Gold 200",
    "recipe": "lib2_gold",
    "grain": "low",
+   "effect": {
+    "type": "bloom",
+    "strength": 1,
+    "tint": "amber"
+   },
    "notes": "Golden consumer negative: sunny yellows, muted cyan skies.",
    "tone": {
     "highlights": -1,
@@ -362,7 +368,8 @@
    "grain": "low",
    "effect": {
     "type": "bloom",
-    "strength": 2
+    "strength": 2,
+    "tint": "warm"
    },
    "notes": "Integral instant film: punchy, narrow dynamic range (bright highlights, deep shadows), warm highlights, cyan-green shadows.",
    "tone": {

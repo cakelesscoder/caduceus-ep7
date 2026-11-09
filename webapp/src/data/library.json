@@ -1,7 +1,7 @@
 {
  "schema": "caduceus-pack/1",
  "name": "Caduceus library",
- "version": "6a9ab57c",
+ "version": "0fdfba31",
  "looks": [
   {
    "name": "Velvia",
@@ -275,7 +275,8 @@
    },
    "effect": {
     "type": "bloom",
-    "strength": 1
+    "strength": 1,
+    "tint": "warm"
    },
    "vignette": 0,
    "art_effect": "off",
@@ -335,7 +336,11 @@
     "a_b": 2,
     "g_m": 0
    },
-   "effect": null,
+   "effect": {
+    "type": "bloom",
+    "strength": 1,
+    "tint": "amber"
+   },
    "vignette": 0,
    "art_effect": "off",
    "tone": {
@@ -809,7 +814,8 @@
    },
    "effect": {
     "type": "bloom",
-    "strength": 2
+    "strength": 2,
+    "tint": "warm"
    },
    "vignette": 0,
    "art_effect": "off",

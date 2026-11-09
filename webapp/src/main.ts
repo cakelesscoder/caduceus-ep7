@@ -2,8 +2,8 @@ import './style.css';
 import libraryJson from './data/library.json';
 import { decodeLooksBin, encodeBundlesBin, hasTone, nameProblem, PackError, validatePack, type Problem, FW_LATEST, firmware, setFirmware, type Fw } from './format';
 import {
-  ARTS, MAX_LOOKS, MONO_FILTERS, NAME_MAX, NOTE_MAX, PACK_SCHEMA, SECTORS, SLOT_NAMES, TINTS, TONE_KEYS, blankLook, cloneLook,
-  exportable, parseLook, parsePack, toneIsZero, toneLimit, profileOf, type FilmGrain, type Grain, type Look, type Pack, type SlotName, type Tone,
+  ARTS, HALO_STAGES, HALO_TINTS, MAX_LOOKS, MONO_FILTERS, NAME_MAX, NOTE_MAX, PACK_SCHEMA, SECTORS, SLOT_NAMES, TONE_KEYS, blankLook, cloneLook, lookHalo, setLookHalo,
+  exportable, parseLook, parsePack, toneIsZero, toneLimit, profileOf, type FilmGrain, type Grain, type Halo, type HaloStage, type Look, type Pack, type Sharp, type SlotName, type Tone,
 } from './pack';
 import { History } from './history';
 import { fromLibrary, libraryOrigin, migratePack, replaceRetiredLooks, resetLook, standardPack } from './reset';
@@ -44,6 +44,8 @@ const S = {
 };
 const GRAIN_OPTS: [FilmGrain, string][] = [['off', 'Off'], ['low', 'Low'], ['med', 'Med'], ['high', 'High']];
 const NR_OPTS: [Grain, string][] = [['off', 'Camera'], ['standard', 'Std'], ['fine', 'Low'], ['film', 'Off']];
+const SHARP_OPTS: [Sharp, string][] = [['camera', 'Camera'], ['off', 'Off']];
+const HALO_OPTS: [Halo, string][] = [['look', 'Look'], ['off', 'Off'], ['low', 'Low'], ['med', 'Med'], ['high', 'High']];
 
 /** The saved pack brought up to the current built-in library (or the library itself for a first visit). */
 function startPack(): Pack {
@@ -574,34 +576,41 @@ function monoPanel(l: Look, changed: () => void): HTMLElement {
 }
 
 function effectPanel(l: Look, changed: () => void): HTMLElement {
-  const e = l.effect;
-  const v = !e ? 0 : e.type === 'clarity' ? e.strength : -e.strength;
+  const v0 = () => (!l.effect ? 0 : l.effect.type === 'clarity' ? l.effect.strength : -l.effect.strength);
   const fmt = (x: number) => (x === 0 ? 'Off' : x < 0 ? `Glow ${-x}` : `Clarity ${x}`);
-  const tintSel = h('select', {
-    'aria-label': 'Glow colour',
-    onchange: (ev: Event) => {
-      const t = (ev.target as HTMLSelectElement).value as (typeof TINTS)[number];
-      if (l.effect && l.effect.type !== 'clarity') { if (t === 'neutral' && l.effect.type === 'bloom') delete l.effect.tint; else l.effect.tint = t; }
-      changed();
-    },
-  }, ...TINTS.map((t) => h('option', { value: t, selected: (e?.tint ?? (e?.type === 'halation' ? 'red' : 'neutral')) === t }, t[0].toUpperCase() + t.slice(1))));
-  const tintRow = h('label', { class: 'field inline' }, h('span', { class: 'lbl' }, 'Glow colour'), tintSel);
-  const showTint = () => { tintRow.hidden = !cam().tints || !(l.effect && l.effect.type !== 'clarity'); };
-  showTint();
-  const { inp, out } = slider(-5, 5, v, (x) => {
+  // Halo (E-P7 0.31+ halation): a tinted glow. It shares the Glow strength: Low / Med / High = Glow 2 / 4 / 5.
+  const cur = lookHalo(l);
+  const stageSel = h('select', { 'aria-label': 'Halo' }, ...HALO_STAGES.map((t) => h('option', { value: t, selected: t === cur.stage }, t[0].toUpperCase() + t.slice(1))));
+  const tints = HALO_TINTS.filter((t) => t === 'red' || t === 'amber' || t === cur.tint);
+  const tintSel = h('select', { 'aria-label': 'Halo colour' }, ...tints.map((t) => h('option', { value: t, selected: t === cur.tint }, t[0].toUpperCase() + t.slice(1))));
+  const tintRow = h('label', { class: 'field inline' }, h('span', { class: 'lbl' }, 'Halo colour'), tintSel);
+  const haloRow = h('label', { class: 'field inline' }, h('span', { class: 'lbl', title: 'Red/orange glow around bright lights, like CineStill. Uses the Glow channel: Low, Med and High set Glow 2, 4 and 5.' }, 'Halo'), stageSel);
+  const show = () => { haloRow.hidden = !cam().tints; tintRow.hidden = !cam().tints || (stageSel as HTMLSelectElement).value === 'off'; };
+  const { inp, out } = slider(-5, 5, v0(), (x) => {
     if (x === 0) l.effect = null;
     else if (x > 0) l.effect = { type: 'clarity', strength: x };
     else {
       const keep = l.effect && l.effect.type !== 'clarity' ? l.effect : null;
       l.effect = { type: keep?.type ?? 'bloom', strength: -x, ...(keep?.tint ? { tint: keep.tint } : {}) };
     }
-    showTint();
+    (stageSel as HTMLSelectElement).value = lookHalo(l).stage;
+    show();
     changed();
   }, fmt, 'Glow to clarity');
+  const apply = () => {
+    setLookHalo(l, (stageSel as HTMLSelectElement).value as HaloStage, (tintSel as HTMLSelectElement).value as (typeof HALO_TINTS)[number]);
+    (inp as HTMLInputElement).value = String(v0());
+    out.textContent = fmt(v0());
+    show();
+    changed();
+  };
+  stageSel.addEventListener('change', apply);
+  tintSel.addEventListener('change', apply);
+  show();
   return h('div', { class: 'group' },
     h('div', { class: 'field' }, h('span', { class: 'lbl' }, 'Glow ↔ Clarity'),
       h('div', { class: 'srow plain' }, h('span', { class: 'end' }, 'Glow'), inp, h('span', { class: 'end' }, 'Clarity'), out)),
-    tintRow);
+    haloRow, tintRow);
 }
 
 function wbPanel(l: Look, changed: () => void): HTMLElement {
@@ -934,7 +943,9 @@ function installDialog() {
 
 const STORE_FW = 'caduceus.firmware';
 const FW_OPTIONS: [Fw, string, string][] = [
-  [27, 'v0.27 or later', 'Everything works, including Grain for each COLOR profile.'],
+  [31, 'v0.31 or later', 'Everything works, including Grain, Sharp and Halo for each COLOR profile.'],
+  [28, 'v0.28 to v0.30', 'Files work. Halo for each profile is left out of BUNDLES.BIN (looks keep their halation).'],
+  [27, 'v0.27', 'Files work. Sharp and Halo for each profile are left out of BUNDLES.BIN.'],
   [25, 'v0.25 or v0.26', 'Files work. Grain is left out of BUNDLES.BIN.'],
   [24, 'v0.24', 'Files work. Grain and lens vignette correction choices are left out of them.'],
   [23, 'v0.23 or v0.22', 'Files work. Grain, saturation and lens vignette correction choices are left out of them.'],
@@ -1100,16 +1111,18 @@ function ep7Body(): HTMLElement {
     }, h('option', { value: '' }, '— stock —'),
     ...S.pack.looks.map((l, i) => (s.startsWith('COLOR') ? l.kind === 'mono' : hasTone(l)) ? null : h('option', { value: i, selected: S.pack.slots[s] === i }, `${i + 1}. ${l.name}`)).filter(Boolean) as HTMLElement[]);
     if (!s.startsWith('COLOR')) return h('label', { class: 'slot' }, h('span', {}, s), sel);
-    const pick = (label: string, opts: [string, string][], key: 'grain' | 'nr') => h('label', {}, h('span', {}, label),
+    const pick = (label: string, opts: [string, string][], key: 'grain' | 'nr' | 'sharp' | 'halo', dflt = '') => h('label', {}, h('span', {}, label),
       h('select', {
         onchange: (e: Event) => {
           const v = (e.target as HTMLSelectElement).value;
           S.pack.profiles = { ...S.pack.profiles, [s]: { ...profileOf(S.pack, s), [key]: v } };
           save();
         },
-      }, ...opts.map(([v, t]) => h('option', { value: v, selected: profileOf(S.pack, s)[key] === v }, t))));
+      }, ...opts.map(([v, t]) => h('option', { value: v, selected: (profileOf(S.pack, s)[key] ?? dflt) === v }, t))));
     return h('div', { class: 'slot-color' }, h('label', { class: 'slot' }, h('span', {}, s), sel),
-      h('div', { class: 'slot-prof' }, pick('Grain', GRAIN_OPTS, 'grain'), pick('NR', NR_OPTS, 'nr')));
+      h('div', { class: 'slot-prof' }, pick('Grain', GRAIN_OPTS, 'grain'), pick('NR', NR_OPTS, 'nr'),
+        firmware() >= 28 ? pick('Sharp', SHARP_OPTS, 'sharp', 'camera') : null,
+        firmware() >= 31 ? pick('Halo', HALO_OPTS, 'halo', 'look') : null));
   };
   const withBundles = h('input', { type: 'checkbox' });
   const fname = (S.pack.name || 'pack').replace(/[^\w.-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'pack';

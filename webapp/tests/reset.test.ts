@@ -1,4 +1,3 @@
-import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { encodeLooksBin } from '../src/format';
@@ -7,6 +6,7 @@ import { decodeLookCode, encodeLookCode } from '../src/sharecode';
 import { fromLibrary, lookFingerprint, migratePack, replaceRetiredLooks, resetLook, standardPack } from '../src/reset';
 import { blankLook, toneIsZero, zeroTone } from '../src/pack';
 import libraryJson from '../src/data/library.json';
+import { releaseLooksWithHalation } from './halation-fixture';
 
 const LIB = parsePack(libraryJson);
 const RELEASE_LOOKS = join(__dirname, '../../releases/v0.24/card/EP7MOD/LOOKS.BIN');
@@ -97,7 +97,7 @@ describe('reset', () => {
   });
 
   it('standard pack encodes to the shipped LOOKS.BIN', () => {
-    expect(hex(encodeLooksBin(standardPack(LIB)))).toBe(hex(new Uint8Array(readFileSync(RELEASE_LOOKS))));
+    expect(hex(encodeLooksBin(standardPack(LIB)))).toBe(hex(releaseLooksWithHalation(RELEASE_LOOKS)));
   });
 
   it('resetting every edited library look gives byte-identical LOOKS.BIN', () => {

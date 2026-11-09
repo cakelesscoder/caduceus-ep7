@@ -1,0 +1,55 @@
+/* E-P7 1.1 Rec View fix for COLOR bloom / clarity / Star Light (ep7-firmware, our own code). docs/ISSUES_19_20.md "As built".
+ *
+ * Stock strips the multi-pass effect flags (0x40 Star Light, 0x80 Soft Focus, ...) from art-key jobs whose type is
+ * 0x1xx or 0x4x (constructor 0x60353b15). Types 0x110 / 0x120 come from capture kinds 0x2001 / 0x2006 (type
+ * mapper 0x603ea909); they are the extra small developments of a shot, not the saved photo (type 0x1000).
+ * That strip never runs for key 11, so our COLOR flags reached those jobs. rv_gate applies the same rule to
+ * key 11 at the end of the converter's flag code, after gc_flag / bloom_flag / the Art stub have set flags.
+ *
+ * Entered by jmp from bloom_flag's tail (was jmp 0x603eabdd): a2 = params+12 (job flags), a3 = capture,
+ * params+4 = (-8,a2) = source request (written by both builders, 0x603e614a / 0x603e8aab).
+ * Free: d0, d1, a0, a1. MDR kept. Exit replays bloom_flag's tail exactly.
+ */
+ .am33_2
+ .text
+ .global _start
+_start:
+rv_gate:
+ mov mdr,d0
+ call rv_sub,[d2,a2,a3],16
+ mov d0,mdr
+ movbu (24054,a3),d0              /* replayed: stock 0x603eabd7 */
+ cmp 0,d0                         /* replayed: stock 0x603eabdb */
+ jmp ep7_conv_back                /* 0x603eabdd: bne 0x603eabe7 */
+
+/* d0 = saved MDR in, out (via d2). */
+rv_sub:
+ mov d0,d2
+ mov (a2),d0
+ and 0xc0,d0                      /* 0x40 / 0x80 set? */
+ beq rv_out
+ movhu (-2,a2),d0                 /* key halfword (params+10) == 11 */
+ cmp 11,d0
+ bne rv_out
+ movhu (-4,a2),d0                 /* key bytes b0, b1 == 0 */
+ cmp 0,d0
+ bne rv_out
+ mov (-8,a2),a0                   /* source request */
+ cmp 0,a0
+ beq rv_out
+ call ep7_type,[d2,a2],12         /* same call the builder makes next: d0 = job type */
+ mov d0,d1
+ and 0xf00,d1
+ cmp 0x100,d1
+ beq rv_strip
+ and 0xf0,d0
+ cmp 0x40,d0
+ bne rv_out
+rv_strip:
+ mov (a2),d0
+ and 0xffffff3f,d0                /* clear 0x40 | 0x80, as stock 0x60353b2e for art keys */
+ mov d0,(a2)
+rv_out:
+ mov d2,d0
+ ret [d2,a2,a3],16
+rv_end:

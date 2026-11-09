@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
-"""Live ND inside Multiple Exposure, test n8 (n7 floor + hold for N). Offline. docs/LIVE_ND.md "As built".
+"""Live ND inside Multiple Exposure, 0.31n1 (n7 floor + engine burst limit N + one readout). Offline. docs/LIVE_ND.md "As built".
 
   .venv/bin/python -I patches/v029a/build.py releases/v0.28/edits.json --out generated/v029a/edits.json
-  .venv/bin/python -I patches/live_nd/build.py generated/v029a/edits.json --out generated/live_nd/n8/edits.json
-  .venv/bin/python -I tools/build_package.py generated/live_nd/n8/edits.json --out generated/live_nd/n8/pkg
-  .venv/bin/python -I patches/live_nd/verify.py generated/v029a/edits.json generated/live_nd/n8/edits.json generated/live_nd/n8/pkg
+  .venv/bin/python -I patches/live_nd/build.py generated/v029a/edits.json --out generated/live_nd/n31/edits.json [--no-log]
+  .venv/bin/python -I tools/build_package.py generated/live_nd/n31/edits.json --out generated/live_nd/n31/pkg
+  .venv/bin/python -I patches/live_nd/verify.py generated/v029a/edits.json generated/live_nd/n31/edits.json generated/live_nd/n31/pkg
 
-apply(spec, version='0.30n8') -> spec. n1 (AP tiles) broke the AP screen and is gone. n2 put ND in Number of Frames,
+apply(spec, version='0.31n2', log=False) -> spec. 0.31n2 = the n7 safe floor (ND3/ND4 one frame per press, every drive):
+0.31n1's +156 raise crashed Seq H and n8's lnd_cont was never reliable, so neither is built. The readout (lnd_log.s.in,
+EP7MOD/LNDLOG.BIN, tools/lnd_log.py) only with log=True. n1 (AP tiles) broke the AP screen and is gone. n2 put ND in Number of Frames,
 but AP Multiple Exposure forces 267 = 2 and the menu grey-out table greys the row there. n8 = n7 + lnd_cont: the stock continuous ME route requests one continue only (2 frames by design); while ND3/ND4 in AP
 ME and the shutter is still held, each continuous frame done issues the stock sendTakePictureContinue (capped at N). Release
 handling stays stock. n7 = the safe floor: n6/n5's continuous route and release latch are removed (camera 0.30b7: Sequential L took
@@ -45,18 +47,34 @@ STOCK = ROOT / 'analysis/ep7_1100/00_0100_406a0020.decoded.bin'
 BASE, SRC = 0x60020020, 'patches/live_nd'
 
 # code space: dead EVF gamma tables in section 1 (same claim as n1, much smaller now)
-AT, END = 0x601de540, 0x601de980
+AT, END = 0x601de540, 0x601de780                    # 0x601de780.. is recview's (0.31r1)
+LOG_AT, LOG_END = 0x601de880, 0x601dea3c            # readout only: free dead EVF between grain_kind (to 0x601de880) and min_ss (0x601dea3c)
+LOG_B, LOG_B_END = 0x601df040, 0x601df0d0           # readout only: free dead EVF between min_ss (to 0x601df03c) and ap_custom (0x601df0e0)
 STEP_LO, STEP_HI = 0x601e3b40, 0x601e3d6c           # EVF step-table words: the only allowed refs into the block
 SEC1, SEC1_SRC = 0x600d7800, 0x40757800             # descriptor 0x60027068 entry 0: flash source alias
 FALSE_POS = {0x605ff26c: 'dde61da0',            # call d32 bytes (dis-checked), read as 0xa01de6dd
              0x60681605: '82e68540',            # mov d0,d2; add d1,d2; mov 64,d1 (flash-alias read)
              0x60f09dd0: '5de78540',            # float table (0x4085e75d ~ 4.18f), flash-alias read
              0x60f0ad34: '2fe78540',            # float table, flash-alias read
-             0x613c5d94: 'dce58540'}            # inside mov 0x614085e5,a0 at 0x613c5d92 (misaligned read)
+             0x613c5d94: 'dce58540',            # inside mov 0x614085e5,a0 at 0x613c5d92 (misaligned read)
+             0x606c1305: 'ccf01da0',            # jmp 0x606c30f5; cmp 2,d0 (readout B range, misaligned read)
+             0x613c5dc8: 'dcf08540'             # inside mov 0x614085f0,a0 at 0x613c5dc7 (readout B range, flash-alias read)
+             }
 
 GET, PROP, APPGET, OFF = 0x602cbc0a, 0x6005e971, 0x60ccf9f3, 0x6096b28c
 WR, RD, CB = 0x602cc122, 0x602cc0fc, 0x602b5407
-FLAG, KEYST, RELCHK, CONT = 0x60947b55, 0x60955fa2, 0x6094ca4e, 0x6096b73c   # status flag, key state, release check, sendTakePictureContinue   # current-value write / read (preset apply, mode save), sid-267 callback
+FLAG, KEYST, RELCHK, CONT = 0x60947b55, 0x60955fa2, 0x6094ca4e, 0x6096b73c   # status flag, key state, release check, sendTakePictureContinue
+RGET = 0x602afa81                                  # settings getter with rules, [],4 (sids 469 / 470 / 471 / 3281)
+ST_SITES = [(a, 'frames 469') for a in (0x602e7da1, 0x602f08ec, 0x609350be, 0x6094268a, 0x60945bcc, 0x6094a594, 0x6094de0c, 0x6096093e)] + \
+           [(0x6095218d, 'interval 470'), (0x609521d0, 'delay 471')]   # each: mov sid,d0 (3 B) then this call
+DRV_MAP = 0x6043fc24                               # rule DB record 72 (sid 3281, drive), rule 10 (sid 24 == 211) value map
+DRV_CS = 0x6043fc3a                                # its entry (24 -> 0) at 0x6043fc38: high half = the allowed value
+CAPF, REMF, REQF, REGD = 0x6091dbf2, 0x60888d43, 0x6096ca8a, 0x6096b53f   # +156 source, remaining shots, ME continue handler, registered count
+VT_REQ = 0x60b50038                                # ME parts vtable +3668 (0x60b4f1e4 + 3668): engine continue request
+KEYW, TAKELIM = 0x61facd8c, 0x61facce8             # key state word, take limit u16
+LOG_POFF, LOG_RN = 996, 32                         # 0.31n1 readout: heap P+996 -> block, 32 records of 24 B
+LIB = dict(ep7_malloc=0x60022782, ep7_free=0x600227b4, ep7_fopen=0x60634fbc, ep7_fclose=0x60634fc5, ep7_fwrite=0x60635041)
+SD_BACK = 0x605b7420                               # loader sd_back `jmp` (half-press save path)
 CB_WORDS = (0x604345b4, 0x6043ad10)                # sid 267 registry records 0x6043459c / 0x6043acf8, +24 callback
 SID_N = 267
 VALUES = [0, 2, 3, 4]
@@ -79,13 +97,17 @@ SITES = [(0x602a8378, PROP, 'c00c', 'lnd_kg', 'capture +24141 Auto Gain (key 0x1
          (0x60cddb17, APPGET, 'a018', 'lnd_a', 'app 267 read'),
          (0x60cde34b, APPGET, 'a018', 'lnd_a', 'app 267 read'),
          (0x60cea730, APPGET, 'a018', 'lnd_a', 'app 267 read'),
-         (0x6096b019, FLAG, '8004', 'lnd_cont', 'ME parts continuous frame done (one more continue while ND and held)')]
+         ]
+ST_HOOKS = [(a, RGET, '0004', 'lnd_st', f'custom self-timer {w} (rules getter)') for a, w in ST_SITES]   # 0.31t2 only: hung after the last frame
+         # 0.31n1's lnd_cap (+156 = N at 0x60950cba) is withdrawn: it crashed Seq H (docs/LIVE_ND.md)
+LOG_SITES = [(0x6096b019, FLAG, '8004', 'lnd_fd', 'readout: ME parts continuous frame done')]
 M1487 = b'\x2c\xcf\x05'
 VT_OFF = 0x60b4ffac                                 # ME sequence parts vtable: rcvTrig2KeyOffIn_TAKE_PICTURE_CONT
 M267 = b'\x2c\x0b\x01'
 PRE = {0x602a8378: b'\x2c\x51\x18\x90\x00\x04', 0x602a838b: b'\x2c\x41\x18\x90\x00\x04'}
 PRE.update({x[0]: M267 for x in SITES if x[1] in (GET, APPGET)})
-PRE.update({0x6096b019: bytes.fromhex('fccc0000004898')})
+PRE.update({a: b'\x2c' + struct.pack('<H', 469 if 'frames' in w else 470 if '470' in w else 471) for a, w in ST_SITES})
+PRE.update({0x6096b019: bytes.fromhex('fccc0000004898'), 0x60950cba: bytes.fromhex('f1e81c04'), 0x60932170: bytes.fromhex('72f1e0')})
 # AP Multiple Exposure preset block (forced values on mode entry; also what greys the menu): drop the 267 = 2 pair
 PRESET_IDX = 0x6047a800                             # index entry {u16 mode 211, u16 sub 0, u32 block, u16 count}
 AP_ME, ME_BLOCK, ME_COUNT = 211, 0x60475e88, 227
@@ -117,7 +139,7 @@ def value(e):
     return struct.unpack_from('<I', e, 0)[0]
 
 
-def check_free(spec, stock, end):
+def check_free(spec, stock, end, AT=AT):
     import numpy as np
     for e in spec['edits']:
         if e['kind'] == '0x100' and not e['addr'].startswith('off:'):
@@ -170,11 +192,28 @@ def data_alignment(src, syms):
     return bad
 
 
-def source():
-    return SB3.subst((HERE / 'lnd.s.in').read_text(), dict(get='ep7_get', prop='ep7_prop', appget='ep7_appget', off='ep7_off', wr='ep7_wr', rd='ep7_rd', cb='ep7_cb',
-                                                                 flag='ep7_flag', keyst='ep7_keyst', relchk='ep7_relchk', cont='ep7_cont',
-                                                                 blk=hex(ME_BLOCK), blk_end=hex(ME_BLOCK + 8 * (ME_COUNT - 1))))
+CAP_LOG = ' mov d0,(4,sp)\n mov d3,d1\n asl 16,d1\n or d2,d1\n mov a3,a2\n mov 0x43,d0\n call lnd_snap,[d2,d3,a2,a3],24\n mov (4,sp),d0'
 
+
+def source(log=True, selftimer=False):
+    src = (HERE / 'lnd.s.in').read_text()
+    if not selftimer:
+        i, j = src.index('/*@st*/'), src.index('/*@endst*/')
+        src = src[:i] + src[j + len('/*@endst*/'):]
+    if log:
+        lg = (HERE / 'lnd_log.s.in').read_text()
+        m, rest = lg.split('/*@main', 1)
+        hm, ra = rest.split('/*@A*/', 1)
+        a_, rb = ra.split('/*@B*/', 1)
+        b_ = rb
+        src = src.replace(' .balign 4\nlnd_end:', m + '/*@main' + hm + '\n .balign 4\nlnd_end:')
+        src += f'\n .org {LOG_AT - AT:#x}\nlnd_log:\n' + a_ + f'\nlnd_aend:\n .org {LOG_B - AT:#x}\nlnd_logb:\n' + b_ + '\nlnd_lend:\n'
+    return SB3.subst(src, dict(get='ep7_get', prop='ep7_prop', appget='ep7_appget', off='ep7_off', wr='ep7_wr', rd='ep7_rd', cb='ep7_cb',
+                               flag='ep7_flag', keyst='ep7_keyst', relchk='ep7_relchk', cont='ep7_cont', rget='ep7_rget', capf='ep7_capf', remf='ep7_remf',
+                               reqf='ep7_reqf', regd='ep7_regd', log_c=CAP_LOG if log else '', keyw=hex(KEYW), takelim=hex(TAKELIM),
+                               poff=LOG_POFF, rn=LOG_RN, blk_n=16 + 24 * LOG_RN, state=hex(SB3.STATE), lim=hex(SB3.LIM), pool=hex(SB3.POOL),
+                               bmagic=hex(SB3.MAGIC), ev_press=hex(SB3.EV_PRESS),
+                               blk=hex(ME_BLOCK), blk_end=hex(ME_BLOCK + 8 * (ME_COUNT - 1))))
 
 
 def build_data(stock, data_at):
@@ -185,6 +224,7 @@ def build_data(stock, data_at):
         out += t.encode('ascii') + b'\0'
     addr['val'] = data_at + len(out)
     out += bytes(VALUES)
+    lists = []
     for i, (m, lo) in enumerate([(m, 12) for m in MENUS] + [(m, 28) for m in MENUS]):
         sid, lp, cnt = struct.unpack_from('<I', stock, m - BASE)[0], u32(stock, m + lo), u32(stock, m + lo + 4)
         es = entries(stock, lp, cnt)
@@ -192,10 +232,16 @@ def build_data(stock, data_at):
             raise SystemExit(f'menu {m:#x} differs')
         txt = struct.unpack_from('<I', es[0], 8)[0]
         new = list(es) + [struct.pack('<IHHI', v, 5, sid_id, addr[f's{v}']) for v, (_, sid_id) in LABELS.items()]
+        new = b''.join(new)
+        same = [k for k in range(i) if lists[k] == new]
+        lists.append(new)
+        if same:
+            addr[f'list{i}'] = addr[f'list{same[0]}']
+            continue
         while (data_at + len(out)) % 4:
             out.append(0)
         addr[f'list{i}'] = data_at + len(out)
-        out += b''.join(new)
+        out += new
     # Shooting Menu row summary list (same 12-B entries)
     sid, cnt = struct.unpack_from('<HH', stock, ROW_SUM - BASE)
     lp = u32(stock, ROW_SUM + 4)
@@ -230,17 +276,42 @@ def strip(spec):
 
 
 
-def apply(spec, version='0.30n8'):
+def sd_back_edit(spec, stock):
+    """-> (loader edit, offset of the jmp's rel32 in it, current target)."""
+    for e in spec['edits']:
+        if e['kind'] == '0x100' and not e['addr'].startswith('off:'):
+            a, n = int(e['addr'], 16), len(e['new']) // 2
+            if a <= SD_BACK and SD_BACK + 5 <= a + n:
+                b = bytes.fromhex(e['new'])
+                if b[SD_BACK - a] != 0xdc:
+                    raise SystemExit('sd_back is not a jmp')
+                return e, SD_BACK + 1 - a, SD_BACK + struct.unpack_from('<i', b, SD_BACK + 1 - a)[0]
+    raise SystemExit('no loader edit covers sd_back')
+
+
+def apply(spec, version='0.31n2', log=False, selftimer=False):
     stock = STOCK.read_bytes()
     spec = strip(copy.deepcopy(spec))
     spec = FV.apply(spec, version)
     syms = dict(ep7_get=GET, ep7_prop=PROP, ep7_appget=APPGET, ep7_off=OFF, ep7_wr=WR, ep7_rd=RD, ep7_cb=CB,
-                ep7_flag=FLAG, ep7_keyst=KEYST, ep7_relchk=RELCHK, ep7_cont=CONT)
-    src = source()
+                ep7_flag=FLAG, ep7_keyst=KEYST, ep7_relchk=RELCHK, ep7_cont=CONT, ep7_rget=RGET, ep7_capf=CAPF, ep7_remf=REMF, ep7_reqf=REQF, ep7_regd=REGD, **LIB)
+    if log:
+        sd_e, sd_o, trig_next = sd_back_edit(spec, stock)
+        if trig_next == AT or AT <= trig_next < END:
+            raise SystemExit('sd_back already ours')
+        syms['ep7_trig_next'] = trig_next
+    src = source(log, selftimer)
     code, lst, s, _ = SB3.assemble(src, AT, syms)
-    ins = SB3.disasm(code, AT, s['lnd_end'])
-    if any(op in BAD for _, op, _ in ins) or any(k != 'sp' for _, _, k, _ in SB3.store_audit(ins)) or any(code[a - AT] == 0xfb for a, _, _ in ins):
-        raise SystemExit('forbidden instruction, fb-prefixed form or a non-stack store')
+    ins = SB3.disasm(code[:s['lnd_end'] - AT], AT)
+    if log:
+        if (s['lnd_log'], s['lnd_logb']) != (LOG_AT, LOG_B) or s['lnd_aend'] > LOG_END - 16 or s['lnd_lend'] > LOG_B_END:
+            raise SystemExit(f"readout {s['lnd_aend'] - LOG_AT} / {s['lnd_lend'] - LOG_B} B does not fit {LOG_END - 16 - LOG_AT} / {LOG_B_END - LOG_B}")
+        ins += SB3.disasm(code[LOG_AT - AT:s['lnd_aend'] - AT], LOG_AT) + SB3.disasm(code[LOG_B - AT:s['lnd_path'] - AT], LOG_B)
+    log_lo = LOG_AT
+    if any(op in BAD for _, op, _ in ins) or any(code[a - AT] == 0xfb for a, _, _ in ins):
+        raise SystemExit('forbidden instruction or fb-prefixed form')
+    if any(k == 'abs' or (k == 'ind' and a < log_lo) for a, _, k, _ in SB3.store_audit(ins)):
+        raise SystemExit('absolute store, or a non-stack store outside the readout part')
     if data_alignment(src, s) or AT % 4 or s['lnd_end'] % 4:
         raise SystemExit('misaligned')
     data_at = s['lnd_end']
@@ -251,9 +322,16 @@ def apply(spec, version='0.30n8'):
     if claim > END:
         raise SystemExit(f'{len(blob)} B does not fit {END - AT}')
     check_free(spec, stock, claim)
+    if log:
+        parts = ((LOG_AT, s['lnd_aend'], 'A'), (LOG_B, s['lnd_lend'], 'B'))
+        for lo, hi, tag in parts:
+            check_free(spec, stock, (hi + 15) // 16 * 16 + 16, lo)
+        for lo, hi, tag in parts:
+            spec['edits'].append(dict(kind='0x100', addr=hex(lo), expect=stock[lo - BASE:hi - BASE].hex(), new=code[lo - AT:hi - AT].hex(),
+                                      source=SRC, why=f'live_nd {version} readout {tag} ({hi - lo} B, dead EVF gamma table; refs only step-table words)'))
     spec['edits'].append(dict(kind='0x100', addr=hex(AT), expect=stock[AT - BASE:end - BASE].hex(), new=blob.hex(), source=SRC,
-                              why=f'live_nd n8 code + Number of Frames lists ({len(blob)} B, dead EVF gamma table; refs only step-table words)'))
-    for site, tgt, fr, stub, why in SITES:
+                              why=f'live_nd {version} code + Number of Frames lists ({len(blob)} B, dead EVF gamma table; refs only step-table words)'))
+    for site, tgt, fr, stub, why in SITES + (ST_HOOKS if selftimer else []) + (LOG_SITES if log else []):
         old = b'\xdd' + rel(site, tgt) + bytes.fromhex(fr)
         pre = PRE[site]
         if stock[site - len(pre) - BASE:site - BASE] != pre or stock[site - BASE:site + 7 - BASE] != old:
@@ -297,10 +375,27 @@ def apply(spec, version='0.30n8'):
     new = old[8:] + old[-8:]                         # shift down; the last slot (now past the count) keeps its bytes
     put_edit(spec, stock, ME_BLOCK + 8 * k, old, new, f'AP Multiple Exposure preset block: drop pair {SID_N} = 2 (unlock Number of Frames)')
     put_edit(spec, stock, PRESET_IDX + 8, struct.pack('<H', ME_COUNT), struct.pack('<H', ME_COUNT - 1), 'AP Multiple Exposure preset count 227 -> 226')
-    spec['live_nd'] = dict(built_by=SRC, test='n8', version=version, code_at=hex(AT), code_len=data_at - AT, block_end=hex(end), claim_end=hex(claim),
+    # drive rule (record 72, sid 3281): AP Multiple Exposure's rule 10 lets Custom Self-timer (24) through (0.31t2 only)
+    if selftimer:
+        rr = struct.unpack_from('<IHxxIHxx', stock, 0x60440184 - BASE)
+        cs = struct.unpack_from('<HhI', stock, rr[0] - BASE)
+        if rr[1:] != (1, DRV_MAP, 19) or cs != (24, 211, 0) or stock[DRV_CS - 2 - BASE:DRV_CS + 2 - BASE] != bytes.fromhex('18000000'):
+            raise SystemExit('drive rule 10 (AP Multiple Exposure) differs')
+        if sum(struct.unpack_from('<I', stock, i)[0] == DRV_MAP for i in range(0, len(stock) - 3, 4)) != 1:
+            raise SystemExit('drive rule 10 map is shared')
+        put_edit(spec, stock, DRV_CS, b'\0\0', struct.pack('<H', 24), 'drive rule 10 (sid 24 == 211, AP Multiple Exposure): Custom Self-timer (24) allowed')
+    if log:
+        if u32(stock, VT_REQ) != REQF:
+            raise SystemExit('ME vtable +3668 differs')
+        put_edit(spec, stock, VT_REQ, struct.pack('<I', REQF), struct.pack('<I', s['lnd_req']), 'readout: ME parts vtable +3668 (continue request) -> lnd_req')
+        b = bytearray.fromhex(sd_e['new'])
+        b[sd_o:sd_o + 4] = rel(SD_BACK, s['lnd_trig'])
+        sd_e['new'] = b.hex()
+        sd_e['why'] += f' [live_nd readout: sd_back -> lnd_trig (-> {trig_next:#x})]'
+    spec['live_nd'] = dict(built_by=SRC, test=version, log=log, selftimer=selftimer, trig_next=hex(trig_next) if log else None, version=version, code_at=hex(AT), code_len=data_at - AT, block_end=hex(end), claim_end=hex(claim),
                            values=VALUES, labels={str(v): t for v, (t, _) in LABELS.items()},
                            symbols={k: hex(v) for k, v in s.items() if k.startswith('lnd_')}, data={k: hex(v) for k, v in d.items()},
-                           sites=[hex(x[0] + 1) for x in SITES], data_edits=[hex(VAL_REC + 4)] + [hex(m + lo) for lo in (12, 28) for m in MENUS] + [hex(ROW_SUM + 2), hex(at), hex(ME_BLOCK + 8 * k), hex(PRESET_IDX + 8)])
+                           sites=[hex(x[0] + 1) for x in SITES + (LOG_SITES if log else [])] + ([hex(VT_REQ), hex(SD_BACK + 1)] if log else []), data_edits=[hex(VAL_REC + 4)] + [hex(m + lo) for lo in (12, 28) for m in MENUS] + [hex(ROW_SUM + 2), hex(at), hex(ME_BLOCK + 8 * k), hex(PRESET_IDX + 8)] + ([hex(DRV_CS)] if selftimer else []))
     return spec
 
 
@@ -308,9 +403,10 @@ if __name__ == '__main__':
     ap = argparse.ArgumentParser()
     ap.add_argument('spec', type=Path)
     ap.add_argument('--out', type=Path, required=True)
-    ap.add_argument('--version', default='0.30n8')
+    ap.add_argument('--version', default='0.31n2')
+    ap.add_argument('--log', action='store_true', help='with the readout (diagnostic builds only)')
     a = ap.parse_args()
-    spec = apply(json.loads(a.spec.read_text()), a.version)
+    spec = apply(json.loads(a.spec.read_text()), a.version, a.log)
     a.out.parent.mkdir(parents=True, exist_ok=True)
     a.out.write_text(json.dumps(spec, indent=1))
     print(json.dumps({k: v for k, v in spec['live_nd'].items() if k not in ('symbols', 'data')}, indent=1))

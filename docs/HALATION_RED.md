@@ -509,3 +509,143 @@ the glow.
 
 **Next step (needs the owner's go-ahead):** the chroma probe as a one-shot diagnostic on the grain route (0.5 session, one camera
 shot). Then H1 with effect 2 (1–1.5 sessions), then tuning against the §9 LED-strip scene (0.5–1 session).
+
+## 15. As built: h1 (patches/halation, 0.31h1, 2026-11-09; emulator-verified, not camera-tested)
+
+Layer on v0.30: `patches/halation/build.py releases/v0.30/edits.json --out generated/halation/h1/edits.json`, package
+`generated/halation/h1/pkg` (patched `b053f42e…`, restore `963f4dfe…2327`). Verifier `patches/halation/verify.py`: all pass.
+
+**Changes from the §14 design** (code space forced the first two):
+- **Route:** the Soft Focus blend hook (`gc_gs`), not the plain route. The pass is triggered only by looks that already run the
+  bloom passes (effect 1 or 2), so the ISP's luma glow stays and the CPU adds the tint. Order: blend → **halation → grain**.
+  Film grain sits over the glow.
+- **Grid:** 64 × 64 px cells, u8, one malloc (≤ 16 KB). Blur: two [1 2 1] passes per axis. With bilinear interpolation the
+  glow has σ ≈ 70 px, so the smallest halo is about 100–150 px. The §14 plan was 1/16.
+- **Map:** u = min(255, 21v/8), g = u(511 − u)/256 × gmax/256, a soft knee with no LUT. Coverage cap: no halation when ≥ 1/3
+  of the cells have g ≥ 16.
+- **Add:** with w = 255 − Y, Y += w·g·dY/2^16, C += w0·g·dC/2^16, clamped. The add fades on bright pixels, so white cores
+  stay white with no hard threshold.
+
+**Look fields, no format change [V]:** effect_id +28 = 2 (tint +45; 0 = red), or effect 1 with tint 1..4 (red, amber, warm,
+cool); strength +29 = 1..5 → gmax 64/96/128/176/224. The library's CineStill800 (bloom 4 red), CineStill50D and Vision3 500T
+get it. Bloom without a tint, Clarity, MONO and no card record stay as v0.30 [V emulator G].
+
+Tint rows at full glow on black (dY, dC0, dC1): red 48/−24/+72, amber 56/−48/+48, warm 56/−36/+30, cool 48/+48/−20.
+**C0 = byte 1 = Cb, C1 = byte 3 = Cr is the unproven guess** (§14.1). `--swap` builds the other order, a one-constant change.
+
+**Verified (emulator, real gc_gs/gc_lvl/gc_grain/lock/mapper/lookup; malloc, free, blend, flush stubbed):**
+- M 6/6: bit-exact with the Python model, red/amber/cool, direct and windowed;
+- E 1/1: a 5184 × 70 buffer across 0xd0000000, two pieces per row, mode restored;
+- G 22/22: off cases == v0.30; halation + Grain == v0.30's grain over the model;
+- C 2/2 (cap, no highlights); F 8/8 (malloc failures, bad records: untouched, frees balanced);
+- P: package, restore == stock, no stray bytes.
+
+**Cost [I]:**
+- Pass A: about 18 M instructions.
+- Pass B: under 1 M.
+- Pass C: about 6 instructions per pixel pair with no glow, about 45 with glow, on rows near highlights only. The Gp build
+  runs outside the lock.
+- At grain's measured rate (§14.2): about 1–2 s per photo for a night scene with lights, up to about 3 s near the cap,
+  on top of the bloom passes. One lock (and one full flush) per row piece.
+
+**Camera test (one round):**
+- Setup: COLOR slot with CineStill800 (bloom 4, red) or any halation look; night scene with white LEDs, tungsten lamps and
+  a dark background.
+- Red/orange halo around the lights: byte order is right.
+- **Blue/purple halo:** order swapped. Rebuild with `--swap`.
+- Green/cyan halo: the sign is inverted (unexpected).
+- Blotchy halo with neutral speckles: chroma is two's complement, not offset-binary. The clamp needs the XOR-0x80 form.
+- Also check:
+  - a daylight frame saves at normal bloom speed (cap);
+  - Grain on + halation works;
+  - no hang across ~10 shots.
+
+**Camera result, h1 (generated/v031h = v0.30 + recview r2 + halation h1):** success. CineStill 800T shows a clear red/orange halo
+around an LED strip, so the byte order C0 = Cb, C1 = Cr is right and `--swap` is not needed [V camera].
+
+## 16. h2: Halo on the Extras wheel (0.31h2, 2026-11-09; emulator-verified, not camera-tested)
+
+Chain: `releases/v0.30` → `patches/recview` (r2) → `patches/halation` (h2), built by `patches/halation/build.py
+generated/halation/h2/base_r2.json --out generated/halation/h2/edits.json`. The base is identical to generated/v031h/r2.json.
+Package `generated/halation/h2/pkg`. Verifier: all pass (M 6, G 29, C 2, F 8, A 80, X 47, K 2, L 1, E 1, P).
+
+**Control:** Extras **sector 11** (index 10), `11 Halo Off/Low/Med/High`. Sector 12 now shows `Extras: 1-11 only`. Slot byte
+**+52**:
+
+| +52 | Meaning |
+|---|---|
+| 0 | the look's (as h1): effect 2 (tint 0 = red), or 1 with tint 1..4; strength 1–2 Low, 3–4 Med, 5 High |
+| 1 / 2 / 3 / 4 | Off / Low / Med / High, set on the wheel |
+| other | off (the reader's check) |
+
+- Stages: gmax 112 / 176 / 240. **Med = h1's CineStill 800T** (strength 4, gmax 176). CineStill 50D and Vision3 500T are Low.
+- Tint stays the look's (+45: red, amber, warm, cool; 0 = red). There is no tint control, to keep the UI simple.
+
+**Behaviour:**
+- **The pass needs the Soft Focus blend.** `hl_flag` adds the 0x80 flag when a COLOR still with an ordinary capture kind has a
+  stage. So Halo works on any look, including one without bloom: the blend is neutral (bw_default 1024), as with Art + Grain.
+  Exceptions are kinds 0x2001, 0x2006, 0x1008 and 0x1006, the same as grain.
+- **A pick sets the look's halation:** a Film pick, Own or Stock sets +52 = 0. Grain +50, Sharp +51 and NR +24 are untouched
+  [V K].
+- **Defaults:** a reset gives the look's stage (`hl_def`), which is then written as an explicit value.
+- **The `*` marker** ignores +52, as it ignores Grain and Sharp.
+
+**Files:**
+- BUNDLES.BIN accepts +52 0..4 (SD loader span).
+- MOVIE.BIN and AP.BIN zero checks now start at +53.
+- `tools/ep7_bundles_bin.py` and `tools/ep7_movie_bin.py` accept +52 0..4.
+- The Control Panel does not know +52 yet.
+- **v0.31h1 and older reject a file with +52 ≠ 0.** Before going back, pick the look again in each slot changed on the
+  wheel; this resets +52 to 0.
+
+**Not emulated:** the guide text path (`hl_su`; same shape as sh_su, labels checked as bytes) and the Movie slot. The Movie
+slot saves the byte, but movies have no halation.
+
+
+## 17. Presets and Control Panel (2026-11-09; webapp tests and build pass; card files load-checked in the emulator)
+
+**Preset halation** (`bundles/library_v3.json` and `library_v3_20.json`): a bloom with a tint is a halo, staged by strength
+(1–2 Low, 3–4 Med, 5 High). Only Gold 200 gains a Glow pass: it costs about 1 s more per photo.
+
+| Look | Halo | Why |
+|---|---|---|
+| CineStill800 | Med red (unchanged) | No remjet: the defining red halo around lights |
+| CineStill50D | Low red (unchanged) | Same base without remjet; a daylight stock, so it shows less |
+| Vision3 500T | Low red (unchanged) | The real stock has remjet and almost no halation, but people expect a cine glow; Glow 1 keeps it faint |
+| Portra 400 | Low warm (new tint on its Glow 1) | Bright highlights in overexposed Portra scans show a soft warm bleed; it suits the "glowing skin" look |
+| Polaroid | Low warm (new tint on its Glow 2) | Integral film blooms warm around light sources |
+| Gold 200 | Low amber (new, Glow 1) | Consumer negative with a golden cast; a faint amber bleed around lights fits |
+| Vision3 250D, UltraMax 400, Pro 400H, Cuban Neg | none | Remjet daylight stock; a grain-led, punchy look; a cool pastel look; a look whose Glow is a soft bloom, not a halo |
+| Slide films, B&W, Faux IR, Cross Proc., Atrophy | none | Slide and mono stocks have anti-halation layers. The halo can't be neutral for mono (tint 0 = no halo on bloom) |
+
+`LOOKS.BIN` changes only in those three records: Portra 400 and Polaroid +47 = 3, and Gold 200 +28/+29/+47 = 1/1/2.
+
+**Control Panel** (`webapp/`):
+- **Per look:** **Halo** Off/Low/Med/High and **Halo colour** Red/Amber under the Glow ↔ Clarity slider. Warm/Cool are
+  shown only when a look already has them.
+  - The halo is the tinted Glow: Low/Med/High set Glow 2/4/5, and Off keeps the Glow without a tint.
+  - The share format is unchanged: look codes already carry effect, strength and tint.
+- **Per COLOR profile (Export → slots):** **Sharp** Camera/Off (+51, v0.28+) and **Halo** Look/Off/Low/Med/High (+52, v0.31+).
+  - Both are optional fields in `profiles`, so older packs and links load unchanged.
+  - Older apps ignore the new keys.
+- **Firmware selector:** v0.31+ (new default), v0.28–v0.30, then the older options. Older choices write 0 in the bytes
+  their firmware would reject.
+- **Other targets:** the OM-3 target already turns halation into a plain glow (no tint), and the recipe card says
+  "Glow N of 5, halo Low (amber)".
+- **Tests:**
+  - Tests that compared the built-in library byte for byte with the v0.24 release file now compare it with that file plus
+    the three record edits (`webapp/tests/halation-fixture.ts`).
+  - The old Gold 200 v1 share code still decodes, to the look as it was before the halo.
+  - New tests cover the Halo helpers, the +51/+52 bytes per firmware, and pack/link round trips.
+  - `npm test`: 103 passed, 1 skipped (OM-3 cross-check: its repo isn't present). `npm run build`: OK.
+
+**User card** (`generated/halation/h2/card/EP7MOD/`):
+- `LOOKS.BIN` is regenerated with `tools/ep7_looks_bin.py`.
+- `BUNDLES.BIN` is the user's own file, unchanged. Its COLOR slots hold Portra 160, CineStill800, Provia 400 and Cuban Neg.
+  - Bytes 0..31 and the tint match the new look records, so nothing needed rewriting.
+  - The user bytes stay: NR +24, Grain +50 (COLOR4 High), Sharp +51 and WB.
+  - +52 = 0 everywhere, so COLOR2 (CineStill800) gets its Med halo from the look.
+- `patches/halation/check_card.py` runs the h2 image's own `sd_check` and `fm_check` in the emulator:
+  - both files accepted;
+  - +52 = 4 accepted and +52 = 5 rejected;
+  - bad CRCs rejected, and a tint of 5 rejected.

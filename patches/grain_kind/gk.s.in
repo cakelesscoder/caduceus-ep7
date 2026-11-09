@@ -1,0 +1,71 @@
+/* E-P7 1.1 grain_cpu kind guard fix (ep7-firmware, our own code). docs/GRAIN_PORT.md "Kind guard fix (gk1)".
+ *
+ * gc_flag (patches/grain_cpu/gr2.s.in) read the capture kind as (194,a3), but a3 is the capture record; the kind (request
+ * "Mode") is +194 of the source request, params+4 = (-8,a2). So guards 05..08 never fired (camera records: kind 0).
+ *
+ * gk_rec  (site 0x601dfd30): the record's kind field gets the real Mode.
+ * gk_kind (site 0x601dfd87): guards 05..08 now apply, but only where they cannot touch a photo:
+ *   - only on the forced-0x80 branch (grain + Art Effect slot). The plain-look branch (gc_pend) runs as before for every
+ *     kind, so the pending level hand-off to gc_wl is unchanged;
+ *   - only when the stock type mapper 0x603ea909 gives the job a type other than 0x1000. Grain is only ever applied to
+ *     type 0x1000 jobs (gc_wl, gc_gs), so a skipped job could never have been grained.
+ */
+ .am33_2
+ .text
+ .global _start
+_start:
+gk_rec:
+ clr d0
+ mov (-8,a2),a0                   /* source request */
+ cmp 0,a0
+ beq 1f
+ movhu (194,a0),d0                /* Mode */
+1:
+ movhu d0,(58,a1)                 /* replaced: movhu (194,a3),d0; movhu d0,(58,a1) */
+ jmp ep7_rec_back                 /* 0x601dfd37 */
+
+/* a0 = the slot (from tbl_x), a2 = params+12, a3 = capture. Free: d0, d1, a1. */
+gk_kind:
+ movbu (46,a0),d0                 /* forced-0x80 branch only: Art Effect 1..2 */
+ add -1,d0
+ cmp 2,d0
+ bcc gk_go
+ call gk_sub,[d2,d3,a2,a3],20     /* d0 = guard id or 0; a0 kept */
+ cmp 0,d0
+ beq gk_go
+ mov d0,d1
+ jmp ep7_skip                     /* 0x601dfdc6: guard exit (d1 = id) */
+gk_go:
+ jmp ep7_kind_back                /* 0x601dfdab: the Art Effect test, as stock gc_flag after its guards */
+
+gk_sub:
+ mov a0,d2
+ clr d3
+ mov (-8,a2),a0
+ cmp 0,a0
+ beq 9f
+ movhu (194,a0),d0
+ mov 5,d3
+ cmp 0x2001,d0
+ beq 2f
+ mov 6,d3
+ cmp 0x2006,d0
+ beq 2f
+ mov 7,d3
+ cmp 0x1008,d0
+ beq 2f
+ mov 8,d3
+ cmp 0x1006,d0
+ beq 2f
+ clr d3
+ bra 9f
+2:
+ call ep7_type,[d2,a2],12         /* a0 = source request -> d0 = job type */
+ cmp 0x1000,d0
+ bne 9f
+ clr d3                           /* a type-0x1000 job is never skipped */
+9:
+ mov d3,d0
+ mov d2,a0
+ ret [d2,d3,a2,a3],20
+gk_end:

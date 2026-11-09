@@ -3,6 +3,16 @@
 Caduceus firmware patches for the Olympus PEN E-P7 (firmware 1.1). Releases from v0.25 are betas; earlier ones
 were early-development pre-releases. Use at your own risk (see the README).
 
+## v0.31 — 2026-11-10 (beta)
+
+- **Tinted halation:** a red/orange glow around bright lights, like CineStill and other films without an anti-halation layer. Set it per profile on Extras sector 11 **Halo**: Off / Low / Med / High. Picking a look sets its own halo (CineStill 800T Med; CineStill 50D, Vision3 500T, Portra 400, Polaroid and Gold 200 Low), and you can change it after. White cores stay white, and grain sits on top. It adds about 1–2 s to saving a night photo with lights, and very bright frames (lots of sky) skip it so they save at normal speed. Stills only.
+- **Rec View with bloom and clarity looks fixed ([#19](https://github.com/cakelesscoder/caduceus-ep7/issues/19)):** the review image no longer goes black while the effect processes. It shows the shot (without the glow) for the whole Rec View time, and the saved photo still has the effect.
+- **Grain fix:** a safety check in the grain code read the wrong record and never ran. It now keeps grain's extra pass off the small preview images when a look has an Art Effect. Grain on your photos is unchanged.
+- **Live ND is safe in every drive mode:** ND3 and ND4 take one frame per press (Single or Sequential), and can no longer stall or crash. One-press capture is parked for now.
+- **Control Panel:** looks get **Halo** and **Halo colour** (Red / Amber), and the Export page gets per-profile **Sharp** and **Halo**. Choose the v0.31 firmware option there. Older share codes and packs still load.
+- `LOOKS.BIN` updated with the new halos; the builder copies it to the card as usual, and your `BUNDLES.BIN`, `MOVIE.BIN` and `AP.BIN` are kept.
+- Firmware screen shows `Caduceus: 0.31`.
+
 ## v0.30 — 2026-11-09 (beta)
 
 - **AP Custom colour:** on the AP dial position, picture mode Vivid becomes its own colour profile, as Movie colour does for movies, saved in `EP7MOD/AP.BIN`. Half-press once after switching on; Vivid then reads `INFO Custom`. On the Super Control Panel, highlight the picture-mode cell on Vivid and press **INFO** (or press OK on the Saturation cell) to open the full colour wheel; INFO in Live Control works too. Use it with Multiple Exposure, Live Composite and the other AP modes.

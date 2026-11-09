@@ -190,6 +190,64 @@ Off (camera: short frame, no black, LV returns). About 6 B + 40–60 B, slot loo
 Auto ▶ and ▶ still show the finished photo. Risk low: a stock path, no capture code touched. It does not keep the first image up;
 that needs the black's cause first. **Camera test:** bloom look with Rec View 2 s, burst, RAW+JPEG; plain look unchanged.
 
+### As built (recview r1, 0.31r1, 2026-11-09; emulator-verified, not camera-tested)
+
+**Re-check of the diagnosis.** The earlier trace read source-request +206 as a "pass number". The converter debug dump
+(`0x603e5980..`, field-name strings `0x6053d4xx`) names the fields: +194 **Mode**, +196 SubMode, +204 **Dst**, +206 **Src**. So
+the art gate is "Mode 0x2001/0x2006 with Src 2", not "pass 2". It also missed the link to #20 [V code]:
+- The stock type mapper `0x603ea909` gives Mode 0x2001/0x2006 the job types **0x110 / 0x120** (0x1000 when `0x603ed45a` says so);
+  every other still Mode is 0x1000 or 0. The builders call it right after the converter (`0x603e619a`, `0x603e8ae2`).
+- For art keys the constructor strips Soft Focus 0x80, Star Light 0x40, Blur 0x300 and more on type 0x1xx / 0x4x (`0x60353b15`).
+  So stock **never** runs Soft Focus on those jobs. ART Soft Focus also clears the whole art key for Src 2 (`0x603eaa78`).
+- That strip never runs for key 11. bloom_flag (and gc_flag's forced 0x80, and the Art stub's 0x40) put the flags on every
+  still development of a shot, the 0x1xx ones included.
+- Camera evidence (`testdata/camera_grain_d2`, `d3`, GRAIND.BIN): the flag hook runs **twice per shot**, but the class 0–3 blend
+  setup word runs once, on the type-0x1000 job that becomes the JPEG. The other development took 0x80 down a different route,
+  consistent with a small 0x1xx job (classes 4–8: the one-pass combiner-12 entry).
+- [I] That second, small development is the review image. Running Soft Focus on a job type stock never gives it is the most
+  likely cause of the black. The display path itself is untouched. Not proven on the camera: the review job's Mode and class
+  were never recorded.
+- Side finding: gc_flag's kind guard (`patches/grain_cpu`, ids 05–08) reads `(194,a3)` on the **capture** record, not the
+  source request. The camera records show kind 0 every time, so that guard never fires. rv_gate covers it for 0x80 on 0x1xx.
+  Fixed in r2 by `patches/grain_kind` (GRAIN_PORT "Kind guard fix (gk1)").
+
+**Fix.** `rv_gate` (`patches/recview/rv.s.in`, 85 B at `0x601de780`) is entered from bloom_flag's tail (`0x6055e613`, was
+`jmp 0x603eabdd`). It runs after gc_flag, bloom_flag and the Art stub. For a key-11 job with 0x40 or 0x80 set and a source
+request (params+4), it calls `0x603ea909` exactly as the builder does next. If the type is 0x1xx or 0x4x it clears 0x40 and
+0x80, the stock art rule. It then replays `movbu (24054,a3),d0; cmp 0,d0` and jumps to `0x603eabdd`. MDR is kept, and the only
+store is the flags word. The saved photo (type 0x1000) keeps its bloom, clarity and grain. The review should show the look
+without glow, like stock ART's first image. There is no refresh after processing (stock's d0 = 65 route is not used).
+
+**Other effects.** CPU grain alone doesn't touch review jobs: `gc_wl` and `gc_gs` need type 0x1000, so only the photo job is
+grained. It still adds the save time. Grain on an Art Effect slot forces 0x80 on all developments, and r1 covers that. Sharp Off
+(`sh_get`) and NR (`nr_get`) only change values the capture reads. They add no passes and need nothing here. Pin Hole (0x400) is
+left alone, as stock leaves it on 0x1xx.
+
+**Verify** (`patches/recview/verify.py`, real code 0x603eabd7 → 0x603eabdd on stock, v0.30 and r1). **R** passes 84/84:
+- bloom, clarity, Star Light, and grain with Art on kinds 0x2001/0x2006 come out as stock flags (Pin Hole kept);
+- kinds 0x1001/0x100a/0x1006/0x1008, 0x2001 typed 0x1000, plain looks, keys 12 and 0x01010065, mode 12, profile 0, and no source
+  all match v0.30;
+- registers, sp, MDR and PSW match.
+
+**P** passes: the package decodes to the emulated image and the restore is stock. Only the block, the tail jmp and the
+fw_version label differ from v0.30.
+
+**Package:** `generated/recview/rel/patched.pkg.bin` sha256 `54b2222ad3494672257ae094e5601d54dcc85a960a0f26da71e6a17f89db8620`.
+Restore `963f4dfe…2327`.
+
+**r2 (0.31r2) = grain_kind + r1:** `generated/recview/rel2/patched.pkg.bin` sha256
+`89d3d966054ff26538b949187fedb7ed6b679a0ed26a607e8139e22817153e99` (spec `generated/recview/edits.json`; r1 is now
+`edits_r1.json` / `rel_r1/`). Verify: R 84/84, G 54/54, P pass.
+
+**Camera test:**
+1. Set Rec View to 2 s. Take one shot each with a bloom look, a clarity look and a plain look, all at size L.
+2. Expected: the bloom and clarity shots show the picture, without glow, for the full 2 s. The plain look is unchanged. In
+   playback, the bloom and clarity JPEGs still have their effect.
+3. Shoot a short burst with a bloom look, then RAW+JPEG.
+4. r2: shoot a grain look at ISO 3200, with and without an Art Effect. The JPEG grain should match v0.30.
+
+If the review is still black, the review job isn't 0x1xx. The next step is a one-shot readout of Mode/Src/type in the flag hook.
+
 ## #19 (b): the camera gets hot
 
 What runs per live-view frame [V code, I rate]:

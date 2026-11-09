@@ -535,3 +535,31 @@ Source `patches/grain_cpu/gr2.s.in` is made from s3's `gs1.s.in` with only r1's 
 - **Glow, Clarity and Art Effect looks keep their own passes**, and the grain is added after them. Pin Hole is the exception: its vignette pass runs after the grain.
 - **Files:** BUNDLES.BIN and MOVIE.BIN with Grain set are rejected by v0.26 and older. Set Grain to Off before going back.
 - The Control Panel (`webapp/`) doesn't know +50 or the NR move yet.
+
+## Kind guard fix (gk1, 2026-11-09; in 0.31r2, emulator-verified, not camera-tested)
+
+**Bug [V].** `gc_flag` reads the kind as `(194,a3)`. In the converter, a3 is the **capture** record. The kind ("Mode" in the
+converter's debug dump) is +194 of the **source request**, at params+4 = `(-8,a2)`. So guards 05–08 never fired, and the record's
+kind is 0 in every camera file (`testdata/camera_grain_d2`, `d3`, `s2`, `s3`).
+
+**What the guards were meant to exclude [V code].** Kinds 0x2001 and 0x2006 map to job types 0x110/0x120, and 0x1006/0x1008 map
+to type 0 (stock mapper `0x603ea909`). These are the shot's extra developments, not the photo. The camera files show two flag-hook
+calls per shot, with grain once, on the type-0x1000 job. A kind check alone is not safe: 0x2001 maps to type 0x1000 when
+`0x603ed45a` returns 1. The plain-look branch also hands the level to `gc_wl` through block +95 (`gc_pend`), and every flag-hook
+call clears it first. A skipped development that ran between the photo's flag hook and its constructor would therefore drop the
+photo's grain.
+
+**Fix (`patches/grain_kind`, 118 B at 0x601de800, two jmp hooks inside gc_flag).**
+- The record kind is the source Mode.
+- Guards 05–08 apply only on the forced-0x80 branch (grain + Art Effect slot), and only when the mapped type is not 0x1000.
+- The plain-look branch, and so the level hand-off, is unchanged for every kind.
+- Grain only ever lands on type-0x1000 jobs (`gc_wl`, `gc_gs`), so no job that could be grained is skipped.
+- Result: a grain + Art slot no longer forces Soft Focus on type-0 developments. recview's `rv_gate` already removes it from the
+  0x1xx ones.
+
+**Verify** (`patches/recview/verify.py` G, 54/54, v0.30 vs r2, with heap block and SD table): the block +95 level equals v0.30
+in every case. Grain + Art keeps 0x80 on type-0x1000 kinds, including 0x2001 typed 0x1000. Guards 05–08 fire exactly on the
+forced branch with a type other than 0x1000. Record +58 is the Mode.
+
+**Not a grain_cpu source change.** It is a layer, so the camera-tested r2 bytes and the v0.27→v0.30 chain are untouched. The
+committed chain (`patches/v030/build.py releases/v0.28/edits.json`) rebuilds `releases/v0.30/edits.json` exactly.

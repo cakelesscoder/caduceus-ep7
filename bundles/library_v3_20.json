@@ -18,7 +18,8 @@
    "grain": "low",
    "effect": {
     "type": "bloom",
-    "strength": 1
+    "strength": 1,
+    "tint": "warm"
    },
    "notes": "Warm pastel portrait negative: glowing skin, soft contrast."
   },
@@ -32,6 +33,11 @@
    "name": "Gold 200",
    "recipe": "lib2_gold",
    "grain": "low",
+   "effect": {
+    "type": "bloom",
+    "strength": 1,
+    "tint": "amber"
+   },
    "notes": "Golden consumer negative: sunny yellows, muted cyan skies."
   },
   "portra160": {
@@ -126,7 +132,8 @@
    "grain": "low",
    "effect": {
     "type": "bloom",
-    "strength": 2
+    "strength": 2,
+    "tint": "warm"
    },
    "notes": "Integral instant film: faded, low contrast, warm highlights, cyan-green shadows."
   },

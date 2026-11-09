@@ -1,5 +1,5 @@
 // Recipe card (any camera): one Markdown card per look with every parameter in plain words, to dial in by hand.
-import { SECTORS, type Look } from '../pack';
+import { SECTORS, lookHalo, type Look } from '../pack';
 import type { Target } from './types';
 
 const sg = (v: number) => (v > 0 ? `+${v}` : v < 0 ? `−${-v}` : '0');
@@ -16,8 +16,8 @@ function wbText(wb: Look['wb']): string {
 function effectText(e: Look['effect']): string {
   if (!e) return 'Off';
   if (e.type === 'clarity') return `Clarity ${e.strength} of 5 (local contrast)`;
-  const tint = e.tint ?? (e.type === 'halation' ? 'red' : 'neutral');
-  return `Glow ${e.strength} of 5 (${e.type === 'halation' ? 'halation, ' : ''}${tint} tint)`;
+  const h = lookHalo({ effect: e });
+  return h.stage === 'off' ? `Glow ${e.strength} of 5` : `Glow ${e.strength} of 5, halo ${cap(h.stage)} (${h.tint})`;
 }
 
 /** The Markdown recipe card of one look. */

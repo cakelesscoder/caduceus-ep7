@@ -86,18 +86,21 @@ Verified loaded FF tails (docs/HSL_PORT.md; section 2 range re-verified via load
 
 | OSD 0x101 off 0x15115e0–0x1512768 | OSD res 69 tail | **aspect v8 icons** (patches/aspect/osd_icons.py): 4 payload+descriptor pairs (XPAN/21:9 white+green), runtime 0xa3e22600–0xa3e23788; resource-69 directory size (off 0x454) 0x811600 → 0x812800; bitmap table words ids 5687/5685/4859/4431 (off 0x465218/0x465220/0x463e80/0x464530) | built + decoder-verified (v0.15) |
 
-## live_nd (0.30n8, patches/live_nd, docs/LIVE_ND.md "As built")
+## live_nd (0.31n2, patches/live_nd, docs/LIVE_ND.md "As built")
 
-Layered on v0.29a. Built + emulator-verified, not camera-tested. n1 (AP tiles, 0x601de540–0x601de96c and its hooks/lists)
-and n2 are superseded; bytes n3 doesn't list are stock.
+Layered on v0.29a and on v0.30's chain; in 0.31t2 via patches/v031 (v030 chain → recview/grain_kind → halation). Built +
+emulator-verified, not camera-tested. ND3/ND4 = one frame per press, except AP ME + drive Custom Self-timer = one press.
+0.31n1's +156 hook and n8's lnd_cont are gone. The readout (`--log`) is a diagnostic option only; its old A/B placements
+now belong to halation (0x601de880–0x601dea3c) and are not reserved.
 
 | Range or site | Section | Owner |
 |---|---|---|
-| 0x601de540–0x601de76c (556 B, claim to 0x601de780) | 1 | **live_nd n8**: lnd_kg / lnd_ap / lnd_ape / lnd_n / lnd_kn / lnd_a / lnd_cont (304 B), "ND3"/"ND4", sid-267 validator list, five 4-entry Number of Frames lists. Dead EVF gamma table 4 tail + table 5; only refs: step-table words (0x601e3c18 -> 0x601de63c; 0x601e3c14 -> 0x601de53c). Five pinned false positives in build.py. **0x601de780–0x601df13c stays free** (ap_custom claims 0x601df13c–0x601dfc2c) |
+| 0x601de540–0x601de724 (484 B, claim to 0x601de740) | 1 | **live_nd 0.31n2**: lnd_kg / lnd_ap / lnd_ape / lnd_n / lnd_kn / lnd_a / lnd_nd / lnd_ns / lnd_st, "ND3"/"ND4", sid-267 validator list, three 4-entry Number of Frames lists. Dead EVF; only refs: step-table words. 0x601de780–0x601de800 is recview's |
+| 0x602e7da1, 0x602f08ec, 0x609350be, 0x6094268a, 0x60945bcc, 0x6094a594, 0x6094de0c, 0x6096093e, 0x6095218d, 0x609521d0 (4 each, rel32) | hooks | live_nd: `call 0x602afa81,[],4` after `mov 469/470/471,d0` -> lnd_st (custom self-timer frames / interval / delay) |
+| 0x6043fc3a (2) | data | live_nd: drive rule DB record 72 (sid 3281), rule 10 (sid 24 == 211) map entry 0x6043fc38 (24 -> 0) -> (24 -> 24): Custom Self-timer allowed in AP Multiple Exposure |
 | 0x602a8379, 0x602a838c (4 each, rel32) | hooks | live_nd: capture population Auto Gain (key 0x1851) -> lnd_kg, frames (key 0x1841) -> lnd_kn. Not ap_custom's capture sites (0x602a8577+) |
 | 0x608296d8, 0x60919ec8, 0x6091a848, 0x6091b068, 0x6096b2cb, 0x6096ca1d (4 each, rel32) | hooks | live_nd: sid-267 reads (ME on, ME controller, ME sequence parts) -> lnd_n |
 | 0x60cdcd27, 0x60cddb18, 0x60cde34c, 0x60cea731 (4 each, rel32) | hooks | live_nd: app-layer sid-267 reads via 0x60ccf9f3 -> lnd_a |
-| 0x6096b01a (4, rel32) | hook | live_nd n8: ME parts continuous frame-done flag call `call 0x60947b55,[d2],4` at 0x6096b019 -> lnd_cont (stock call, then one more stock sendTakePictureContinue while ND3/ND4 in AP ME, shutter held, (212) == 0 and the stock release check passes) |
 | (withdrawn in n7) | – | n5/n6 continuous route: 0x602b9b8b, 0x602b9860, 0x609351be, 0x60935637, 0x6094b00d, 0x60965c38 (rel32), 0x604345b4, 0x6043ad10, 0x60b4ffac (data) are **stock again** (camera 0.30b7: hang) |
 | 0x604cebc8 (10) | data | live_nd: validator record 438 (sid 267) list pointer + byte count 2 -> 4 |
 | 0x611bf20c, 0x611cc978, 0x611bf21c, 0x611cc988 (8 each), 0x6117b156 (6) | data | live_nd: Number of Frames descriptors 0x611bf200 / 0x611cc96c, both lists (+12 row, +28 popup) pointer + count 2 -> 4; Shooting Menu row summary {267, count, list} at 0x6117b154 count 2 -> 4 + list |
@@ -143,3 +146,41 @@ Every row above is E-P7 only. **Do not reuse the E-P7 dead EVF gamma tables here
 | 0x602d70a1 (5), 0x602b77a8 (5), 0x603f351c (6), 0x603f6055 (6), 0x603bd332 (5), 0x603be45b (7) | hooks | sd_hook, cap_over, conv1, conv2, hl, tone |
 | 0x602b7627; 10 WB; 5 shading; 2 NR (4 B each, rel32) | hooks | m_get; wb_get; sc_get; nr_get: addresses in patches/em10iv_vivid/build.py |
 | 0x6036164c (3), 0x60361769 (2) | data | Job size 15484 → 15508; tail memset 16 → 40 |
+
+## recview (0.31r1, patches/recview, docs/ISSUES_19_20.md "As built (recview r1)"; built + emulator-verified, not camera-tested)
+
+| Range or site | Section | Owner |
+|---|---|---|
+| 0x601de780–0x601de7d5 (85 B, claim 0x601de780–0x601de800) | 1 | rv_gate / rv_sub. Dead EVF gamma table space after live_nd's claim; only refs are step-table words (build-checked). 0x601de800–0x601dea3c stays free |
+| 0x6055e613 (5, jmp rel32, inside the bloom block) | hook (chained) | bloom_flag's tail `jmp 0x603eabdd` -> `jmp rv_gate`, which replays `movbu (24054,a3),d0; cmp 0,d0` and jumps to 0x603eabdd |
+
+## grain_kind (gk1, patches/grain_kind, docs/GRAIN_PORT.md "Kind guard fix (gk1)"; in 0.31r2 via patches/recview; emulator-verified, not camera-tested)
+
+| Range or site | Section | Owner |
+|---|---|---|
+| 0x601de800–0x601de876 (118 B, claim 0x601de800–0x601de880) | 1 | gk_rec / gk_kind / gk_sub. Dead EVF gamma table space; only refs are step-table words (build-checked). 0x601de880–0x601dea3c stays free |
+| 0x601dfd30 (7), 0x601dfd87 (6), inside the grain_cpu r2 block | hooks (chained) | gc_flag `movhu (194,a3),d0; movhu d0,(58,a1)` -> jmp gk_rec; `movhu (194,a3),d0; mov 5,d1` -> jmp gk_kind |
+
+## halation (0.31h1 camera-tested; 0.31h2 adds Extras sector 11; patches/halation, docs/HALATION_RED.md §15–16)
+
+Layered on v0.30 (needs grain_cpu r2). Composes with recview in either order (checked).
+
+| Range or site | Section | Owner |
+|---|---|---|
+| 0x601e0850–0x601e0b34 (740 B, claim 0x601e0850–0x601e0b3c) | 1 | `.text`: hl_pb (blur, map) / hl_box / hl_li / hl_gpb / hl_row / hl_seg (window lock, pass A and pass C loops) + tint and gmax tables. The unused tail of grain r2's claim (grain ends 0x601e084d); same dead EVF gamma tables and refs (step-table words 0x601e3b54/58, grain's pinned false positives) |
+| 0x601de880–0x601dea3a (442 B, claim 0x601de880–0x601dea3c) | 1 | `.hlb`: hl_lvl / hl_grain / hl_run P1 (record checks, buffers). After recview's gk_* claim (to 0x601de880), before min_ss (0x601dea3c). Only ref: step-table word 0x601e3c08 |
+| 0x601e3ae4–0x601e3b33 (79 B, claim 0x601e3ae4–0x601e3b3c) | 1 | `.hlc`: hl_pa (pass A) + hl_x98 (frees). The unused tail of the v0.25 claim (dead EVF step-0 B); no refs |
+| 0x605b7780–0x605b77fb (123 B, claim 0x605b7780–0x605b7800) | 3 | `.hlp`: hl_pc (coverage cap, pass C). Section 3 FF tail inside the load, after the SD loader v3 claim; no refs. Runs only when the grain record exists, i.e. after the card loader, so all sections are loaded |
+| 0x601dfe2b, 0x601dfe9e (2 each, rel16 inside grain r2's gc_gs) | hooks | `call gc_lvl` -> hl_lvl, `call gc_grain` -> hl_grain (same frames) |
+| grain record +96 (u16) | heap | halation word for the job (tint << 4 \| strength), written by hl_lvl, cleared by hl_grain |
+| 0x601de280–0x601de331 (177 B, claim 0x601de280–0x601de33c) | 1 | h2 `.hlf`: hl_stg / hl_auto / hl_flag / hl_ua + "Extras: 1-11 only". The unused tail of sharp_off's claim (sh_* end 0x601de280); pinned false positive 0x606c81c5 as sharp_off |
+| 0x601e1e04–0x601e1e38 (52 B, claim 0x601e1e04–0x601e1e3c) | 1 | h2 `.hll`: the four "11 Halo …" labels (13 B each). Dead EVF step-9 R tail between aspect_scp's block (to 0x601e1e00) and mv's claim (0x601e1e3c); starts at +4 so the byte-table word 0xa01e1e01 at 0x611a5fc4 stays outside |
+| 0x6143a350–0x6143a3e3 (147 B, claim 0x6143a350–0x6143a3f0) | 9 | h2 `.hlx`: hl_sg / hl_ss / hl_su / hl_def (Extras sector 11, slot +52). Sec-9 FF tail before film menu v2's guard 0x6143a400; the `cmp 0x6143a350,a0` at 0x613feff6 is a wrapping hash-table bound (HSL_PORT.md), pinned. Only reached from the look editor (card loaded, so all sections are) |
+| 0x601dfdce (4, rel32 inside grain r2's gc_flag) | hook | gc_flag tail `jmp bloom_flag` -> hl_flag (adds Soft Focus flag 0x80 when a COLOR still has a halation stage) |
+| 0x601e2e36 (4, rel32) | hook | u_apply `jmp gc_ua` -> hl_ua (a Film pick / Own / Stock sets +52 = 0) |
+| 0x601e1264, 0x601e128c, 0x601e12eb, 0x601e3349 (4 each, rel32) | hooks (chained) | tone_x sector ≥ 7 get / set / guide and ex_default tail: sh_* -> hl_sg / hl_ss / hl_su / hl_def (index 10, else sh_*) |
+| 0x601e12aa (4) | data | tone_x label word: "Extras: 1-10 only" -> hl_xl "Extras: 1-11 only" |
+| 0x605b7721 + 52 (1) | data | SD loader v3 span: slot +52 0..4 |
+| 0x601e0d12/15, 0x601df8e4/e7 (1 each) | code | mv_load (MOVIE.BIN) and ap_load (AP.BIN) zero checks: from +53, 11 B |
+| slot byte +52 | ABI | Halo: 0 = the look's, 1 Off, 2 Low, 3 Med, 4 High. Not in LOOKS.BIN (a pick resets it to 0); v0.31h1 and older reject a non-zero one |
+

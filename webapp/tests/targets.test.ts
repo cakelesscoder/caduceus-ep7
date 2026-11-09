@@ -61,7 +61,7 @@ describe('recipe cards', () => {
     l.art_effect = 'pin_hole';
     const c = recipeCard(l);
     for (const s of ['# Test Look', 'Some notes.', '**Type:** Colour', 'Amber 3 (A–B +3)', 'Magenta 2 (G–M −2)',
-      'Glow 2 of 5 (amber tint)', '**Art effect:** Pin Hole', '**Highlights:** −2', '**Midtones:** +1', '**Shadows:** +3',
+      'Glow 2 of 5, halo Low (amber)', '**Art effect:** Pin Hole', '**Highlights:** −2', '**Midtones:** +1', '**Shadows:** +3',
       '**Blacks:** +2', '**Whites:** −1', '| Red | +2 | 0 | 0 |', '| Blue | 0 | −4 | 0 |', '| Green | 0 | 0 | +1 |'])
       expect(c, s).toContain(s);
     for (const s of SECTORS) expect(c).toContain(`| ${s} |`);

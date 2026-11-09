@@ -15,12 +15,14 @@ import {
   type Look, type Pack, type Tone,
 } from '../src/pack';
 import committed from '../src/data/library.json';
+import { releaseLooksWithHalation } from './halation-fixture';
 
 const WEBAPP = join(__dirname, '..');
 const ROOT = join(WEBAPP, '..');
 const python = ['.venv/bin/python', 'python3'].map((p) => (p.startsWith('.') ? join(ROOT, p) : p))
   .find((p) => { try { execFileSync(p, ['-c', '0']); return true; } catch { return false; } });
 const RELEASE_LOOKS = join(ROOT, 'releases/v0.24/card/EP7MOD/LOOKS.BIN');
+const released = () => releaseLooksWithHalation(RELEASE_LOOKS);   // + the 0.31h2 preset halation
 const hex = (b: Uint8Array) => Buffer.from(b).toString('hex');
 const library = () => parsePack(resolveRepoLibrary(ROOT));
 
@@ -32,7 +34,7 @@ const cardView = (l: Look) => ({
 
 describe('built-in library', () => {
   it('LOOKS.BIN is byte-identical to the released v0.19 card file', () => {
-    const want = new Uint8Array(readFileSync(RELEASE_LOOKS));
+    const want = released();
     const got = encodeLooksBin(library());
     expect(got.length).toBe(want.length);
     expect(hex(got)).toBe(hex(want));
@@ -63,7 +65,7 @@ describe('built-in library', () => {
 
   it('imports the released LOOKS.BIN and its own export with tone', () => {
     const lib = library();
-    const rel = decodeLooksBin(new Uint8Array(readFileSync(RELEASE_LOOKS)));
+    const rel = decodeLooksBin(released());
     expect(rel.looks).toEqual(lib.looks.map(cardView));
     const r = rng(11);
     lib.looks.forEach((l) => { if (l.kind === 'colour') l.tone = randomTone(r); });
@@ -367,5 +369,53 @@ describe('v0.27 Grain and NR per COLOR profile', () => {
     expect((await decodePackCode(await encodePackCode(p))).profiles).toEqual(p.profiles);
     expect(parsePack({ schema: 'caduceus-pack/1', looks: [{ name: 'x', grain: 'film' }] }).profiles).toBeUndefined();
     expect(() => parsePack({ ...p, profiles: { MONO1: { grain: 'low' } } })).toThrow(/profile/);
+  });
+});
+
+describe('0.31h2 halation: Halo per look, Sharp and Halo per COLOR profile', () => {
+  afterEach(() => setFirmware(FW_LATEST));
+  const slot = (b: Uint8Array, k: number) => b.subarray(32 + 64 * k, 32 + 64 * (k + 1));
+  it('the look\'s Halo reads the firmware rule and sets bloom + tint (strength 2 / 4 / 5)', async () => {
+    const { lookHalo, setLookHalo } = await import('../src/pack');
+    const l = blankLook('colour', 'H');
+    expect(lookHalo(l).stage).toBe('off');
+    for (const [s, t, st] of [['low', 'red', 2], ['med', 'amber', 4], ['high', 'red', 5]] as const) {
+      setLookHalo(l, s, t);
+      expect(l.effect).toEqual({ type: 'bloom', strength: st, tint: t });
+      expect(lookHalo(l)).toEqual({ stage: s, tint: t });
+      const r = lookRecord(l);
+      expect([r[28], r[29], r[47]]).toEqual([1, st, t === 'red' ? 1 : 2]);
+    }
+    setLookHalo(l, 'off', 'red');
+    expect(l.effect).toEqual({ type: 'bloom', strength: 5 });          // the Glow stays, without a halo
+    l.effect = { type: 'halation', strength: 3 };                      // effect 2, no tint = red (the camera's rule)
+    expect(lookHalo(l)).toEqual({ stage: 'med', tint: 'red' });
+    l.effect = { type: 'clarity', strength: 3 };
+    expect(lookHalo(l).stage).toBe('off');
+    for (const n of ['CineStill800', 'CineStill50D', 'Vision3 500T', 'Portra 400', 'Gold 200', 'Polaroid', 'Velvia', 'Acros'])
+      expect([n, lookHalo(library().looks.find((x) => x.name === n)!).stage]).toEqual([n,
+        ({ CineStill800: 'med', CineStill50D: 'low', 'Vision3 500T': 'low', 'Portra 400': 'low', 'Gold 200': 'low', Polaroid: 'low' } as Record<string, string>)[n] ?? 'off']);
+  });
+  it('Sharp +51 and Halo +52 per COLOR profile (also an empty slot); older firmware leaves them 0; the checks reject them there', () => {
+    const p = pack([blankLook('colour', 'C')], { COLOR1: 0 });
+    p.profiles = { COLOR1: { grain: 'off', nr: 'off', sharp: 'off', halo: 'high' }, COLOR2: { grain: 'low', nr: 'off', halo: 'off' }, COLOR3: { grain: 'off', nr: 'off', sharp: 'off' } };
+    const b = encodeBundlesBin(p);
+    expect(checkBundlesBin(b)).toEqual([]);
+    expect([0, 1, 2, 3].map((k) => [slot(b, k)[51], slot(b, k)[52]])).toEqual([[1, 4], [0, 1], [1, 0], [0, 0]]);
+    setFirmware(28);
+    const o = encodeBundlesBin(p);
+    expect([0, 1, 2].map((k) => [slot(o, k)[51], slot(o, k)[52]])).toEqual([[1, 0], [0, 0], [1, 0]]);
+    expect(checkBundlesBin(b).join()).toMatch(/Halo needs v0.31/);
+    setFirmware(27);
+    expect(slot(encodeBundlesBin(p), 0)[51]).toBe(0);
+    expect(checkBundlesBin(o).join()).toMatch(/Sharp needs v0.28/);
+  });
+  it('profiles with Sharp / Halo survive pack files and links; older ones without them still load unchanged', async () => {
+    const { decodePackCode, encodePackCode } = await import('../src/sharecode');
+    const p = pack([blankLook('colour', 'C')], { COLOR1: 0 });
+    p.profiles = { COLOR1: { grain: 'med', nr: 'fine', sharp: 'off', halo: 'low' }, COLOR4: { grain: 'off', nr: 'off' } };
+    expect(parsePack(JSON.parse(JSON.stringify(p))).profiles).toEqual(p.profiles);
+    expect((await decodePackCode(await encodePackCode(p))).profiles).toEqual(p.profiles);
+    expect(() => parsePack({ ...p, profiles: { COLOR1: { grain: 'off', nr: 'off', halo: 'huge' } } })).toThrow(/halo/);
   });
 });

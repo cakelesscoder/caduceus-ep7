@@ -9,7 +9,7 @@ recording.
 
 *Named after the caduceus, the staff of Hermes: messenger between gods and mortals and guide of travellers.*
 
-**Latest release: [v0.30](https://github.com/cakelesscoder/caduceus-ep7/releases/tag/v0.30)** ·
+**Latest release: [v0.30](https://github.com/cakelesscoder/caduceus-ep7/releases/tag/v0.31)** ·
 **[Install guide](docs/INSTALL.md)** · **[Changelog](CHANGELOG.md)** · **[Caduceus Control Panel](https://cakelesscoder.github.io/caduceus-ep7/)** (make and share looks in your browser) · The camera's Setup › Firmware screen shows the Caduceus version.
 
 > [!WARNING]
@@ -40,6 +40,7 @@ recording.
 | **LCD colour fix** | The rear screen no longer looks slightly pink (+8 % green by default), and Monitor Adjust's colour slider becomes a green ↔ magenta slider (−7..+7, about 2.3 % per step) instead of warm/cool. Display only: photos, movies and HDMI are unchanged. | New in v0.20 |
 | **Extras per profile** | Bloom ↔ clarity (one slider), WB amber/blue and green/magenta shift, and Art Effects (Star Light, Pin Hole; Blur removed in v0.21, it could restart the camera). | Camera-tested |
 | **Film grain** | Real film-like grain on colour photos, per COLOR profile: Extras sector 1 **Grain** Off / Low / Med / High. It's added to the finished photo's brightness, so colour is untouched. Photos with grain take a few seconds longer to save; Off costs nothing. Stills only. | **New in v0.27** |
+| **Tinted halation** | A red/orange glow around bright lights, as on CineStill. Extras sector 11 **Halo** Off / Low / Med / High per profile; looks set their own (CineStill 800T Med, a few others Low). White cores stay white; adds 1–2 s to night shots with lights; stills only. | **New in v0.31** |
 | **Sharpening off per profile** | Extras sector 10 **Sharp**: **Camera** (your Sharpness setting) or **Off**, which turns the camera's sharpening fully off for that COLOR profile, for a softer, unsharpened look with no edge halos. Sharpness −2 still leaves about 40% of it on. Stills, and the Movie profile. Set by you, never by a look. | **New in v0.28** |
 | **Noise reduction per profile** | The camera's own noise reduction (Noise Filter) per COLOR profile: Extras sector 9 **NR** Camera / Std / Low / Off (most texture). It applies at each photo and follows a profile switch, without changing the menu setting. | Camera-tested |
 | **Lens vignette correction off per look** | Picking a look turns the camera's lens shading correction off for that profile, for natural corners, without changing the menu setting. Extras sector 8 changes it (**VigFix Off** / **VigFix Camera**), and a look can keep the correction in the Control Panel. | **New in v0.25, please report:** not yet confirmed on photos. See [how to test](#vignette-correction-reports-wanted) |
@@ -49,7 +50,7 @@ recording.
 | **XPan 65:24 and 21:9** | Panorama (5184×1920) and Wide (5184×2224) in the menu and Super Control Panel, with matching live view and playback framing, `XP` and `21:9` icons in the Super Control Panel option strip, and `XPAN`/`UW` size labels. Boots back to 4:3 each power-on, for safety. | Camera-tested; AF, guides, reboot and SCP icon fixed in v0.29 |
 | **Movie colour** | Movie picture mode Vivid becomes its own colour profile, separate from COLOR1-4 and saved in `EP7MOD/MOVIE.BIN`. Half-press once after switching on to load it, select Vivid in the movie Live Control (it reads `INFO Custom` once loaded), then press **INFO** to edit it. Clips shot before that half-press are stock Vivid. | Camera-tested, long recordings not yet |
 | **AP Custom colour** | On the AP dial position, Vivid becomes its own colour profile, saved in `EP7MOD/AP.BIN`, for Multiple Exposure, Live Composite and the other AP modes. Half-press once after switching on, then on the Super Control Panel press **INFO** on the Vivid picture-mode cell to edit it. | **New in v0.30** |
-| **Live ND** | AP Multiple Exposure › Number of Frames gains **ND3** and **ND4**: 3 or 4 frames averaged at normal brightness (about 2 stops of ND for ND4). Sequential H and hold the shutter: one press. Capture is still picky about drive mode and timing. | **Early alpha (v0.30):** expect missed frames |
+| **Live ND** | AP Multiple Exposure › Number of Frames gains **ND3** and **ND4**: 3 or 4 frames averaged at normal brightness (about 2 stops of ND for ND4). One frame per press in any drive mode. | **Early alpha:** one-press capture is parked |
 | **Lowest S/S Setting** | The camera's hidden minimum shutter speed for P and A, as a row in Custom Menu E1: Auto or 1/1.3–1/8000. | **New in v0.30** |
 | **Vertical video** | Clips shot in portrait or upside down record their rotation, so players show them the right way up. | Camera-tested, file flags checked in ffmpeg |
 | **More button functions** | REC (◉) and Fn get more choices (AF Home, RAW, ISO/WB, WB/ISO, Level, HDR, BKT, Multi Function and more), and the **right and down arrow keys** can be set in Button Function: Flash, Drive, MF, ISO/WB, WB/ISO, Peaking, Level, Tele-converter, RAW and more. | **New in v0.29** |
@@ -73,8 +74,8 @@ The builder downloads OM's official 1.1 firmware from OM's server, checks it, an
   - Windows: `Build Caduceus (Windows).bat`
   - macOS: `Build Caduceus (Mac).command` (the first time: right-click › **Open**)
   - Linux: `build-caduceus-linux.sh`
-- **Or from a terminal** in that folder: `python3 caduceus.py build --release v0.30`
-  (Windows: `py caduceus.py build --release v0.30`).
+- **Or from a terminal** in that folder: `python3 caduceus.py build --release v0.31`
+  (Windows: `py caduceus.py build --release v0.31`).
 
 It creates a folder with:
 
@@ -188,8 +189,8 @@ boots back to 4:3 each time, on purpose.
 - *Want stock back for a moment?* Remove the `EP7MOD` folder. *For good?* Flash the restore file (see Install).
 - *Will updating lose my looks?* No: keep your `EP7MOD/BUNDLES.BIN`, and just replace `LOOKS.BIN` and the firmware.
 - *Live view vs photo:* Star Light and some effects only show in the saved photo.
-- *Black screen during Rec View on bloom/clarity looks?* Known issue: the review goes dark while the effect is
-  processed. The photo is fine: set Rec View to **Auto ▶** or press **▶** to see it.
+- *Rec View on bloom/clarity looks?* Fixed in v0.31: the review shows the shot without the glow; the saved
+  photo has the effect.
 - *Grain vs NR?* Sector 1 **Grain** adds film grain to the photo. Sector 9 **NR** sets the camera's noise reduction (Noise Filter); Off keeps the most sensor texture, mostly visible at higher ISO. Both belong to the COLOR profile: picking a look never changes them.
 
 ### Vignette correction: reports wanted
@@ -267,7 +268,8 @@ Grouped by how likely and how hard each item is. Feasibility notes for the video
 **Possible / medium effort**
 - Super Control Panel current-value cell: show `XP` / `21:9` instead of 4:3 on Panorama and Wide.
 - Clean HDMI output: stock Record Mode (sid 1276) exists, but more than one gate is involved (`docs/VIDEO_HIDDEN.md` §1).
-- Rec View that shows the photo and then updates it with bloom/clarity, instead of a black screen (`docs/ISSUES_19_20.md`).
+- Rec View that updates to show the bloom/clarity glow once processed (v0.31 shows the shot without it).
+- One-press Live ND (`docs/LIVE_ND.md`).
 - Faster grain saves.
 - ISO Auto in movie M: the movie ISO list already includes Auto; the dynamic gate in the AE code still has to be found.
 - Blacks/Whites page on the camera's own tone-curve screen (today they live on Extras 6/7; `docs/TONE_ENDS.md` §8).

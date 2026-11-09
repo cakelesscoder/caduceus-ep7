@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Emulator + static checks for live_nd n8 (real firmware code at every hooked site; the getters are stubbed). Offline.
+"""Emulator + static checks for live_nd 0.31n1 (real firmware code at every hooked site; the getters are stubbed). Offline.
 
   .venv/bin/python -I patches/live_nd/verify.py generated/v029a/edits.json generated/live_nd/edits.json [generated/live_nd/pkg]
 
@@ -318,38 +318,235 @@ def t_floor(new):
     return bad, n
 
 
-def burst_run(q, s24, f, key, busy, rel):
-    """Real ME continuous frame-done tail 0x6096b012..0x6096b020 with stand-ins: flag (d3 |= 1), key state, release
-    check, sendTakePictureContinue (d3 |= 2). Returns (ok, d3 marks, d2, a2, sp)."""
-    obj = bytearray(1024)
-    struct.pack_into('<I', obj, 212, busy)
-    rg = [R(q, 'site', 0x6096afc0, 0x6096b040), R(q, 'lnd', LN.AT, LN.END), Region('obj', 0x1a000000, bytes(obj), 'r'),
-          Region('get', LN.GET, stub(LN.GET, {267: f, 24: s24}, 'ret [],4'), 'rx'),
-          Region('flag', LN.FLAG, _asm(LN.FLAG, ' or 1,d3\n ret [d2],4\n'), 'rx'),
-          Region('key', LN.KEYST, _asm(LN.KEYST, f' mov {key},d0\n retf [],0\n'), 'rx'),
-          Region('rel', LN.RELCHK, _asm(LN.RELCHK, f' mov {rel},d0\n ret [d2,d3,a2,a3],56\n'), 'rx'),
-          Region('cont', LN.CONT, _asm(LN.CONT, ' cmp 0x1a000000,a0\n bne 1f\n mov 0x1b000000,a1\n mov 2,d0\n mov d0,(a1)\n1:\n ret [d2,d3,a2,a3],20\n'), 'rx'),
-          Region('mark', 0x1b000000, bytes(16), 'rw', True), Region('stk', STK, bytes(0x2000), 'rw')]
-    r = execute(rg, {'pc': 0x6096b012, 'sp': STK + 0x1000, 'a2': 0x1a000000, 'd2': 0x2222, 'd3': 0}, 0x6096b020, limit=800)
+POOL, STATE, BLK_AT, P_AT = SB3.POOL, SB3.STATE, 0xa1f90000, 0xa1f8d800
+OBJ = 0x1a000000
+RN = LN.LOG_RN
+BLKN = 16 + 24 * RN
+
+
+def mem(r, name):
+    return {x['name']: bytes.fromhex(x['hex']) for x in r['memory']}[name]
+
+
+def lreg(q, f, s24, blk, dirty=0, key=4, obj=None):
+    """lnd code from the image, getters, heap P (+ block when blk), state / key / take-limit statics, a parts object."""
+    heap = bytearray(BLK_AT + BLKN - P_AT)
+    struct.pack_into('<I', heap, 0, SB3.MAGIC)
+    if blk:
+        struct.pack_into('<I', heap, LN.LOG_POFF, BLK_AT)
+        struct.pack_into('<IBBH', heap, BLK_AT - P_AT, 0x4c444e4c, 0, dirty, dirty)
+    st = bytearray(0x1000); struct.pack_into('<H', st, STATE & 0xfff, 1)
+    sv = bytearray(0x1000); struct.pack_into('<I', sv, LN.KEYW & 0xfff, key); struct.pack_into('<H', sv, LN.TAKELIM & 0xfff, 1)
+    o = bytearray(1024) if obj is None else obj
+    if obj is None:
+        for off, v in ((156, 0x00650002), (160, 0x00010001), (464, 0x48000000), (224, f), (212, 0)):
+            struct.pack_into('<I', o, off, v)
+    return [R(q, 'lnd', LN.AT, LN.END), R(q, 'lnda', LN.LOG_AT, LN.LOG_END), R(q, 'lndb', LN.LOG_B, LN.LOG_B_END),
+            Region('get', LN.GET, stub(LN.GET, {267: f, 24: s24, 1487: 0}, 'ret [],4'), 'rx'),
+            Region('heap', P_AT, bytes(heap), 'rw', True), Region('st', STATE & ~0xfff, bytes(st), 'r'),
+            Region('sv', LN.KEYW & ~0xfff, bytes(sv), 'r'), Region('obj', OBJ, bytes(o), 'r'),
+            Region('regd', LN.REGD, _asm(LN.REGD, ' mov 2,d0\n ret [d2,a2],24\n'), 'rx'),
+            Region('rel', LN.RELCHK, _asm(LN.RELCHK, ' mov 1,d0\n ret [d2,d3,a2,a3],56\n'), 'rx'),
+            Region('stk', STK, bytes(0x2000), 'rw')]
+
+
+def recs(r):
+    h = mem(r, 'heap')[BLK_AT - P_AT:]
+    n = struct.unpack_from('<H', h, 6)[0]
+    return [struct.unpack_from('<6I', h, 16 + 24 * k) for k in range(min(n, RN))], h
+
+
+def cap_run(q, f, s24, cap, blk):
+    """Real 0x60950cb6..0x60950cc1 (mov d2,a0; exthu d0; clr d1; call 0x6091dbf2 -> +156 value) with the capacity stubbed."""
+    rg = [R(q, 'site', 0x60950c80, 0x60950d00)] + lreg(q, f, s24, blk) + [
+          Region('capf', LN.CAPF, _asm(LN.CAPF, f' mov {cap},d0\n ret [d2,d3,a2],20\n'), 'rx')]
+    r = execute(rg, {'pc': 0x60950cb6, 'sp': STK + 0x1000, 'd0': 0x8888, 'd2': 0x2222, 'd3': 0x3333, 'a2': 0x4444, 'a3': OBJ}, 0x60950cc1, limit=1500)
     rr = r['registers']
-    mark = struct.unpack_from('<I', {x['name']: bytes.fromhex(x['hex']) for x in r['memory']}['mark'], 0)[0]
-    return rr['pc'] == 0x6096b020 and not r['fault'], rr['d3'] | mark, rr['d2'], rr['a2'], rr['sp']
+    return rr['pc'] == 0x60950cc1 and not r['fault'], rr['d0'] & 0xffff, tuple(rr[k] for k in ('d2', 'd3', 'a2', 'a3', 'sp')), r
 
 
-def t_burst(old, new):
+def t_cap(old, new, spec):
+    """K: no one-press code is left on the capture engine: the +156 source call (0x60950cba), the ME continue
+    handler word (0x60b50038) and the frame-done flag call (0x6096b019) are stock (0.31n1's +156 raise crashed Seq H)."""
+    stk = LN.STOCK.read_bytes()
+    sites = ((0x60950cba, 7), (0x60932170, 7)) + (() if spec['live_nd'].get('log') else ((0x60b50038, 4), (0x6096b019, 7)))
+    bad = [hex(a) for a, k in sites if new[a - BASE:a + k - BASE] != stk[a - BASE:a + k - BASE]]
+    return bad, len(sites)
+
+
+def fd_run(q, f, s24, key, blk):
+    """Real ME continuous frame-done tail 0x6096b012..0x6096b020 (flag stand-in returns 0x4848)."""
+    rg = [R(q, 'site', 0x6096afc0, 0x6096b040)] + lreg(q, f, s24, blk, key=key) + [
+          Region('flag', LN.FLAG, _asm(LN.FLAG, ' mov 0x4848,d0\n ret [d2],4\n'), 'rx')]
+    r = execute(rg, {'pc': 0x6096b012, 'sp': STK + 0x1000, 'a2': OBJ, 'd2': 3, 'd3': 0x3333, 'a3': 0x5555}, 0x6096b020, limit=1500)
+    rr = r['registers']
+    return rr['pc'] == 0x6096b020 and not r['fault'], tuple(rr[k] for k in ('d0', 'd2', 'd3', 'a2', 'a3', 'sp')), r
+
+
+def rem_run(q, f, blk):
+    """Real 0x6093216d..0x60932177 (mov (a2),d0; mov d0,a0; call 0x60888d43) with remaining stubbed to 7."""
+    o = bytearray(1024)
+    struct.pack_into('<I', o, 0x200, OBJ)
+    struct.pack_into('<I', o, 156, 0x00000004)
+    rg = [R(q, 'site', 0x60932140, 0x609321c0)] + lreg(q, f, 211, blk, obj=o) + [
+          Region('remf', LN.REMF, _asm(LN.REMF, ' mov 7,d0\n retf [],0\n'), 'rx')]
+    r = execute(rg, {'pc': 0x6093216d, 'sp': STK + 0x1000, 'a2': OBJ + 0x200, 'd2': 0x2222, 'd3': 0x3333, 'a3': OBJ}, 0x60932177, limit=1500)
+    rr = r['registers']
+    return rr['pc'] == 0x60932177 and not r['fault'], tuple(rr[k] for k in ('d0', 'd2', 'd3', 'a2', 'a3', 'sp')), r
+
+
+def req_run(q, f, blk):
+    """calls through the ME parts vtable +3668 word; a stand-in at the stock handler records its entry registers."""
+    vt = struct.unpack_from('<I', q, LN.VT_REQ - BASE)[0]
+    caller = _asm(0x18000000, f' mov {vt},a1\n mov 0x1d00,d0\n mov 0x1d11,d1\n mov {OBJ},a0\n mov 0x1d22,a1\n mov {vt},d2\n mov d2,a3\n mov 0x5252,d2\n mov 0x5353,d3\n mov 0x5454,a2\n calls (a3)\n nop\n')
+    stop = 0x18000000 + len(caller) - 1
+    rg = [Region('call', 0x18000000, caller, 'rx')] + lreg(q, f, 211, blk) + [
+          Region('reqf', LN.REQF, _asm(LN.REQF, ' cmp 0x1d00,d0\n bne 1f\n cmp 0x1d11,d1\n bne 1f\n cmp 0x1d22,a1\n bne 1f\n cmp 0x1a000000,a0\n bne 1f\n cmp 0x5252,d2\n bne 1f\n cmp 0x5454,a2\n bne 1f\n mov 0x600d,d0\n rets\n1:\n clr d0\n rets\n'), 'rx')]
+    r = execute(rg, {'pc': 0x18000000, 'sp': STK + 0x1000}, stop, limit=1500)
+    rr = r['registers']
+    return rr['pc'] == stop and not r['fault'] and rr['sp'] == STK + 0x1000 and rr['d0'] == 0x600d and (rr['d2'], rr['d3'], rr['a2']) == (0x5252, 0x5353, 0x5454), vt, r
+
+
+def trig_run(q, s24, blk, dirty, ev, card=True):
+    """Loader sd_back jmp (0x605b7420) -> lnd_trig -> the previous target, with malloc / fopen / fwrite / fclose stand-ins."""
+    stk = bytearray(0x2000); struct.pack_into('<I', stk, 0x1010, ev)
+    mark = 0x1b000000
+    rg = lreg(q, 2, s24, blk, dirty) + [R(q, 'ldr', 0x605b7400, 0x605b7800),
+          Region('malloc', LN.LIB['ep7_malloc'], _asm(LN.LIB['ep7_malloc'], f' mov {BLK_AT},a0\n ret [],4\n'), 'rx'),
+          Region('fopen', LN.LIB['ep7_fopen'], _asm(LN.LIB['ep7_fopen'], f' mov {0x1d000000 if card else 0},a0\n ret [],4\n'), 'rx'),
+          Region('fwrite', LN.LIB['ep7_fwrite'], _asm(LN.LIB['ep7_fwrite'], f' mov {mark},a2\n mov d0,(a2)\n mov d1,(4,a2)\n mov a0,(8,a2)\n mov a1,(12,a2)\n ret [d2,d3,a2,a3],24\n'), 'rx'),
+          Region('fclose', LN.LIB['ep7_fclose'], _asm(LN.LIB['ep7_fclose'], f' mov {mark},a2\n mov a0,(16,a2)\n ret [d2,a2,a3],16\n'), 'rx'),
+          Region('mark', mark, bytes(32), 'rw', True)]
+    rg = [x for x in rg if x.name != 'stk'] + [Region('stk', STK, bytes(stk), 'rw')]
+    regs = {'pc': LN.SD_BACK, 'sp': STK + 0x1000, 'd0': 0x10, 'd1': 0x11, 'a0': 0x12, 'a1': 0x13, 'd2': 0x22, 'd3': 0x33, 'a2': 0x42, 'a3': 0x43}
+    return rg, regs
+
+
+def t_log(new, spec):
+    if not spec['live_nd'].get('log'):
+        return [], 0
+    """L: readout hooks keep every stock register and return value; records land in the block; the half-press writes it."""
     bad, n = [], 0
-    for s24 in (211, 1):
+    nd = spec['live_nd']
+    nxt = int(nd['trig_next'], 16)
+    for f in (2, 4):
+        for key in (4, 2):
+            for blk in (False, True):
+                b = fd_run(new, f, 211, key, blk)
+                n += 1
+                ok = b[0] and b[1] == (0x4848, 3, 0x3333, OBJ, 0x5555, STK + 0x1000)
+                rs, _ = recs(b[2])
+                if blk:
+                    run = f == 4 and key == 4
+                    ok &= len(rs) == 1 and rs[0][0] >> 24 == 0x46 and rs[0][5] == 3 | (2 << 8) | ((1 if run else 0xee) << 16) and rs[0][3] == 0x48000000
+                else:
+                    ok &= not rs
+                if not ok:
+                    bad.append(('F', f, key, blk, b[:2], rs))
+        for blk in (False, True):
+            ok, vt, r = req_run(new, f, blk)
+            n += 1
+            rs, h = recs(r)
+            ok &= vt != LN.REQF and ((len(rs) == 1 and rs[0][0] >> 24 == 0x51 and struct.unpack_from('<H', h, 10)[0] == 1 and rs[0][5] == 0xff | (2 << 8) | (0xee << 16)) if blk else not rs)
+            if not ok:
+                bad.append(('Q', f, blk, rs))
+    # T: half-press -> file; other events / not dirty / no card / no block -> no file; registers intact at the next target
+    for s24, blk, dirty, ev, card, want in ((211, True, 1, SB3.EV_PRESS, True, 'write'), (211, True, 0, SB3.EV_PRESS, True, 'none'),
+                                            (211, True, 1, SB3.EV_PRESS + 1, True, 'none'), (211, True, 1, SB3.EV_PRESS, False, 'none'),
+                                            (211, False, 0, SB3.EV_PRESS, True, 'alloc'), (1, False, 0, SB3.EV_PRESS, True, 'none')):
+        rg, regs = trig_run(new, s24, blk, dirty, ev, card)
+        r = execute(rg, regs, nxt, limit=5000)
+        rr = r['registers']
+        mk = mem(r, 'mark'); h = mem(r, 'heap')
+        n += 1
+        ok = rr['pc'] == nxt and not r['fault'] and all(rr[k] == v for k, v in regs.items() if k != 'pc')
+        wrote = struct.unpack_from('<4I', mk, 0)
+        if want == 'write':
+            ok &= wrote == (1, BLKN, BLK_AT, 0x1d000000) and struct.unpack_from('<I', mk, 16)[0] == 0x1d000000 and h[BLK_AT - P_AT + 5] == 0 and h[BLK_AT - P_AT + 8] == 1
+        else:
+            ok &= wrote == (0, 0, 0, 0)
+        ptr = struct.unpack_from('<I', h, LN.LOG_POFF)[0]
+        if want == 'alloc':
+            ok &= ptr == BLK_AT and struct.unpack_from('<I', h, BLK_AT - P_AT)[0] == 0x4c444e4c
+        elif not blk:
+            ok &= ptr == 0
+        if not ok:
+            bad.append(('T', s24, blk, dirty, ev, card, want, hex(rr['pc']), wrote, r['fault']))
+    return bad, n
+
+
+def st_run(q, site, sid, f, s24, drv):
+    """Real `mov sid,d0; call 0x602afa81,[],4` at `site`, rules getter and setting getter stubbed."""
+    rg = [R(q, 'site', site - 0x40, site + 0x40), R(q, 'lnd', LN.AT, LN.END),
+          Region('get', LN.GET, stub(LN.GET, {267: f, 24: s24}, 'ret [],4'), 'rx'),
+          Region('rget', LN.RGET, stub(LN.RGET, {469: 7, 470: 20, 471: 10, 3281: drv}, 'ret [],4'), 'rx'),
+          Region('stk', STK, bytes(0x2000), 'rw')]
+    regs = {'pc': site - 3, 'sp': STK + 0x1000, 'd2': 0x2222, 'd3': 0x3333, 'a2': 0x4444, 'a3': 0x5555}
+    r = execute(rg, regs, site + 7, limit=600)
+    rr = r['registers']
+    return (rr['pc'] == site + 7 and not r['fault'], rr['d0'], tuple(rr[k] for k in ('d2', 'd3', 'a2', 'a3', 'sp')))
+
+
+def t_st(old, new, spec=None):
+    """S: the 10 custom self-timer reads. ND3/ND4 + AP ME + drive Custom Self-timer (24): 469 -> N, 470 -> 5, 471 -> 1;
+    anything else: the stock value (7 / 20 / 10). Registers and sp as v0.29a."""
+    bad, n = [], 0
+    if not spec['live_nd'].get('selftimer'):                 # floor: the 10 sites and the drive rule entry are stock
+        stk = LN.STOCK.read_bytes()
+        bad = [hex(a) for a, _ in LN.ST_SITES if new[a - BASE:a + 4 - BASE] != stk[a - BASE:a + 4 - BASE]]
+        bad += [] if new[LN.DRV_CS - BASE:LN.DRV_CS + 2 - BASE] == b'\0\0' else ['drive rule']
+        return bad, len(LN.ST_SITES) + 1
+    for site, why in LN.ST_SITES:
+        sid = 469 if 'frames' in why else 470 if '470' in why else 471
+        stock_v = {469: 7, 470: 20, 471: 10}[sid]
         for f in (2, 3, 4):
-            for key in (4, 2):
-                for busy in (0, 1):
-                    for rel in (1, 0):
-                        if (busy or not rel) and (s24 != 211 or f == 2 or key != 4):
-                            continue           # keep the run count small: busy / release-check cases only where they matter
-                        a, b = burst_run(old, s24, f, key, busy, rel), burst_run(new, s24, f, key, busy, rel)
-                        go = s24 == 211 and f in (3, 4) and key == 4 and not busy and rel == 1
-                        n += 1
-                        if not (a[0] and b[0] and a[1] == 1 and b[1] == (3 if go else 1) and a[2:] == b[2:]):
-                            bad.append((s24, f, key, busy, rel, a, b))
+            for s24 in (211, 3):
+                for drv in (24, 1):
+                    a, b = st_run(old, site, sid, f, s24, drv), st_run(new, site, sid, f, s24, drv)
+                    on = f in (3, 4) and s24 == 211 and drv == 24
+                    want = ({469: f, 470: 5, 471: 1}[sid]) if on else stock_v
+                    n += 1
+                    if not (a[0] and b[0] and a[1] == stock_v and b[1] == want and a[2] == b[2]):
+                        bad.append((hex(site), sid, f, s24, drv, a, b, want))
+    return bad, n
+
+
+RE_FN, RE_END = 0x602b2961, 0x602b2fad
+RE_STUBS = {0x602b32ae: ' mov 0x6045eb9c,a0\n retf [],0\n', 0x602ef7d8: ' clr d0\n ret [d2],28\n', 0x602e956c: ' clr d0\n ret [d2],28\n',
+            0x602ed31f: ' clr d0\n ret [d2,d3],32\n', 0x602e95ac: ' clr d0\n ret [d2,d3],32\n', 0x602ee8eb: ' clr d0\n ret [d2,d3],32\n',
+            0x602cc146: ' clr d0\n retf [],0\n', 0x602d9294: ' clr d0\n ret [d2,d3,a2,a3],48\n', 0x602b6709: ' clr d0\n ret [d2],4\n',
+            0x602b1eeb: ' clr d0\n retf [],0\n', 0x602b6668: ' clr d0\n ret [d2],8\n', 0x602b6682: ' clr d0\n ret [d2],8\n',
+            0x602b669c: ' clr d0\n ret [d2],8\n', 0x602b66b0: ' clr d0\n ret [d2],20\n'}
+
+
+def rule_run(q, s24, value):
+    """The real rule engine 0x602b2961 (value check, kind 0) for the drive sid 3281, record 72 from the image; its
+    context helpers return 0 and the setting getter gives sid 24 = s24 and 0 for the rest."""
+    caller = _asm(0x18000000, f' mov 3281,d0\n clr d1\n mov {value},a0\n mov 0,a1\n')
+    at = 0x18000000 + len(caller)
+    caller += b'\xdd' + struct.pack('<i', RE_FN - at) + b'\xf0\x5c\xcb'      # call 0x602b2961,[d2,d3,a2,a3],92; nop
+    stop = at + 7
+    tbl = {24: s24, 44: 0, 478: 0, 1592: 0, 15206: 0, 4: 0, 109: 0, 605: 0, 3020: 0, 3021: 0, 1145: 0}
+    rg = [Region('call', 0x18000000, caller, 'rx'), R(q, 're', RE_FN, RE_END), R(q, 'rules', 0x60430000, 0x60446000, 'r'),
+          R(q, 'rec', 0x6045e5fc, 0x6045e5fc + 20 * 201, 'r'), Region('stk', STK, bytes(0x2000), 'rw'),
+          Region('get', LN.GET, stub(LN.GET, tbl, 'ret [],4').replace(b'', b'') if False else _asm(LN.GET, ''.join(f' cmp {k},d0\n bne 1{i}f\n mov {v},d0\n ret [],4\n1{i}:\n' for i, (k, v) in enumerate(tbl.items())) + ' clr d0\n ret [],4\n'), 'rx')]
+    rg += [Region(f's{a:x}', a, _asm(a, src), 'rx') for a, src in RE_STUBS.items()]
+    r = execute(rg, {'pc': 0x18000000, 'sp': STK + 0x1000, 'd2': 0x2222, 'd3': 0x3333, 'a2': 0x4444, 'a3': 0x5555}, stop, limit=40000)
+    rr = r['registers']
+    return rr['pc'] == stop and not r['fault'], rr['d0'] & 0xffff
+
+
+def t_rule(old, new, spec=None):
+    """R: the drive (3281) value check in the real engine. v0.29a: Custom Self-timer (24) allowed in P, greyed (256) in
+    AP Multiple Exposure. New: allowed in both; Sequential H (1) and Silent single (30) unchanged."""
+    bad, n = [], 0
+    st = spec['live_nd'].get('selftimer')
+    for s24, value, want_old, want_new in ((3, 24, 0, 0), (211, 24, 256, 0), (211, 1, 0, 0), (211, 30, 256, 256), (3, 30, 0, 0), (210, 24, 256, 256)):
+        a, b = rule_run(old, s24, value), rule_run(new, s24, value)
+        want_new = want_new if st else want_old
+        n += 1
+        if not (a[0] and b[0] and a[1] == want_old and b[1] == want_new):
+            bad.append((s24, value, a, b, want_old, want_new))
     return bad, n
 
 
@@ -365,11 +562,22 @@ def t_pkg(base_s, new_s, old, new, pkg, rst, info, disk):
     for b in oc.parse(rst):
         good &= b.payload == sb[b.kind].payload
     ours = [(int(e['addr'], 16), len(e['new']) // 2) for e in new_s['edits'] if e.get('source') in ('patches/live_nd', 'patches/fw_version')]
+    if new_s['live_nd'].get('log'):
+        ours.append((LN.SD_BACK + 1, 4))             # readout: sd_back rel32 inside the loader edit
     diff = [BASE + i for i in range(len(old)) if old[i] != new[i]]
     stray = [hex(a) for a in diff if not any(s_ <= a < s_ + k for s_, k in ours)]
     good &= not stray
     base_ids = {(e['addr'], e['new']) for e in base_s['edits'] if e.get('source') != 'patches/fw_version'}
     new_ids = {(e['addr'], e['new']) for e in new_s['edits'] if e.get('source') not in ('patches/fw_version', 'patches/live_nd')}
+    if new_s['live_nd'].get('log'):                  # the loader edit differs only in the sd_back rel32
+        def unsd(e):
+            if e[0].startswith('off:'):
+                return e
+            a = int(e[0], 16); b = bytearray.fromhex(e[1]); o = LN.SD_BACK + 1 - a
+            if 0 <= o < len(b):
+                b[o:o + 4] = b'\0\0\0\0'
+            return (e[0], b.hex())
+        base_ids, new_ids = {unsd(e) for e in base_ids}, {unsd(e) for e in new_ids}
     good &= base_ids == new_ids
     if disk:
         good &= (disk / 'patched.pkg.bin').read_bytes() == pkg and (disk / 'restore-stock.pkg.bin').read_bytes() == rst
@@ -382,7 +590,7 @@ def main():
     old, *_ = image(base_s)
     new, pkg, rst, info = image(new_s)
     ok = True
-    for name, fn in (('H hooks', lambda: t_hooks(old, new)), ('G grey-out', lambda: t_greyout(old, new)), ('F safe floor', lambda: t_floor(new)), ('B burst continue', lambda: t_burst(old, new)), ('D data', lambda: t_data(new, new_s))):
+    for name, fn in (('H hooks', lambda: t_hooks(old, new)), ('G grey-out', lambda: t_greyout(old, new)), ('F safe floor', lambda: t_floor(new)), ('K no burst-engine hooks', lambda: t_cap(old, new, new_s)), ('S self-timer reads', lambda: t_st(old, new, new_s)), ('R drive rule', lambda: t_rule(old, new, new_s)), ('L readout', lambda: t_log(new, new_s)), ('D data', lambda: t_data(new, new_s))):
         bad, n = fn(); ok &= not bad
         print(f"{'PASS' if not bad else 'FAIL'} {name}: {n - len(bad)}/{n}", bad[:4] if bad else '', flush=True)
     good, txt = t_pkg(base_s, new_s, old, new, pkg, rst, info, disk); ok &= good

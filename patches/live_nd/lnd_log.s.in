@@ -1,0 +1,280 @@
+/* Live ND 0.31n1 readout (diagnostic; build without it for release: build.py --no-log). docs/LIVE_ND.md
+ * "0.31n1 readout". Our own code. Decoder: tools/lnd_log.py.
+ * Block: {blk_n} B from malloc (uncached heap), pointer at heap P+{poff}, 'LNDL' at +0. Allocated only on a half-press
+ * in AP Multiple Exposure (sd_back path). The hooks only read camera state and write this block:
+ *  +4 u8 next slot, +5 u8 unwritten, +6 u16 records, +8 u8 press, +10 u16 continue requests since the press,
+ *  +12 spare, +16: {rn} records of 24 B:
+ *   w0 type << 24 | press << 16 | record number; w1 obj +156 u32 (156 | 158 << 16); w2 obj +160 u32 (160 | 162 << 16);
+ *   w3 obj +464 (status flags); w4 key state word (0x61facd8c, 4 = full press); w5 by type:
+ *   'C' cap site 0x60950cba (obj = sequence, before +156 is stored): stock cap | N << 16 (returned: N if both != 0)
+ *   'Q' engine continue request (ME vtable +3668, before the stock handler; obj = parts): 0xff | registered << 8 |
+ *       0xee << 16 | busy << 24
+ *   'F' ME frame done 0x6096b019 (after the stock flag call; obj = parts): count | registered << 8 | release check << 16
+ *       (0xee: not run; run only for ND3/ND4 with key 4 and not busy, as n8) | busy << 24
+ * C:\EP7MOD\LNDLOG.BIN = the block, written on a half-press when there is something new (the half-press save path, as
+ * LOGDBG.TXT in v0.14). Never during a burst.
+ */
+ .set LMAGIC, 0x4c444e4c
+ .set RN, {rn}
+ .set BLK, {blk_n}
+
+/*@main: helpers placed before lnd_end in the main block */
+lnd_pp:                           /* leaf, MDR return: a0 = heap P or 0. Uses d0 */
+ movhu ({state}),d0
+ add -1,d0
+ cmp {lim},d0
+ bcc 9f
+ btst 3,d0
+ bne 9f
+ mov d0,a0
+ add {pool},a0
+ mov (a0),d0
+ cmp {bmagic},d0
+ beq 8f
+9:
+ mov 0,a0
+8:
+ retf [],0
+
+lnd_blk:                          /* [],8 (call): a1 = block or 0. Uses d0, a0 */
+ mov 0,a1
+ call lnd_pp,[],0
+ cmp 0,a0
+ beq 9f
+ mov ({poff},a0),a0
+ mov a0,d0
+ cmp 0xa0000000,d0
+ bcs 9f
+ cmp 0xb0000000,d0
+ bcc 9f
+ btst 3,d0
+ bne 9f
+ mov (a0),d0
+ cmp LMAGIC,d0
+ bne 9f
+ mov a0,a1
+9:
+ ret [],8
+
+/*@A*/
+lnd_snap:                         /* [d2,d3,a2,a3],24 (call): d0 type, d1 w5, a2 obj. Uses d0, d1, a0, a1 */
+ mov d0,d2
+ mov d1,d3
+ call lnd_blk,[],8
+ cmp 0,a1
+ beq 9f
+ movbu (4,a1),d0
+ cmp RN,d0
+ bcs 1f
+ clr d0
+1:
+ mov d0,a3                        /* slot */
+ mov d0,d1
+ asl 4,d1
+ asl 3,d0
+ add d1,d0
+ add 16,d0
+ mov a1,a0
+ add d0,a0                        /* a0 = +16 + 24 * slot */
+ asl 24,d2
+ movbu (8,a1),d0
+ asl 16,d0
+ or d0,d2
+ movhu (6,a1),d0
+ or d0,d2
+ mov d2,(a0)
+ mov (156,a2),d0
+ mov d0,(4,a0)
+ mov (160,a2),d0
+ mov d0,(8,a0)
+ mov (464,a2),d0
+ mov d0,(12,a0)
+ mov ({keyw}),d0                  /* key state word */
+ mov d0,(16,a0)
+ mov d3,(20,a0)
+ mov a3,d0
+ inc d0
+ cmp RN,d0
+ bcs 2f
+ clr d0
+2:
+ movbu d0,(4,a1)
+ movhu (6,a1),d0
+ inc d0
+ movhu d0,(6,a1)
+ mov 1,d0
+ movbu d0,(5,a1)
+9:
+ ret [d2,d3,a2,a3],24
+
+lnd_req:                          /* ME parts vtable +3668 word: entry of the stock handler {reqf}, every register kept */
+ add -16,sp
+ mov d0,(0,sp)
+ mov d1,(4,sp)
+ mov a0,(8,sp)
+ mov a1,(12,sp)
+ movm [d2,d3,a2,a3],(sp)
+ add -8,sp                        /* (0,sp) nested return slot */
+ mov (32,sp),a2                   /* the parts (a0 on entry) */
+ call lnd_blk,[],8
+ cmp 0,a1
+ beq 8f
+ movhu (10,a1),d0
+ inc d0
+ movhu d0,(10,a1)
+ mov 0x51,d0                      /* 'Q' */
+ mov 0xee00ff,d1
+ call lnd_pe,[d2,d3,a2,a3],24
+8:
+ add 8,sp
+ movm (sp),[d2,d3,a2,a3]
+ mov (0,sp),d0
+ mov (4,sp),d1
+ mov (8,sp),a0
+ mov (12,sp),a1
+ add 16,sp
+ jmp {reqf}
+
+/* lnd_trig: jmp from the loader's sd_back (frame as ed_trig, event at (16,sp), task HLS_EVENT). Every failure is silent.
+   Half-press only: no block yet -> allocate it in AP Multiple Exposure; block with new records -> write the file. */
+lnd_trig:
+ add -16,sp
+ mov d0,(0,sp)
+ mov d1,(4,sp)
+ mov a0,(8,sp)
+ mov a1,(12,sp)
+ mov (32,sp),d0
+ cmp {ev_press},d0
+ bne 9f
+ movm [d2,d3,a2,a3],(sp)
+ add -8,sp                        /* (0,sp) nested return slot, (4,sp) file handle */
+ call lnd_blk,[],8
+ cmp 0,a1
+ bne 2f
+ call lnd_ape,[],4
+ cmp 0,d0
+ beq 8f
+ call lnd_pp,[],0
+ cmp 0,a0
+ beq 8f
+ mov a0,a2                        /* P */
+ mov BLK,d0
+ call ep7_malloc,[],4
+ cmp 0,a0
+ beq 8f
+ mov a0,a1
+ mov BLK/4,d1
+ clr d0
+1:
+ mov d0,(a0)
+ add 4,a0
+ add -1,d1
+ bne 1b
+ mov LMAGIC,d0
+ mov d0,(a1)
+ mov a1,({poff},a2)
+ bra 8f
+2:
+ mov a1,a2                        /* block */
+ movbu (5,a2),d0
+ cmp 0,d0
+ beq 7f
+ clr d0
+ movbu d0,(5,a2)
+ mov lnd_path,a0
+ mov lnd_mode,a1
+ call ep7_fopen,[],4
+ cmp 0,a0
+ beq 7f                           /* no card / no folder: skip */
+ mov a0,(4,sp)
+ mov a0,a1                        /* fwrite(block, 1, BLK, h) */
+ mov BLK,d1
+ mov 1,d0
+ mov a2,a0
+ call ep7_fwrite,[d2,d3,a2,a3],24
+ mov (4,sp),a0
+ call ep7_fclose,[d2,a2,a3],16
+7:
+ movbu (8,a2),d0                  /* next press */
+ inc d0
+ movbu d0,(8,a2)
+ clr d0
+ movhu d0,(10,a2)
+8:
+ add 8,sp
+ movm (sp),[d2,d3,a2,a3]
+9:
+ mov (0,sp),d0
+ mov (4,sp),d1
+ mov (8,sp),a0
+ mov (12,sp),a1
+ add 16,sp
+ jmp ep7_trig_next
+
+lnd_pe:                           /* [d2,d3,a2,a3],24 (call): d0 type, d1 count | release check << 16, a2 parts */
+ mov d0,d3
+ mov d1,d2
+ mov a2,a0
+ call {regd},[d2,a2],24           /* registered handles (the stock getter sendTakePictureContinue uses) */
+ and 0xff,d0
+ asl 8,d0
+ or d0,d2
+ mov (212,a2),d0
+ cmp 0,d0
+ beq 1f
+ or 0x1000000,d2
+1:
+ mov d3,d0
+ mov d2,d1
+ call lnd_snap,[d2,d3,a2,a3],24
+ ret [d2,d3,a2,a3],24
+
+/*@B*/
+lnd_lf:                           /* [d2,d3,a2],20 (call): d0 count, a2 parts; (4,sp) = the release check's argument word */
+ and 0xff,d0
+ mov d0,d2
+ call lnd_blk,[],8
+ cmp 0,a1
+ beq 9f
+ mov 0xee,d3                      /* release check: not run */
+ call lnd_nd,[],8
+ cmp 0,d0
+ beq 2f
+ mov ({keyw}),d0
+ cmp 4,d0
+ bne 2f
+ mov (212,a2),d0
+ cmp 0,d0
+ bne 2f
+ clr d0                           /* the stock release check, as entryTAKE_PICTURE_CONT and n8 */
+ mov d0,(4,sp)
+ mov 1,d1
+ mov 0,a1
+ mov a2,a0
+ call {relchk},[d2,d3,a2,a3],56
+ and 0xff,d0
+ mov d0,d3
+2:
+ asl 16,d3
+ mov d2,d1
+ or d3,d1
+ mov 0x46,d0                      /* 'F' */
+ call lnd_pe,[d2,d3,a2,a3],24
+9:
+ ret [d2,d3,a2],20
+
+lnd_fd:                           /* site 0x6096b019: mov 0x48000000,d0; mov a2,a0; call {flag},[d2],4 (d2 count, a2 parts) */
+ add -12,sp                       /* (0,sp) nested return slot, (4,sp) flag result, (8,sp) count */
+ mov d2,(8,sp)
+ call {flag},[d2],4               /* the stock frame-done flag, unchanged */
+ mov d0,(4,sp)
+ mov (8,sp),d0
+ call lnd_lf,[d2,d3,a2],20
+ mov (4,sp),d0
+ add 12,sp
+ ret [d2],4
+
+lnd_path:
+ .asciz "C:\\EP7MOD\\LNDLOG.BIN"
+lnd_mode:
+ .asciz "w"
