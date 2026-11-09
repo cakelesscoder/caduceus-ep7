@@ -34,10 +34,14 @@ REGIONS = {'.text': (0x601e0850, 0x601e0b3c),    # pass B, helpers, hot loops, t
            '.hlf': (0x601de280, 0x601de33c),     # h2 stage / flag hook / pick reset / labels: the unused tail of sharp_off's claim (sh_* end 0x601de280)
            '.hll': (0x601e1e04, 0x601e1e3c),     # h2 Halo labels: dead EVF step-9 R tail after aspect_scp's block (to 0x601e1e00), before mv's claim;
                                                  # from +4 so the byte-table word 0xa01e1e01 at 0x611a5fc4 stays outside
-           '.hlx': (0x6143a350, 0x6143a3f0)}     # h2 Extras sector 11: section 9 FF tail before film menu v2's guard (0x6143a400); the 0x613feff6 bound
+           '.hlx': (0x6143a350, 0x6143a3f0),
+           '.hl6': (0x61242c30, 0x61242ce0)}     # h3/h4 yield helper: section 6 FF after the look editor's ed_ui code (ends 0x61242c25),
+                                                 # inside its unused claim tail (to 0x61242cf0); runs only once the card loader has run     # h2 Extras sector 11: section 9 FF tail before film menu v2's guard (0x6143a400); the 0x613feff6 bound
                                                  # is a wrapping hash-table limit that never reads past 0x6143a350 (HSL_PORT.md section table)
 STEP_WORDS = (0x601e3b50, 0x601e3d80)            # the dead tables' step-table words: the only allowed references
 TBL_IDX = 0x6055e7b0
+DLY = 0x600313ef                                 # dly_tsk(d0 ticks), `call ..,[d2,a2,a3],16` (E_CTX -25 outside a task); the WDT task's own loop uses it
+UNLOCK = 0x6006a96b
 FALSE_POS = {0x606c81c5: 'cce21da0',          # jmp 0x606c9fa7 bytes (sharp_off's pinned false positive), dis-checked
              0x613feff8: '50a34361'}          # cmp 0x6143a350,a0: the wrapping hash-table bound, never reads the suffix (HSL_PORT.md)
 
@@ -104,7 +108,7 @@ def source(swap):
 SITES = {0x601dfe2a: ('gc_lvl', 'hl_lvl', bytes.fromhex('c010')), 0x601dfe9d: ('gc_grain', 'hl_grain', bytes.fromhex('f090'))}
 
 
-def apply(spec, version='0.31h2', swap=False):
+def apply(spec, version='0.31h4', swap=False):
     stock = T1.STOCK.read_bytes()
     spec = copy.deepcopy(spec)
     if 'halation' in spec:
@@ -124,11 +128,11 @@ def apply(spec, version='0.31h2', swap=False):
                     raise SystemExit(f'overlap with edit {e["addr"]} in {lo:#x}..{hi:#x}')
     check_refs(stock)
     sh = {k: int(v, 16) for k, v in spec['sharp_off']['symbols'].items()}
-    syms = dict(T1.SYMS, ep7_tbl_idx=TBL_IDX, ep7_bloom_flag=int(spec['bloom']['symbols']['bloom_flag'], 16), ep7_gc_ua=g['gc_ua'],
+    syms = dict(T1.SYMS, ep7_tbl_idx=TBL_IDX, ep7_dly=DLY, ep7_bloom_flag=int(spec['bloom']['symbols']['bloom_flag'], 16), ep7_gc_ua=g['gc_ua'],
                 ep7_sh_sg=sh['sh_sg'], ep7_sh_ss=sh['sh_ss'], ep7_sh_su=sh['sh_su'], ep7_sh_def=sh['sh_def'],
                 ep7_g_val=0x601e3322, ep7_s_dirty=0x601e3428, ep7_ex_get=0x601e32a3, ep7_q_put0=0x601e35b4, ep7_q_out=0x601e35ea,
                 **{k: v for k, v in g.items() if k in ('gc_lvl', 'gc_grain', 'gc_blk', 'gc_open')})
-    for lo, hi in (REGIONS['.hlx'], REGIONS['.hlf'], REGIONS['.hlp']):
+    for lo, hi in (REGIONS['.hlx'], REGIONS['.hlf'], REGIONS['.hlp'], REGIONS['.hl6']):
         if any(b != 0xff for b in stock[lo - BASE:hi - BASE]) and lo != REGIONS['.hlf'][0]:
             raise SystemExit(f'{lo:#x}..{hi:#x} is not FF in stock')
     src = source(swap)
@@ -158,6 +162,13 @@ def apply(spec, version='0.31h2', swap=False):
         if not -0x8000 <= d < 0x8000:
             raise SystemExit(f'{new} out of rel16 reach')
         MV.put(spec, stock, at + 1, cur[1:3], struct.pack('<h', d), f'halation: gc_gs call {old} -> {new}')
+    # h3: grain's three unlock calls -> hl_unl (yield every 32 locks)
+    gg, ge = g['gc_grain'], g['gc_cls']
+    ul = [a for a in range(gg, ge) if im[a - BASE] == 0xdd and a + struct.unpack_from('<i', im, a + 1 - BASE)[0] == UNLOCK and im[a + 5 - BASE:a + 7 - BASE] == b'\x80\x08']
+    if len(ul) != 3:
+        raise SystemExit(f'gc_grain unlock calls: {[hex(a) for a in ul]}')
+    for at in ul:
+        MV.put(spec, stock, at + 1, struct.pack('<i', UNLOCK - at), struct.pack('<i', s['hl_unl'] - at), 'halation h3: gc_grain unlock -> hl_unl (yields)')
     # h2: Extras sector 11 (+52), flag hook, pick reset, loaders
     sites2 = {}
     def rj(at, old, new, why, op=0xdc):
@@ -181,9 +192,9 @@ def apply(spec, version='0.31h2', swap=False):
         if cur != bytes.fromhex('fad0640380 0c04'.replace(' ', '')):
             raise SystemExit(f'{what} zero check at {at:#x} differs: {cur.hex()}')
         MV.put(spec, stock, at, cur, bytes.fromhex('fad0650380 0b04'.replace(' ', '')), f'halation h2: {what} zero check from +53, 11 B (+52 is the reader\'s to check)')
-    spec['halation'] = dict(built_by=SRC, test='h2', version=version, regions={k: [hex(lo), hex(hi), len(out[k])] for k, (lo, hi) in REGIONS.items()}, swap=swap,
+    spec['halation'] = dict(built_by=SRC, test='h4', version=version, regions={k: [hex(lo), hex(hi), len(out[k])] for k, (lo, hi) in REGIONS.items()}, swap=swap,
                             thr=THR, cover='off when 3 x (cells with g >= 16) > cells', cell=64, gmax=list(GMAX), tints={n: r for n, r in zip(ORDER, tint_rows(swap))},
-                            sites={hex(a): v[1] for a, v in SITES.items()}, sites_h2=sites2, slot_byte=52, sector=11,
+                            sites={hex(a): v[1] for a, v in SITES.items()}, sites_h2=sites2, sites_h3=[hex(a) for a in ul], slot_byte=52, sector=11,
                             stages={'0': 'look', '1': 'off', '2': 'low', '3': 'med', '4': 'high'}, symbols={k: hex(v) for k, v in s.items() if k.startswith('hl_')})
     return spec
 
@@ -192,7 +203,7 @@ if __name__ == '__main__':
     ap = argparse.ArgumentParser()
     ap.add_argument('spec', type=Path)
     ap.add_argument('--out', type=Path, required=True)
-    ap.add_argument('--version', default='0.31h2')
+    ap.add_argument('--version', default='0.31h4')
     ap.add_argument('--swap', action='store_true')
     a = ap.parse_args()
     spec = apply(json.loads(a.spec.read_text()), a.version, a.swap)

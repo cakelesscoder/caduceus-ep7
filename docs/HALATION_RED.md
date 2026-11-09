@@ -649,3 +649,83 @@ slot saves the byte, but movies have no halation.
   - both files accepted;
   - +52 = 4 accepted and +52 = 5 rejected;
   - bad CRCs rejected, and a tint of 5 rejected.
+
+## 18. h3: the camera restart, and a faster pass (0.31h3, 2026-11-10; emulator-verified, not camera-tested)
+
+**Report (v0.31):** a shot with heavy grain and High halation on a bright night scene made the camera restart by itself "after a
+while".
+
+**Cause: the system watchdog [V code, I that it fired].**
+- `SYS_WDT` (task id 0x19, priority 0x37, entry 0x6005b287) waits up to 3 s on its queue and then kicks the hardware watchdog
+  (0x6005b253 → 0x470008ae).
+- The timeout is set to 10 (seconds, via 0x6005b1f8 → 0x98e0008c). On expiry the camera logs
+  `[SYS WANA]WATCHDOG_TIMEROVER` (handler 0x60059c20) and spins until reset.
+- The work list runs in the capture task (around 0x603e624d, next to REC_MAIN's entry 0x603e5d57, priority 0x36). That
+  is a higher priority than SYS_WDT.
+- Our CPU passes never block, so while they run SYS_WDT cannot run on that CPU. Brief interrupt-masked locks don't help.
+- Grain alone is about 3–5 s, and halation on a dense night scene about 3–5 s (below). Together they come close to 10 s,
+  plus up to 3 s since the last kick. That is a reset.
+- Not the cause:
+  - heap: three small blocks (512 B, 4 KB, up to 16 KB), and a failed malloc means no effect;
+  - the coverage cap: that scene was below it, and the cap is not what bounds the run time.
+
+**Fix (h3):**
+- **Yield.** `hl_unl` replaces the unlock in every halation row and in gc_grain's three unlock calls.
+  - After every 32nd unlock it sleeps one tick: `dly_tsk(1)`, 0x600313ef. Stock code uses dly 1–3 as millisecond waits.
+  - Lower-priority tasks, SYS_WDT included, then run at least every ≈ 0.02 s in halation and ≈ 0.15 s in grain.
+  - Total length no longer matters to the watchdog. The cost is at most about 0.2 s of sleeps per photo.
+- **Faster halation:**
+  - `hl_gpb` makes one cell interpolation per segment instead of two, and fills all-zero segments with word stores.
+  - Pairs with g < 8 are dropped, a change of 2 or less.
+  - The pass-C loop skips 4 zero pairs per aligned word read.
+  - Y1 uses Y0's delta (one multiply fewer).
+  - The chroma clamps take one compare in the common case.
+- **Code:** `.text` 732 B. The tables move to a new `.hl6` in section 6 with `hl_unl` (CODE_SPACE_MAP).
+- **Verifier:** all pass, including **Y yields** (dly_tsk stubbed and counted); the model is updated for the g threshold
+  and Y1. Grain output is unchanged: G compares halation + Grain with the base chain's grain over the model.
+
+**Halation cost per photo (5184 × 3888, High), instructions, scaled from emulated full-width strips:**
+
+| Scene | h2 | h3 | Time at grain's rate [I] |
+|---|---|---|---|
+| No highlights, or daylight (capped) | 18–20 M | 18–20 M | 0.2–0.3 s |
+| Night street, a few lights (≈ 1/4 of the rows glow) [I: from the per-row costs] | ≈ 80 M | ≈ 55 M | ≈ 0.6–0.9 s |
+| Dense city night just under the cap (every row glows, 19 % of cells) | 321 M | 220 M (−32 %) | 3.2–5 s → 2.2–3.5 s |
+
+Rate: grain's 304 M instructions take 3–5 s on camera, so about 1.0–1.6 s per 100 M, flushes included. Grain itself is
+unchanged (3–5 s) and now yields too.
+
+**Build:** `patches/v031/build.py releases/v0.28/edits.json --version 0.31h3`. It was run from a scratch tree with HEAD's
+`patches/ap_custom`, because that layer has uncommitted work by another agent (0.31a1). Against v0.31, only the halation
+regions, the three gc_grain sites and the version label differ. Output `generated/halation/h3/` (edits.json, base.json =
+the chain without halation, pkg).
+
+**Camera result, h3 (0.31b1 = v031 chain with ap_custom a1 + h3):** no restart, so the yields work. But the user found the
+halation "baaaad": **too strong, blocky, lighting up highlights, and missing the LED light completely.** Best guess per symptom
+(none was isolated on the camera):
+
+| Symptom | Most likely h3 change | Why |
+|---|---|---|
+| Missing the LED light | **g < 8 dropped** | A thin LED strip fills little of a 64-px cell, so its blurred, mapped g stays small. Under 8 everywhere, its halo vanished completely; bigger and brighter areas kept theirs |
+| Lighting up highlights, too strong | **Y1 takes Y0's delta** | h2 weights each pixel by its own darkness (255 − Y). h3 used Y0's for both pixels of a pair, so a bright pixel next to a dark one got the dark pixel's large lift and clipped. At edges and in textured highlights it reads as brighter and stronger |
+| Blocky | **g < 8 dropped**, with the 64-px bilinear grid | The cut-off contour follows the cell interpolation, so halo edges end in a squarish line instead of fading out |
+| – | 4-pair zero skip, single-pass strips | No pixel change: the skip only passes words whose four g are 0, and a_k = b_(k-1) = li(k-1) gives the same strip values (verified bit-exact in h3's model). They are dropped in h4 anyway, as asked |
+
+For any later speed-up: keep the per-pixel darkness weight and every non-zero g. Only exactly neutral work can be skipped.
+
+## 19. h4 (0.31b2): h2's halation, bit for bit, plus the yields (2026-11-10; emulator-verified, not camera-tested)
+
+- `hl.s.in` is the committed h2 source (v0.31) with one change: its two unlock calls go through `hl_unl`. The tables are back
+  in `.text`, as in h2.
+- `.hl6` holds only `hl_unl`. gc_grain's three unlock calls also go to `hl_unl`, as in h3.
+- No pixel arithmetic differs from h2: no g threshold, no Y delta reuse, no word skip, and h2's own strip builder.
+- Built in the current tree (ap_custom a1 included) with `patches/v031/build.py releases/v0.28/edits.json --version 0.31b2`
+  into `generated/v031b2/`.
+- **Verified:**
+  - `patches/halation/verify.py generated/v031b2/base.json generated/v031b2/edits.json generated/v031b2/pkg`: all pass. M is
+    bit-exact against h2's model, Y checks the yields, P is anti-brick against the chain without halation.
+  - Same inputs on the v0.31 release image (h2) and on 0.31b2 give identical photos: thin LED-like lights at High, CineStill
+    Med, and Low amber with Grain. The yields fire 18–19 times.
+  - The edge row costs 4.19 M instructions, the same as h2.
+- **Package:** patched `ba0eaf69458bcde0b87713465c01736da80b33bd1e0f714dcf541b14d948b5a8`, restore `963f4dfe…2327`.
+

@@ -1,4 +1,4 @@
-/* Tinted halation on COLOR stills (patches/halation h1; ep7-firmware, our own code). docs/HALATION_RED.md §15.
+/* Tinted halation on COLOR stills (patches/halation h4 = h2's halation, bit for bit, + h3's watchdog yields; was h1; ep7-firmware, our own code). docs/HALATION_RED.md §15.
  * Runs on the CPU grain route, at the Soft Focus blend hook (gc_gs), after the blend and before the grain:
  *   A  Y of every 2nd pixel on every 4th row: cell += max(0, Y - T) >> 2, saturating at 248, in a 64 x 64 px cell grid (u8);
  *   B  two [1 2 1] / 4 passes per axis; u = min(255, 21 v >> 3), g = (u (511 - u) >> 8) gmax >> 8 (a soft knee);
@@ -486,7 +486,7 @@ hl_seg:
  cmp 0,a0
  bne 1f
  mov (16,sp),d0
- call ep7_unlock,[d2],8
+ call hl_unl,[d2],8
  mov 1,d0
  ret [d2,d3,a2,a3],40
 1:
@@ -596,7 +596,7 @@ hl_seg:
  call ep7_modeset,[d2,d3,a2],20   /* flushes first */
 42:
  mov (16,sp),d0
- call ep7_unlock,[d2],8
+ call hl_unl,[d2],8
  clr d0
  ret [d2,d3,a2,a3],40
 
@@ -848,4 +848,25 @@ hl_def:                           /* ex_default hit tail: d2 = 64 slot + sector,
  mov d0,(a1)
  movm (sp),[d2,d3,a2]
  rets
+
+/* ------------------------------------------------------------------ .hl6 (h3/h4, section 6): the yield helper */
+ .section .hl6,"ax"
+/* hl_unl: `call hl_unl,[d2],8`, d0 = lock token. Unlock, then every 32nd time sleep one tick (dly_tsk 1), so lower-priority tasks run:
+ * the capture task (REC_MAIN, priority 0x36) otherwise starves SYS_WDT (0x37, kicks every 3 s, 10 s hardware timeout) for the whole
+ * CPU pass. Used by the halation rows and by grain's gc_grain (its three unlock calls). Counter: grain record +100. Uses d0, d1, a0, a1.
+ * Changes no pixel. */
+hl_unl:
+ call ep7_unlock,[d2],8
+ call gc_blk,[],8
+ cmp 0,a1
+ beq 9f
+ movbu (100,a1),d0
+ inc d0
+ movbu d0,(100,a1)
+ and 31,d0
+ bne 9f
+ mov 1,d0
+ call ep7_dly,[d2,a2,a3],16
+9:
+ ret [d2],8
 

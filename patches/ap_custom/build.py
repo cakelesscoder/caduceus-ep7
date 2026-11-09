@@ -26,6 +26,7 @@ BASE, SRC = 0x60020020, 'patches/ap_custom'
 AT, END = 0x601df0e0, 0x601dfc2c           # dead EVF gamma step-table entries 0x601e3ba0..0x601e3bd8 (tables 0x601df03c..0x601dfc3c; start past the false positive 0xa01df0cc read at 0x606c1305); 16 B stock before grain
 REFS = (0x601e3bd4, 0x601e3bd8, 0x601e3bc0, 0x601e3bc4, 0x601e3bc8, 0x601e3bb0, 0x601e3bb4, 0x601e3bb8, 0x601e3ba0, 0x601e3ba4, 0x601e3ba8)
 AM, AP3, ATR, PEND, ARM = 984, 988, 992, 808, 809 
+RETRIES = 4                                # extra BUNDLES.BIN attempts per power-on after a failed one (a card still mounting after a crash)
 BOOT = 0x6203c8bb                          # .bss padding byte after rotation's latch 0x6203c8ba (v026_rot: 0x6203c8b8 is u16-only, 0x6203c8bc a u32); 0 at power-on
               # heap P: 'EP7A', P3, 'EP7U' (free: movie +960..983, grain +1000, mono +1004.., film +1016..)
 AMAGIC, ATMAGIC = struct.unpack('<2I', b'EP7AEP7U')
@@ -38,6 +39,7 @@ MVT_TAIL = 0x601e0bdf                      # mv_trig: jmp ed_trig
 CCG_CALL = 0x601e202d                      # mv_get: call mv_ccg,[],4
 LB_HIT, LB_HIT_OLD = 0x601e0fe1, 'c9338005f073'   # mv_lb after its gate (bne; mov 5,d0; movhu d0,(a3))
 BAD = MV.BAD
+AP_ZC, ZC_OLD = 0x601df8e2, 'fad06403800c04'   # ap_load `add {fb}+16+52,a0; mov 12,d0`: patches/halation rewrites it here
 VKEY = 0x77                                # SCP Saturation cell (sid 119; shares its -2..2 list with sid 186, Custom-on-Vivid saturation; MOVIE_COLOUR "Buttons")
 SCR, SCR_OLD, SCR_RES = 0x60e4cea8, 'f8972004461c', 0x60e4ceae      # screen lookups (as v0.15 mc)
 SCR2, SCR2_OLD, SCR2_RES = 0x60e4cf21, '431cf1d6f89b22', 0x60e4cf28
@@ -138,14 +140,22 @@ def apply(spec, version='0.30a1'):
     sc_word = SM_FN + 4 * rel_ix
     sub = dict(state=hex(MV.STATE), lim=hex(MV.LIM), pool=hex(MV.POOL), neg_pool=hex((-MV.POOL) & 0xffffffff), bmagic=hex(MV.BMAGIC),
                vm=MV.VM, vp=MV.VP, vh=MV.VH, va=MV.VA, vt=MV.VT, fb=MV.FB, vmagic=hex(MV.VMAGIC), vtmagic=hex(MV.VTMAGIC), vfile=hex(MV.VFILE), pmark=hex(MV.PMARK),
-               am=AM, ap3=AP3, atr=ATR, pend=PEND, arm=ARM, boot=hex(BOOT), vkey=hex(VKEY), ev_info=hex(0x9015), scp_hold=hex(SCP_HOLD), scp_key=hex(SCP_KEY), amagic=hex(AMAGIC), atmagic=hex(ATMAGIC), k44=hex(K44), k24=hex(K24), dirty=MV.DIRTY, status=MV.STATUS, old=MV.OLD,
+               am=AM, ap3=AP3, atr=ATR, pend=PEND, arm=ARM, boot=hex(BOOT), retries=RETRIES, vkey=hex(VKEY), ev_info=hex(0x9015), scp_hold=hex(SCP_HOLD), scp_key=hex(SCP_KEY), amagic=hex(AMAGIC), atmagic=hex(ATMAGIC), k44=hex(K44), k24=hex(K24), dirty=MV.DIRTY, status=MV.STATUS, old=MV.OLD,
                all0=MV.ALL0, all1=MV.ALL1, ckey=hex(MV.CKEY), ev_press=hex(SB3.EV_PRESS), nmagic=hex(struct.unpack('<I', b'EP7N')[0]), fmagic=hex(MV.FMAGIC), lsize=MV.LSIZE)
     syms = dict(ep7_getter=GETTER, ep7_sget=SGET, ep7_mv_s=h(mv, 'mv_s'), ep7_mv_key=h(mv, 'mv_key'), ep7_key_ret=MV.KEY_RET, ep7_msg_ret=MV.MSG_RET, ep7_sh_msg=sh_msg,
                 ep7_mv_tbl=h(mw, 'mv_tbl'), ep7_lc_no=MV.LC_NO, ep7_lc_open=MV.LC_OPEN, ep7_mv_lc=h(mw, 'mv_lc'), ep7_mv_ccg=h(mw, 'mv_ccg'), ep7_mv_la=h(ml, 'mv_la'),
                 ep7_mv_lc2=h(ml, 'mv_lc2'), ep7_ret_a=MV.RET_A, ep7_ret_b=MV.RET_B, ep7_lb_hit=LB_HIT, ep7_mv_trig=h(mw, 'mv_trig'), ep7_trig=h(le, 'ed_trig'),
                 ep7_mv_rng=h(mw, 'mv_rng'), ep7_scr_resume=SCR_RES, ep7_scr2_resume=SCR2_RES, ep7_po_init=po_init, ep7_sc_rel=SC_REL, ep7_cell=CELL, ep7_crc=h(le, 'ed_crc'), ep7_wfile=h(le, 'ed_wfile'), ep7_m_r=h(le, 'ed_m_r'),
                 **{k: int(st_[k], 16) for k in ('ep7_malloc', 'ep7_free', 'ep7_fopen', 'ep7_fclose', 'ep7_fread')})
-    code, lst, s, _ = SB3.assemble(SB3.subst((HERE / 'ap.s.in').read_text(), sub), AT, syms)
+    # patches/halation edits ap_load's zero check at a fixed address (AP_ZC): keep it there with nops after ap_pre's call
+    src = (HERE / 'ap.s.in').read_text()
+    code, lst, s, _ = SB3.assemble(SB3.subst(src, dict(sub, pad='')), AT, syms)
+    pad = AP_ZC - (AT + code.index(bytes.fromhex(ZC_OLD)))
+    if pad < 0 or code.count(bytes.fromhex(ZC_OLD)) != 1:
+        raise SystemExit(f'ap_load zero check would move off {AP_ZC:#x} ({pad})')
+    code, lst, s, _ = SB3.assemble(SB3.subst(src, dict(sub, pad=' .fill %d,1,0xcb' % pad if pad else '')), AT, syms)
+    if code[AP_ZC - AT:AP_ZC - AT + 7].hex() != ZC_OLD:
+        raise SystemExit('ap_load zero check not at its fixed address')
     if AT + len(code) > END:
         raise SystemExit(f'{len(code)} B does not fit {END - AT}')
     ins = SB3.disasm(code, AT, s['ap_end'])

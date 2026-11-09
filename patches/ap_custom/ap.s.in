@@ -590,21 +590,8 @@ ap_pre:
  bne 9f
  movm [d2,d3,a2,a3],(sp)
  add -4,sp
- mov {boot},a0                    /* .bss byte, 0 at every power-on: the first half-press with a valid P this boot */
- movbu (a0),d0
- cmp 0,d0
- bne 2f
- call ap_P,[d2],8
- cmp 1,d0
- bne 2f
- clr d0                           /* P is a fresh malloc: heap bytes from an earlier session (DRAM keeps them) must not pass as our marks */
- mov d0,({vt},a0)
- mov d0,({vm},a0)
- mov d0,({am},a0)
- mov d0,({atr},a0)
- mov 1,d0
- mov {boot},a0
- movbu d0,(a0)
+ call ap_boot,[d2,d3,a2],16      /* once per boot: stale marks, BUNDLES retry (placed after the loaders: fixed addresses below) */
+{pad}
 2:
  call ap_mode,[d2,d3,a2],16
  cmp 1,d0
@@ -981,6 +968,46 @@ v_free:
 v_ret:
  ret [d2,d3,a2,a3],24
 
+
+/* ap_boot: from ap_pre on a half-press, `call ap_boot,[d2,d3,a2],16`. Uses d0, d1, a0, a1.
+ * The BUNDLES loader spent its attempt and failed (0xFFFF): reset it to 0, up to {retries} times this boot, so its own gate tries again
+ * (a card still mounting after a crash-restart). The first half-press with a valid P this boot: clear P's marks (DRAM keeps an earlier
+ * session's heap bytes). Byte {boot} (.bss, boot-cleared): bit 0 marks cleared, bits 4-7 retries. */
+ap_boot:
+ movhu ({state}),d0               /* BUNDLES loader spent its attempt and failed (0xFFFF): allow it {retries} more, one per half-press */
+ cmp 0xffff,d0
+ bne 3f
+ mov {boot},a0
+ movbu (a0),d1
+ mov d1,d0
+ lsr 4,d0
+ cmp {retries},d0
+ bcc 3f
+ add 16,d1
+ movbu d1,(a0)
+ clr d0
+ mov {state},a0
+ movhu d0,(a0)                    /* 0 = not attempted: the loader's own gate decides on the next half-press */
+ bra 9f
+3:
+ mov {boot},a0                    /* .bss byte, 0 at every power-on. Bit 0: the first half-press with a valid P this boot; bits 4-7: retries */
+ movbu (a0),d0
+ btst 1,d0
+ bne 9f
+ call ap_P,[d2],8
+ cmp 1,d0
+ bne 9f
+ clr d0                           /* P is a fresh malloc: heap bytes from an earlier session (DRAM keeps them) must not pass as our marks */
+ mov d0,({vt},a0)
+ mov d0,({vm},a0)
+ mov d0,({am},a0)
+ mov d0,({atr},a0)
+ mov {boot},a0
+ movbu (a0),d0
+ or 1,d0
+ movbu d0,(a0)
+9:
+ ret [d2,d3,a2],16
 
 ap_end:
 ap_pbin:

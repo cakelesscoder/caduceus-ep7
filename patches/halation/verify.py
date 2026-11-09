@@ -141,7 +141,7 @@ def regions(q, gc, j, cached, pic, tbl, fail=0, pic2=None, block=True):
     r = [Region('low', 0x60020020, q[:0x60100000 - BASE], 'rx'), Region('blk0', 0x601de000, q[0x601de000 - BASE:0x601df000 - BASE], 'rx'),
          Region('blk', 0x601df000, q[0x601df000 - BASE:0x601e4000 - BASE], 'rx'), Region('isp', 0x60350000, q[0x60350000 - BASE:0x60360000 - BASE], 'rx'),
          Region('sec1', 0x60210000, q[0x60210000 - BASE:0x60211000 - BASE], 'rx'), Region('sec2', 0x6055e000, q[0x6055e000 - BASE:0x6055f000 - BASE], 'rx'),
-         Region('sec3', 0x605b7000, q[0x605b7000 - BASE:0x605b8000 - BASE], 'rx'),
+         Region('sec3', 0x605b7000, q[0x605b7000 - BASE:0x605b8000 - BASE], 'rx'), Region('sec6', 0x61242000, q[0x61242000 - BASE:0x61243000 - BASE], 'rx'),
          Region('caller', CALLER, wr, 'rx'), Region('stk', STK, bytes(0x4000), 'rw', True), Region('job', JOB, bytes(j), 'rw', True),
          Region('alloc', ALLOC, struct.pack('<IIIIII', HEAP_U + 0x10000, fail, 0, 0, 0, 0) + bytes(64), 'rw', True), Region('heap', HEAP_C, bytes(0x100000), 'rw'),
          Region('heapu', HEAP_U, bytes(hu), 'rw', True), Region('pool', P_AT + H, bytes(p), 'rw', True), Region('st', 0x622cbcc0, bytes(st), 'rw'),
@@ -160,7 +160,7 @@ def run(q, gc, j, cached, pic, tbl, **kw):
     rr = r['registers']
     al = struct.unpack('<IIIIII', m['alloc'][:24])
     ok = not r['fault'] and rr['pc'] == CALLER + 6 and rr['sp'] == STK + 0x3000 and (rr['d2'], rr['d3'], rr['a2'], rr['a3']) == (0x2222, 0x3333, 0xa2a2, 0xa3a3)
-    return dict(ok=ok, fault=r['fault'], d0=rr['d0'], pic=m['pic'], m=m, mallocs=(al[0] - HEAP_U - 0x10000) // 0x10000, frees=al[2], sf=al[4], n=r['attempted'],
+    return dict(ok=ok, fault=r['fault'], d0=rr['d0'], pic=m['pic'], m=m, mallocs=(al[0] - HEAP_U - 0x10000) // 0x10000, frees=al[2], sf=al[4], n=r['attempted'], dly=struct.unpack_from('<I', m['alloc'], 24)[0],
                 modes=m['modes'], hl=struct.unpack_from('<H', m['heapu'], 96)[0])
 
 
@@ -383,6 +383,33 @@ def t_loaders(new):
     return ([] if ok else ['loader bytes']), 1
 
 
+def dly_stub(im):
+    """dly_tsk (needs the kernel) -> a stub that counts at ALLOC+24 and returns 0, same frame as the callers."""
+    code, _, _, _ = HB.SB3.assemble(f''' mov ({ALLOC + 24:#x}),d0
+ inc d0
+ mov d0,({ALLOC + 24:#x})
+ clr d0
+ ret [d2,a2,a3],16
+''', HB.DLY, {})
+    q = bytearray(im); q[HB.DLY - BASE:HB.DLY - BASE + len(code)] = code
+    return bytes(q)
+
+
+def t_yield(old, q, gc):
+    """h3: every 32nd unlock (halation rows and gc_grain) sleeps one tick; the photo is unchanged by it."""
+    bad, n = [], 0
+    w, h, st = 768, 512, 768
+    bus, cached, _ = V.CLASSES['direct']
+    pic = scene(w, h, st, [(330, 250, 10), (600, 100, 8)], seed=9)
+    for name, tb in (('halation', slots(2, 4, 1)), ('halation + grain', slots(2, 4, 1, grain=2)), ('grain only', slots(0, 0, 0, grain=2))):
+        r = run(q, gc, job(bus, w, h, st), cached, pic, tb)
+        locks = r['m']['heapu'][100]
+        n += 1
+        if not (r['ok'] and r['dly'] >= 1 and (r['dly'] * 32) % 256 == locks - locks % 32):
+            bad.append((name, r['fault'], r['dly'], locks))
+    return bad, n
+
+
 def t_pkg(new_s, new, pkg, rst, info, disk, old):
     sb = {b.kind: b for b in V.oc.parse(V.BP.STOCK.read_bytes())}
     good = True
@@ -396,6 +423,7 @@ def t_pkg(new_s, new, pkg, rst, info, disk, old):
         good &= b.payload == sb[b.kind].payload
     hl = new_s['halation']
     ours = [(int(lo, 16), n_) for lo, hi, n_ in hl['regions'].values()] + [(int(a, 16) + 1, 2) for a in hl['sites']] + [(int(a, 16) + 1, 4) for a in hl['sites_h2']] + \
+        [(int(a, 16) + 1, 4) for a in hl.get('sites_h3', [])] + \
         [(0x601e12aa, 4), (0x605b7721 + 52, 1), (0x601e0d12, 1), (0x601e0d15, 1), (0x601df8e4, 1), (0x601df8e7, 1)] + \
         [(int(e['addr'], 16), len(e['new']) // 2) for e in new_s['edits'] if e.get('source') == 'patches/fw_version']
     diff = [BASE + i for i in range(len(old)) if old[i] != new[i]]
@@ -412,10 +440,10 @@ def main():
     old, *_ = V.image(base_s)
     new, pkg, rst, info = V.image(new_s)
     gc = new_s['grain_cpu']['symbols']
-    q = B.stubbed(new, gc, B.slot_table())
+    q = dly_stub(B.stubbed(new, gc, B.slot_table()))
     ok = True
     for name, fn in (('M model', lambda: t_model(q, gc)), ('G gate', lambda: t_gate(old, q, gc)), ('C coverage', lambda: t_cover(old, q, gc)), ('F failures', lambda: t_fail(q, gc)),
-                     ('A flag hook', lambda: t_flag(old, new)), ('X Extras sector 11', lambda: t_extras(old, new)), ('K pick resets +52', lambda: t_pick(new)), ('L loaders', lambda: t_loaders(new))):
+                     ('Y yields', lambda: t_yield(old, q, gc)), ('A flag hook', lambda: t_flag(old, new)), ('X Extras sector 11', lambda: t_extras(old, new)), ('K pick resets +52', lambda: t_pick(new)), ('L loaders', lambda: t_loaders(new))):
         bad, n = fn(); ok &= not bad
         print(f"{'PASS' if not bad else 'FAIL'} {name}: {n - len(bad)}/{n}", bad[:5] if bad else '', flush=True)
     bad, n, ins = t_edge(q, gc); ok &= not bad

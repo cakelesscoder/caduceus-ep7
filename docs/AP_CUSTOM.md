@@ -232,6 +232,27 @@ CANEXEC rule wasn't decoded [I: stock restriction].
 pairs) holds (1645, 2) and (111, 2), Natural. Picking a sub-mode in the AP menu applies its preset, so this is very likely stock.
 b6's misrouted byte was a second, separate route and is gone.
 
+## 0.31a1: BUNDLES not in use after a crash-restart
+
+**Symptom (v0.31):** after a crash-restart during a heavy grain + halation shot, and again after a power cycle, the camera behaved stock
+(no look names, no HSL / FX pages): P never loaded. The card files pass the v0.31 loaders in emulation.
+
+**What the BUNDLES loader trusts across a restart [V code]:** only its state word `0x622cbcc2`, which is in .bss and so is zeroed by
+the boot code on every start, warm or cold. So it isn't stale. But it gets **one attempt per power-on**, spent as soon as the gate
+passes, and the gate accepts any of four media status words == 0xF000 (SD_BUNDLES_V2 §6.5). If fopen or fread fails on that press,
+for example a card still mounting or being checked after an unclean stop, the state stays 0xFFFF for the whole session. That's stock
+behaviour until the next power-on [I: which step failed on camera isn't known]. Our own marks (P +960/+980/+984/+992) were already
+reset once per boot (0.30b10); the film loader's `EP7F` at P+1020 only matters once P exists.
+
+**Fix:** `ap_boot`, called from `ap_pre` on every half-press, sets state 0xFFFF back to 0 up to 4 times per boot (count in the high
+nibble of the boot-cleared byte `0x6203c8bb`). The loader's own gate and checks then run again on the next half-press, in the same
+proven context. A handle, a P2 / P3 swap or 0 are never touched. Without card files that's at most 4 extra fopen calls.
+- `ap_boot` sits after the loaders: patches/halation rewrites ap_load's zero check at the fixed address `0x601df8e2`, so ap_pre's call
+  is padded with nops to keep it there (build-checked).
+- **E** runs the real loader (sd_hook, gate, sd_load, sd_check) on the crash card's BUNDLES.BIN: press 1 has no file → 0xFFFF; ap_pre
+  re-arms; press 2 loads (`EP7B`, handle published). **R:** 0xFFFF is reset only on a press and only up to the cap.
+- **Workaround on the camera:** if it happens, half-press a few times; the reset never needs a battery pull.
+
 ## Open risks
 
 - **Key 11 in AP job kinds** is a combination stock never makes in AP. COLOR + Multiple Exposure (menu) and COLOR + Live Composite

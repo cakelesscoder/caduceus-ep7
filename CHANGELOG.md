@@ -3,6 +3,12 @@
 Caduceus firmware patches for the Olympus PEN E-P7 (firmware 1.1). Releases from v0.25 are betas; earlier ones
 were early-development pre-releases. Use at your own risk (see the README).
 
+## v0.31a — 2026-11-10 (beta)
+
+- **No more restarts on heavy shots:** a photo with strong grain and halation could take long enough that the camera's watchdog restarted it. Grain and halation now pause briefly while they work, so this can't happen; it adds about 0.2 s per photo. The halation look is unchanged from v0.31.
+- **Looks always load:** if the first load of your looks failed (for example right after a crash), the camera stayed stock until you switched it off and on. It now tries again on the next half-presses.
+- Firmware screen shows `Caduceus: 0.31a`.
+
 ## v0.31 — 2026-11-10 (beta)
 
 - **Tinted halation:** a red/orange glow around bright lights, like CineStill and other films without an anti-halation layer. Set it per profile on Extras sector 11 **Halo**: Off / Low / Med / High. Picking a look sets its own halo (CineStill 800T Med; CineStill 50D, Vision3 500T, Portra 400, Polaroid and Gold 200 Low), and you can change it after. White cores stay white, and grain sits on top. It adds about 1–2 s to saving a night photo with lights, and very bright frames (lots of sky) skip it so they save at normal speed. Stills only.

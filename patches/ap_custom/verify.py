@@ -302,6 +302,54 @@ def t_fsm(new, base, spec):
     return n, bad
 
 
+def t_retry(new, spec):
+    """BUNDLES loader spent its attempt and failed (state 0xFFFF): ap_pre resets it to 0 on up to RETRIES half-presses this boot, so
+    the loader tries again. Its state is otherwise untouched (0, a handle, P2 / P3 swaps). Then mv_trig, registers as on entry."""
+    bad, n = [], 0
+    s = int(spec['ap_custom']['symbols']['ap_pre'], 16)
+    mvt = int(spec['v026_movie']['wheel_symbols']['mv_trig'], 16)
+    for st0, boot0, ev, want_st, want_boot in ((0xffff, 0x00, Bd.SB3.EV_PRESS, 0, 0x10), (0xffff, 0x31, Bd.SB3.EV_PRESS, 0, 0x41), (0xffff, 0x41, Bd.SB3.EV_PRESS, 0xffff, 0x41),
+                                               (0xffff, 0x00, 0, 0xffff, 0x00), (0, 0x00, Bd.SB3.EV_PRESS, 0, 0x00), (0x1234, 0x01, Bd.SB3.EV_PRESS, 0x1234, 0x01)):
+        stk = bytearray(0x1000); struct.pack_into('<I', stk, 0x800 + 16, ev)
+        rg = [apc(new), Region('state', 0x622cbcc0, struct.pack('<HHI', 0, st0, 0), 'rw', True), Region('boot', A.BOOT & ~0xf, bytes([0] * (A.BOOT & 0xf)) + bytes([boot0]) + bytes(15 - (A.BOOT & 0xf)), 'rw', True),
+              Region('stack', 0x18010000, bytes(stk), 'rw'), Region('t', mvt, b'\xcb', 'rx')]
+        r = execute(rg, dict(pc=s, sp=STK, d0=1, d1=2, a0=3, a1=4, a2=5, a3=6, d2=7, d3=8), mvt, limit=5000); n += 1
+        mem = {x['name']: bytes.fromhex(x['hex']) for x in r['memory']}; rr = r['registers']
+        st_ = struct.unpack_from('<H', mem['state'], 2)[0]; bt = mem['boot'][A.BOOT & 0xf]
+        if r['fault'] or st_ != want_st or bt != want_boot or (rr['d0'], rr['d1'], rr['a0'], rr['a1'], rr['a2'], rr['a3'], rr['d2'], rr['d3'], rr['sp']) != (1, 2, 3, 4, 5, 6, 7, 8, STK):
+            bad.append((hex(st0), hex(boot0), hex(ev), r['fault'], hex(st_), hex(bt)))
+    return n, bad
+
+
+def t_e2e(new, spec, card):
+    """The real BUNDLES loader (sd_hook, gate, sd_load, sd_check) on two half-presses after a restart, with the real card file:
+    press 1 finds no file (card still mounting), state 0xFFFF; ap_pre re-arms it; press 2 loads the card (state = handle, 'EP7B')."""
+    bad, n = [], 0
+    sv = {k: int(v, 16) for k, v in spec['sd_bundles_v3']['services'].items()}
+    sy = {k: int(v, 16) for k, v in spec['sd_bundles_v3']['symbols'].items()}
+    mvt = int(spec['v026_movie']['wheel_symbols']['mv_trig'], 16)
+    f = Path(card).read_bytes()
+    FS2, PX = 0x18070000, P_AT
+    st, boot = 0, 0
+    for press, present in ((1, False), (2, True)):
+        fo = ' mov 0x41,d0\n mov d0,a0\n ret [],4' if present else ' mov 0,a0\n ret [],4'
+        rd = f' mov {FS2},a1\n mov d1,d2\n mov d2,d3\n cmp 0,d2\n beq 3f\n2:\n movbu (a1),d0\n movbu d0,(a0)\n inc a0\n inc a1\n add -1,d2\n bne 2b\n3:\n mov d3,d0\n ret [d2,d3,a2,a3],24'
+        stk = bytearray(0x1000); struct.pack_into('<I', stk, 0x800 + 16, Bd.SB3.EV_PRESS)
+        rg = [img(new, 0x605b7400, 0x605b7800, 'sec3'), apc(new), stub(sv['ep7_trig'], ' ret [d2,d3,a2,a3],36', 'trig'), stub(sv['ep7_get_tid'], ' mov 5,d0\n movhu d0,(a0)\n clr d0\n ret [a2],4', 'tid'),
+              Region('secbits', sv['ep7_secbits'], struct.pack('<I', 0x1ff), 'r'), Region('ms', sv['ep7_ms_a'], struct.pack('<I', 0xf000) + bytes(28), 'r'),
+              Region('state', 0x622cbcc0, struct.pack('<HHI', 5, st, 0), 'rw', True), Region('boot', A.BOOT & ~0xf, bytes([boot if i == (A.BOOT & 0xf) else 0 for i in range(16)]), 'rw', True),
+              stub(sv['ep7_malloc'], f' mov {PX},a0\n ret [],4', 'ma'), stub(sv['ep7_free'], ' ret [],4', 'fr'), stub(sv['ep7_fopen'], fo, 'fo'), stub(sv['ep7_fclose'], ' clr d0\n ret [d2,a2,a3],16', 'fc'),
+              stub(sv['ep7_fseek'], ' clr d0\n ret [d2,d3,a2,a3],20', 'fs'), stub(sv['ep7_ftell'], f' mov {len(f)},d0\n ret [d2,a2,a3],16', 'ft'), stub(sv['ep7_fread'], rd, 'frd'),
+              Region('file', FS2, f.ljust(0x400, b'\0'), 'r'), Region('pool', PX, bytes(1024), 'rw', True), Region('stack', 0x18010000, bytes(stk), 'rw'), Region('t', mvt, b'\xcb', 'rx')]
+        r = execute(rg, dict(pc=sy['sd_hook'], sp=STK, d0=0, d1=0, a0=STK + 16, a1=0, d2=1, d3=2, a2=3, a3=4), mvt, limit=2000000); n += 1
+        mem = {x['name']: bytes.fromhex(x['hex']) for x in r['memory']}
+        st = struct.unpack_from('<H', mem['state'], 2)[0]; boot = mem['boot'][A.BOOT & 0xf]
+        want = (0, 0x10) if press == 1 else (PX - POOL + 1, 0x11)
+        if r['fault'] or (st, boot) != want or (press == 2 and mem['pool'][:4] != b'EP7B'):
+            bad.append((press, r['fault'], hex(r['registers']['pc']), hex(st), hex(boot), mem['pool'][:4]))
+    return n, bad
+
+
 def lc_run(m, value, s44, s1337, kind, p2):
     """As V.lc_run, plus our code and a getter registry for the raw reads."""
     FAC, GLOB = V.FAC, V.GLOB
@@ -472,6 +520,9 @@ def main():
     rep('V live view message / S / slot', *t_lv(new, base, spec))
     rep('S screen lookups (SCP route)', *t_scr(new, base))
     rep('T SCP INFO through the real dispatcher', *t_fsm(new, base, spec))
+    rep('R BUNDLES retry after a failed attempt', *t_retry(new, spec))
+    if len(sys.argv) > 3:
+        rep('E real BUNDLES loader: restart, failed first press, retry loads the card', *t_e2e(new, spec, sys.argv[3]))
     rep('I editor init / swapped table', *t_init(new))
     rep('L Live Control INFO (real handler)', *t_lc(new, base))
     rep('C Color Creator guard', *t_ccg(new, spec['v026_movie']['wheel_symbols']))
