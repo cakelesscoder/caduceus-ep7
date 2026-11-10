@@ -154,13 +154,17 @@ def regions(q, gc, j, cached, pic, tbl, fail=0, pic2=None, block=True):
 
 
 def run(q, gc, j, cached, pic, tbl, **kw):
-    r = execute(regions(q, gc, j, cached, pic, tbl, **kw), {'pc': CALLER, 'sp': STK + 0x3000, 'a0': JOB, 'd2': 0x2222, 'd3': 0x3333, 'a2': 0xa2a2, 'a3': 0xa3a3},
+    wdt_on = kw.pop('wdt', 1)
+    rgs = regions(q, gc, j, cached, pic, tbl, **kw) + [Region('wdtf', 0x6203ba00, struct.pack('<8xH6x', wdt_on), 'r')]
+    r = execute(rgs, {'pc': CALLER, 'sp': STK + 0x3000, 'a0': JOB, 'd2': 0x2222, 'd3': 0x3333, 'a2': 0xa2a2, 'a3': 0xa3a3},
                 CALLER + 6, limit=60000000, timeout=1200)
     m = {x['name']: bytes.fromhex(x['hex']) for x in r['memory']}
     rr = r['registers']
     al = struct.unpack('<IIIIII', m['alloc'][:24])
     ok = not r['fault'] and rr['pc'] == CALLER + 6 and rr['sp'] == STK + 0x3000 and (rr['d2'], rr['d3'], rr['a2'], rr['a3']) == (0x2222, 0x3333, 0xa2a2, 0xa3a3)
+    nw = struct.unpack_from('<I', m['alloc'], 32)[0]
     return dict(ok=ok, fault=r['fault'], d0=rr['d0'], pic=m['pic'], m=m, mallocs=(al[0] - HEAP_U - 0x10000) // 0x10000, frees=al[2], sf=al[4], n=r['attempted'], dly=struct.unpack_from('<I', m['alloc'], 24)[0],
+                wdt=[struct.unpack_from('<I', m['alloc'], 36 + 4 * i)[0] for i in range(min(nw, 6))],
                 modes=m['modes'], hl=struct.unpack_from('<H', m['heapu'], 96)[0])
 
 
@@ -173,15 +177,15 @@ TINT = dict(zip(HB.ORDER, HB.tint_rows(False)))
 
 def t_model(q, gc):
     bad, n = [], 0
-    w, h, st = 1024, 768, 1040
-    pic = scene(w, h, st, [(150, 130, 6), (700, 400, 14), (420, 650, 3)])
+    w, h, st = 2048, 1536, 2064                         # b3: big enough that three lights stay under the 30 % work cap
+    pic = scene(w, h, st, [(300, 260, 6), (1400, 800, 14), (840, 1300, 3)])
     for cls in ('direct', 'c8'):
         bus, cached, _ = V.CLASSES[cls]
         for tint, strength, eff in ((1, 4, 1), (0, 2, 2), (4, 5, 2)):
             want, cnt = model(pic, w, h, st, TINT[HB.ORDER[max(tint, 1) - 1]], gm(eff, strength, tint))
             r = run(q, gc, job(bus, w, h, st), cached, pic, slots(eff, strength, tint))
             n += 1
-            if not (r['ok'] and r['pic'] == want and want != pic and 3 * cnt <= (w // 64) * (h // 64) and r['mallocs'] == 3 and r['frees'] == 3 and r['sf'] == 1 and r['hl'] == 0):
+            if not (r['ok'] and r['pic'] == want and want != pic and r['mallocs'] == 3 and r['frees'] == 3 and r['sf'] == 1 and r['hl'] == 0):
                 diff = int((np.frombuffer(r['pic'], np.uint8) != np.frombuffer(want, np.uint8)).sum())
                 bad.append((cls, tint, strength, eff, r['fault'], diff, want != pic, cnt, r['mallocs'], r['frees'], r['sf']))
     return bad, n
@@ -383,6 +387,23 @@ def t_loaders(new):
     return ([] if ok else ['loader bytes']), 1
 
 
+def wdt_stub(im):
+    """SYS_WDT request 0x60054b33 (needs the kernel) -> a stub: count at ALLOC+32, log d1 (0 off / 1 on) at ALLOC+36.., return 0."""
+    code, _, _, _ = HB.SB3.assemble(f''' mov ({ALLOC + 32:#x}),d0
+ mov d0,a0
+ add a0,a0
+ add a0,a0
+ add {ALLOC + 36:#x},a0
+ mov d1,(a0)
+ inc d0
+ mov d0,({ALLOC + 32:#x})
+ clr d0
+ ret [d2,d3,a2,a3],72
+''', HB.WDTMSG, {})
+    q = bytearray(im); q[HB.WDTMSG - BASE:HB.WDTMSG - BASE + len(code)] = code
+    return bytes(q)
+
+
 def dly_stub(im):
     """dly_tsk (needs the kernel) -> a stub that counts at ALLOC+24 and returns 0, same frame as the callers."""
     code, _, _, _ = HB.SB3.assemble(f''' mov ({ALLOC + 24:#x}),d0
@@ -395,18 +416,21 @@ def dly_stub(im):
     return bytes(q)
 
 
-def t_yield(old, q, gc):
-    """h3: every 32nd unlock (halation rows and gc_grain) sleeps one tick; the photo is unchanged by it."""
+def t_yield(new, q, gc):
+    """b4: no pauses and no watchdog requests from the passes (dly_tsk and 0x60054b33 never called); the watchdog's run-time timeout
+    is 30 s at both stock settings (0x6005b23a, 0x6005bcff: mov 30,d0)."""
     bad, n = [], 0
     w, h, st = 768, 512, 768
     bus, cached, _ = V.CLASSES['direct']
-    pic = scene(w, h, st, [(330, 250, 10), (600, 100, 8)], seed=9)
-    for name, tb in (('halation', slots(2, 4, 1)), ('halation + grain', slots(2, 4, 1, grain=2)), ('grain only', slots(0, 0, 0, grain=2))):
+    pic = scene(w, h, st, [(330, 250, 10)], seed=9)
+    for name, tb in (('halation', slots(2, 4, 1)), ('halation + grain', slots(2, 4, 1, grain=2)), ('glow + grain', slots(1, 3, 0, grain=2))):
         r = run(q, gc, job(bus, w, h, st), cached, pic, tb)
-        locks = r['m']['heapu'][100]
         n += 1
-        if not (r['ok'] and r['dly'] >= 1 and (r['dly'] * 32) % 256 == locks - locks % 32):
-            bad.append((name, r['fault'], r['dly'], locks))
+        if not (r['ok'] and r['dly'] == 0 and r['wdt'] == []):
+            bad.append((name, r['fault'], r['dly'], r['wdt']))
+    n += 1
+    if [new[a - BASE:a - BASE + 2] for a in HB.WDT_SITES] != [bytes([0x80, HB.WDT_SECONDS])] * 2:
+        bad.append(('timeout bytes', [new[a - BASE:a - BASE + 2].hex() for a in HB.WDT_SITES]))
     return bad, n
 
 
@@ -423,7 +447,7 @@ def t_pkg(new_s, new, pkg, rst, info, disk, old):
         good &= b.payload == sb[b.kind].payload
     hl = new_s['halation']
     ours = [(int(lo, 16), n_) for lo, hi, n_ in hl['regions'].values()] + [(int(a, 16) + 1, 2) for a in hl['sites']] + [(int(a, 16) + 1, 4) for a in hl['sites_h2']] + \
-        [(int(a, 16) + 1, 4) for a in hl.get('sites_h3', [])] + \
+        [(int(a, 16) + 1, 4) for a in hl.get('sites_h3', [])] + [(int(a, 16), 2) for a in hl.get('wdt', {}).get('sites', [])] + \
         [(0x601e12aa, 4), (0x605b7721 + 52, 1), (0x601e0d12, 1), (0x601e0d15, 1), (0x601df8e4, 1), (0x601df8e7, 1)] + \
         [(int(e['addr'], 16), len(e['new']) // 2) for e in new_s['edits'] if e.get('source') == 'patches/fw_version']
     diff = [BASE + i for i in range(len(old)) if old[i] != new[i]]
@@ -440,10 +464,10 @@ def main():
     old, *_ = V.image(base_s)
     new, pkg, rst, info = V.image(new_s)
     gc = new_s['grain_cpu']['symbols']
-    q = dly_stub(B.stubbed(new, gc, B.slot_table()))
+    q = wdt_stub(dly_stub(B.stubbed(new, gc, B.slot_table())))
     ok = True
     for name, fn in (('M model', lambda: t_model(q, gc)), ('G gate', lambda: t_gate(old, q, gc)), ('C coverage', lambda: t_cover(old, q, gc)), ('F failures', lambda: t_fail(q, gc)),
-                     ('Y yields', lambda: t_yield(old, q, gc)), ('A flag hook', lambda: t_flag(old, new)), ('X Extras sector 11', lambda: t_extras(old, new)), ('K pick resets +52', lambda: t_pick(new)), ('L loaders', lambda: t_loaders(new))):
+                     ('W no pauses, watchdog 30 s', lambda: t_yield(new, q, gc)), ('A flag hook', lambda: t_flag(old, new)), ('X Extras sector 11', lambda: t_extras(old, new)), ('K pick resets +52', lambda: t_pick(new)), ('L loaders', lambda: t_loaders(new))):
         bad, n = fn(); ok &= not bad
         print(f"{'PASS' if not bad else 'FAIL'} {name}: {n - len(bad)}/{n}", bad[:5] if bad else '', flush=True)
     bad, n, ins = t_edge(q, gc); ok &= not bad

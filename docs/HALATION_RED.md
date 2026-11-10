@@ -729,3 +729,149 @@ For any later speed-up: keep the per-pixel darkness weight and every non-zero g.
   - The edge row costs 4.19 M instructions, the same as h2.
 - **Package:** patched `ba0eaf69458bcde0b87713465c01736da80b33bd1e0f714dcf541b14d948b5a8`, restore `963f4dfe…2327`.
 
+
+## 20. v0.31a crash on bright daylight frames (0.31b3, 2026-11-10; mitigation, cause not reproduced)
+
+**Report:** CineStill 800 + Grain on a bright daylight scene (close house, palm tree, blue sky, white walls; PB102079 is a frame
+saved just before) crashes about 2 s after the shutter, every time. Darker scenes take about 8 s and are fine.
+
+**Emulated, not reproduced:**
+- Setup: real gc_gs, halation, grain, lock, mapper and lookup. Malloc, free, blend and dly_tsk stubbed. Full 5184 × 3888 buffer
+  from PB102079's luma at the real bus 0xce9d4b80, so it crosses 0xd0000000 and every row splits as on the camera.
+  `tools`-free script `crashfull.py` (scratch) resumes across the emulator's 100 M limit.
+
+| Frame | Halation | Grain | Instructions | Result |
+|---|---|---|---|---|
+| ×1.0 (g > 0 in 17 % of cells) | b2 | off | 201 M | clean, 3 frees, 113 yields |
+| ×1.0 | b2 | Med | 504 M | clean, 5 frees |
+| ×1.12, ×1.3 (27 %, 36 %, under the h2 cap) | b2 | off | 267 M, 309 M | clean |
+| ×1.6, ×2.2 (over the cap: early exit) | b2 | Med | 325 M, 328 M | clean |
+
+- On the same inputs, h2 (v0.31) and b2 give identical photos, so the halation output is unchanged by the yields.
+- Every candidate checked comes out clean:
+  - the cap path: early exit, unlock pairing and frees;
+  - grid sums: u8, saturating at 248;
+  - blur and soft curve: in range;
+  - tint index and stack: as above.
+- **Misaligned-access audit** (the camera faults, the emulator doesn't): every word and halfword access in the halation code
+  is stack-, record- or job-relative, the 4-aligned tint table, the u16 box temp in a malloc block, or record +96.
+  - None depends on image data. No byte-indexed word access exists.
+- No stock or patch code refers to any halation placement, other than the known step-table words and pinned false positives.
+
+**What the emulator does not model:**
+- the real dly_tsk and the tasks it lets run;
+- the stack depth of the job's task during a yield;
+- interrupt latency in the long locked rows of a dense frame;
+- malloc and cache behaviour;
+- the other layers that act around a capture: Rec View (recview rv_gate), and the ap_custom a1 loader retry on half-press, which
+  can now run mid-processing because of the yields.
+
+**Mitigation in 0.31b3 (h5 = h4 + one check):**
+- `hl_cap` in `.hl6`, reached from hl_pb before pass C, skips the halation when more than 30 % of the 64-px cells have any
+  glow (g > 0).
+  - Such frames (big bright skies and walls) spend 200–300 M instructions in pass C on a faint wash.
+  - That is the class of frame that crashed, so they now skip the long row passes.
+  - Every frame under the check is h2's output, bit for bit.
+- Known-good camera frames sit at 2–27 %: PB021373 11 %, PB021380–82 13–27 %, PB102076–78 2–18 %. PB102079 as saved is 17 %.
+- **It does not prove a cause.** If the crash is in the capped / early-exit path, or outside halation, it remains.
+
+**Camera test to isolate the cause (one scene, 4 shots):**
+1. b3 as is. A crash means the cause is not pass C's volume.
+2. b3, Extras 11 Halo Off. Grain only.
+3. b3, Extras 1 Grain Off. Halation only.
+4. v0.31 (h2, no yields) on the same scene, if the user can flash back.
+- **Verified (0.31b3):**
+  - `patches/halation/verify.py generated/v031b3/base.json generated/v031b3/edits.json generated/v031b3/pkg`: all pass. M uses
+    2048 × 1536 frames, so three lights stay under the cap.
+  - Same inputs as on v0.31 (h2): identical photos for thin lights at High, CineStill Med, and Low amber with Grain.
+  - Full-frame PB102079 ×1.0 (17 %): identical to b2.
+  - ×1.3 (36 %): no halation, 19 M instructions, and the buffers are freed.
+- **Package:** `generated/v031b3/pkg/patched.pkg.bin`, SHA-256 `f85e710d30f8c1a4c7d08dd8c61b2338668f0387bbbc4d557581104ef1b0f9e7`.
+
+## 21. Draft (superseded by §22, not built as 0.31b4): watchdog off/on around the passes (2026-11-10)
+
+The user dropped the pauses: they let other tasks (Rec View, the loader retry, card I/O) run while our buffer work is half done.
+
+**1. Feeding the watchdog [V code]:**
+- **No task heartbeat.** SYS_WDT (0x6005b287) waits up to 3 s on its mailbox, then kicks the hardware: 0x6005b253 →
+  0x470008ae, boot code outside the update package, so its body can't be read.
+- **No other caller of the kick.** Nothing else calls 0x6005b253 or 0x470008ae: the kick is only ever made by SYS_WDT itself.
+  The only control is a request to SYS_WDT through **0x60054b33** (mailbox `(0x60040d60)`, d1 = 0 off, 1 on (also kicks:
+  0x6005b232 then 0x6005b253), 2 = new timeout). It sends and waits for the reply.
+- **What stock long jobs do:** switch it off around the long work. 0x60057440 sends off, makes a long call (0x60022e96),
+  then on. Other off/on senders: 0x600f3141/3161, 0x600f35eb, 0x60105728, 0x60c4972b.
+- **Our use:** `hl_grain` jumps to `hl_g6` (sec 6), which does that.
+  1. If SYS_WDT is enabled (`0x6203ba08` ≠ 0): request off.
+  2. Halation (if any), then grain (a nested `call gc_grain` with its own 144-B frame).
+  3. If it was enabled: request on, which also kicks.
+- **Where it can block:** the two requests wait for SYS_WDT's reply, so the task blocks there, but only before the first pixel
+  and after the last. These are the same points where the blend wait (`ep7_sf`) already blocks. The CPU passes themselves never
+  pause again: halation and gc_grain's unlock calls are stock / v0.31.
+- **Scope:** Glow or Clarity + Grain jobs on the blend route get the same off/on. Plain-look grain (the `gc_ob` route) is
+  unchanged: alone it is 3–5 s, well inside 10 s, as in v0.27–v0.30.
+- **Why it's safe:** stock code does exactly this around its own long calls. The watchdog is off for at most the length of the
+  passes, about 8 s on the heaviest frame, and is always switched back on: hl_g6 has one exit, after both passes. A hang inside
+  the passes would then hang, not restart, the camera; none is known.
+
+**2. Deterministic budget:**
+- b3's `hl_cap` stays: halation is skipped when more than 30 % of the cells have any glow. It depends only on the image, so the
+  same scene always gives the same photo.
+- It bounds pass C to the frames that ran fine on camera (≤ 27 % in every known-good frame), about 300 M instructions at most.
+- A time budget against the watchdog isn't needed once it is off, so none was added.
+
+**3. Pauses removed:** `hl_unl` and its counter are gone, and gc_grain is byte-identical to v0.31's grain block.
+
+**Verified (0.31b4)** — see the report.
+
+**Diagnostic plan (0.31b4, same bright scene, 4 shots):**
+1. As built, CineStill800 + Grain. A crash now cannot come from pauses. The watchdog is off, so a restart can't be the watchdog
+   either.
+2. Extras 11 Halo Off: grain only, on the blend route with the watchdog off/on, because the look has a glow.
+3. Extras 1 Grain Off: halation only.
+4. Grain Off and Halo Off, CineStill800 kept: the stock bloom passes only (no CPU pass, no watchdog requests). A crash here is
+   outside our CPU code (bloom, Rec View or the loader).
+
+## 22. 0.31b4 as built: v0.31's halation and grain, watchdog timeout 30 s (2026-11-10; emulator-verified, not camera-tested)
+
+User direction: no time budget, no pauses. Raise the watchdog's limit instead.
+
+**The watchdog [V code]:**
+- **No software heartbeat or per-task alive flags.** SYS_WDT (task 0x19, priority 0x37, 0x6005b287) waits up to 3 s on its
+  mailbox and kicks the hardware: 0x6005b253 → 0x470008ae. Nothing else kicks it.
+- **The limit is the hardware timer itself:** 0x600219ab writes d0 into the 6-bit field (bits 0..5) of **0x98e0008c** and
+  waits on 0x98e000a4. The unit is seconds (debug command `time XXX: timer change XXXsec`), so the maximum is 63.
+- **Run-time settings of 10 s:**
+  - `mov 10,d0` at **0x6005b23a**, in 0x6005b232: SYS_WDT on, at boot (via 0x60044be4) and on each "on" request;
+  - `mov 10,d0` at **0x6005bcff**, the restore after a flash operation: 0x6005bcb5.. sets 0 (off), runs the op, sets 10.
+- **Other settings, left as they are:** 1 (0x6018cb22/68, 0x601e7393, 0x60630256, 0x60767d0e, 0x60020880/097e,
+  0x60058b84, 0x60059aa4, 0x6005a2b2) and 0 (0x6005bcba/e4, 0x6055939a, 0x60c974c1) are the deliberate short or off cases
+  (resets, power paths, flash ops).
+- **Feeding it is not a stock pattern for long jobs.** Stock long jobs switch it off and on via SYS_WDT's request
+  (0x60054b33, §21), which blocks.
+
+**Change:** both `mov 10,d0` → `mov 30,d0` (2 bytes each). Halation, grain and every other byte are v0.31's (h2): no pauses,
+no watchdog requests, no cap. Every halation placement and the grain block are byte-identical to `releases/v0.31`.
+
+**Why 30 s is safe:**
+- **It is the hardware watchdog itself, not a software layer in front of one.** There is no second limit behind it.
+  - The ARM-side watchdog (`ARM WDT!!!`, 0x60059cf1) watches the ARM core, not this CPU's tasks.
+  - The setting is 30 of a possible 63, so it is a plain value inside the documented range.
+- **Kicks continue as before**, every ≤ 3 s whenever SYS_WDT gets the CPU.
+- **Cost:** a real hang anywhere now restarts the camera after up to 30 s instead of 10 s.
+- **Margin:** our heaviest frame is about 504 M instructions (≈ 5–8 s) of CPU-bound work, + ≤ 3 s since the last kick, well
+  under 30 s. 20 s would also do; 30 leaves room for slower-than-estimated cases.
+
+**Verified:** `patches/halation/verify.py generated/v031b4/base.json generated/v031b4/edits.json generated/v031b4/pkg`, all pass.
+- W: no dly_tsk and no watchdog request from the passes; both timeout bytes are 30.
+- M: h2's model, bit-exact.
+- P: anti-brick, 443 edits, no stray bytes.
+- `patched.pkg.bin` SHA-256 `237e0c2658292f78967710edf0260899a0c5befd57cf7358c3d107d39488b73b`.
+
+**4-shot diagnostic (0.31b4, the same bright daylight scene, CineStill800 on COLOR2):**
+1. As built (Halo from the look, Grain Med). **No crash** means the v0.31a pauses were the cause, since b4 is v0.31 + 30 s.
+   **A crash at ≈ 2 s** means it isn't the pauses, and isn't the watchdog either: a 10 s limit can't fire at 2 s.
+2. Extras 11 Halo Off: grain only, on the bloom route.
+3. Extras 1 Grain Off: halation only.
+4. Halo Off and Grain Off: CineStill's stock bloom passes only, no CPU pass. A crash here is outside grain and halation:
+   bloom, Rec View (recview), or the ap_custom a1 loader retry.
+

@@ -184,5 +184,6 @@ Layered on v0.30 (needs grain_cpu r2). Composes with recview in either order (ch
 | 0x601e0d12/15, 0x601df8e4/e7 (1 each) | code | mv_load (MOVIE.BIN) and ap_load (AP.BIN) zero checks: from +53, 11 B |
 | slot byte +52 | ABI | Halo: 0 = the look's, 1 Off, 2 Low, 3 Med, 4 High. Not in LOOKS.BIN (a pick resets it to 0); v0.31h1 and older reject a non-zero one |
 
-| 0x61242c30–0x61242c5a (42 B in h4, claim 0x61242c30–0x61242ce0) | 6 | h3/h4 `.hl6`: hl_unl (unlock + a one-tick dly_tsk every 32nd unlock); h3 also held the tables, h4 has them back in `.text`. Section-6 FF after the look editor's ed_ui code (ends 0x61242c25), inside its unused claim tail (to 0x61242cf0); 0x61242ce0–0x61242cf0 stays FF. Runs only after the card loader, so the section is loaded |
-| 0x601e04c8, 0x601e0510, 0x601e0537 (4 each, rel32 inside grain r2's gc_grain) | hooks | h3: gc_grain's three `call 0x6006a96b` (unlock) -> hl_unl |
+| 0x61242c30–0x61242ce0 | 6 | **Released (0.31b4).** Held hl_unl (h3–b3 pauses), then hl_cap / hl_g6 in drafts; 0.31b4 uses none of it. Back to the look editor's unused tail |
+| 0x601e04c8, 0x601e0510, 0x601e0537 (4 each, rel32 inside grain r2's gc_grain) | hooks | h3–b3 only: gc_grain's unlock calls -> hl_unl. **Stock again from 0.31b4** |
+| 0x6005b23a, 0x6005bcff (2 each) | code | halation b4: `mov 10,d0` -> `mov 30,d0` before the watchdog timer set (0x6005b1f8 when SYS_WDT is switched on; 0x600219ab after the flash-op path). Hardware watchdog timeout 10 s -> 30 s |

@@ -17,7 +17,7 @@ def _load(name, path):
     return m
 
 
-def apply(spec, version='0.31a'):
+def apply(spec, version='0.31b'):
     spec = _load('v030', ROOT / 'patches/v030/build.py').apply(spec, version)
     spec = _load('recview', ROOT / 'patches/recview/build.py').apply(spec, version)   # grain_kind, then rv_gate
     return _load('halation', ROOT / 'patches/halation/build.py').apply(spec, version)
@@ -27,7 +27,7 @@ if __name__ == '__main__':
     ap = argparse.ArgumentParser()
     ap.add_argument('spec', type=Path)
     ap.add_argument('--out', type=Path, required=True)
-    ap.add_argument('--version', default='0.31a')
+    ap.add_argument('--version', default='0.31b')
     a = ap.parse_args()
     a.out.parent.mkdir(parents=True, exist_ok=True)
     a.out.write_text(json.dumps(apply(json.loads(a.spec.read_text()), a.version), indent=1))
