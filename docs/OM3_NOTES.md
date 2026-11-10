@@ -120,7 +120,7 @@ Keep CPU grain as the fallback for anything that fails: OM-3 Frame + Glow is the
 
 ### Control Panel and formats
 
-- **Their panel is now OM-3 only** (`27ae32b`, v0.26 changelog). The E-P7 side, `sharecode.ts`, `targets/` and the E-P7 tests are deleted. It no longer reads our `pk1_` / look codes at all, only `op1_` / `ob1_`. This moves away from the one-panel goal in AGENTS.md; raise it with the author before re-vendoring.
+- **Their panel reads `op1_` / `ob1_` codes** (`27ae32b`). Our panel keeps importing those and exporting OM-3 files, through the vendored `om3.ts` and glue in `targets/`.
 - **Their look JSON has grown** in `webapp/src/pack.ts`: `film_grain` 1..3, `split` {sh_color, sh, hl_color, hl}, `lens_correction`, Sharp −5..+2 in `advice.sharpness`, and NR `grain: 'high'`.
   - **Conflict:** our `parseLook` throws on `grain: 'high'`, so an `op1_` / `ob1_` link with NR High fails to open here.
   - **Lost silently:** `film_grain` and `split`.
