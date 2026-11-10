@@ -1,0 +1,58 @@
+/* E-P7 1.1 AP Custom, 0.31c2: Extras guide label on the Movie / AP slot (ep7-firmware, our own code). docs/AP_CUSTOM.md.
+ * ap_gd takes the guide part word 0x6025aa98 (was {guide_in}, ex_guide), calls it, then on a swapped slot (P2 / P3) on the X page
+ * (ap_xb's test) rewrites the locked sectors' kind-5 text, recognised by its number: "1 " Grain, "2 " Glow, "5 " Art, "11" Halo.
+ * Everything else, and COLOR1-4 (no swap), keeps the label ex_guide wrote. Stores: the view's label and the stack.
+ */
+ .am33_2
+ .text
+ .global _start
+_start:
+ap_gd:                            /* CALLS entry, a0 = view; returns ex_guide's d0 */
+ movm [d2,d3,a2,a3],(sp)
+ add -12,sp
+ mov a0,a3
+ calls ep7_guide_in
+ mov d0,d2
+ mov 1655,d0
+ call ep7_xb,[d2,d3,a2],16        /* d0 = 1: swapped slot, X page */
+ cmp 1,d0
+ bne 9f
+ movhu (44,a3),d0
+ cmp 5,d0
+ bne 9f
+ movhu (52,a3),d0
+ movhu (54,a3),d1
+ mov ap_tc,a0
+ cmp 50,d0                        /* '2' */
+ beq 5f
+ mov ap_ta,a0
+ cmp 53,d0                        /* '5' */
+ beq 5f
+ cmp 49,d0                        /* '1' */
+ bne 9f
+ mov ap_tg,a0
+ cmp 32,d1                        /* "1 " */
+ beq 6f
+ mov ap_th,a0
+ cmp 49,d1                        /* "11" */
+ bne 9f
+ bra 6f
+5:
+ cmp 32,d1
+ bne 9f
+6:
+ mov a0,a2                        /* ex_guide's own writer (same frame): kind 5, text a2 (<= 16), no digit, returns d2 */
+ jmp ep7_qput0
+9:
+ mov d2,d0
+ ret [d2,d3,a2,a3],28
+gd_end:
+ap_tg:
+ .asciz "Grain: stills"
+ap_tc:
+ .asciz "Glow: stills"
+ap_ta:
+ .asciz "Art: stills"
+ap_th:
+ .asciz "Halo: stills"
+gd_data_end:

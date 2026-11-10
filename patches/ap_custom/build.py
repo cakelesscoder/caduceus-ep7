@@ -23,9 +23,11 @@ MV = _load('ep7_v026_movie', ROOT / 'patches/v026_movie/build.py')
 FV = _load('fw_version_build', ROOT / 'patches/fw_version/build.py')
 SB3, STOCK = MV.SB3, MV.STOCK
 BASE, SRC = 0x60020020, 'patches/ap_custom'
-AT, END = 0x601df0e0, 0x601dfc2c           # dead EVF gamma step-table entries 0x601e3ba0..0x601e3bd8 (tables 0x601df03c..0x601dfc3c; start past the false positive 0xa01df0cc read at 0x606c1305); 16 B stock before grain
-REFS = (0x601e3bd4, 0x601e3bd8, 0x601e3bc0, 0x601e3bc4, 0x601e3bc8, 0x601e3bb0, 0x601e3bb4, 0x601e3bb8, 0x601e3ba0, 0x601e3ba4, 0x601e3ba8)
+AT, END = 0x601df03c, 0x601dfc2c           # dead EVF gamma step-table entries 0x601e3ba0..0x601e3bd8 (tables 0x601df03c..0x601dfc3c; start past the false positive 0xa01df0cc read at 0x606c1305); 16 B stock before grain
+REFS = (0x601e3bd0, 0x601e3bd4, 0x601e3bd8, 0x601e3bc0, 0x601e3bc4, 0x601e3bc8, 0x601e3bb0, 0x601e3bb4, 0x601e3bb8, 0x601e3ba0, 0x601e3ba4, 0x601e3ba8)
+FALSE_POS = {0x606c1305: 'ccf01da0'}       # jmp 0x606c30f5; cmp 2,d0 bytes read as 0xa01df0cc (dis-checked)
 AM, AP3, ATR, PEND, ARM = 984, 988, 992, 808, 809 
+SAN = 896                                  # P3 +896..959: sanitised copy of the AP row the pipeline reads (no effects)
 RETRIES = 4                                # extra BUNDLES.BIN attempts per power-on after a failed one (a card still mounting after a crash)
 BOOT = 0x6203c8bb                          # .bss padding byte after rotation's latch 0x6203c8ba (v026_rot: 0x6203c8b8 is u16-only, 0x6203c8bc a u32); 0 at power-on
               # heap P: 'EP7A', P3, 'EP7U' (free: movie +960..983, grain +1000, mono +1004.., film +1016..)
@@ -39,6 +41,11 @@ MVT_TAIL = 0x601e0bdf                      # mv_trig: jmp ed_trig
 CCG_CALL = 0x601e202d                      # mv_get: call mv_ccg,[],4
 LB_HIT, LB_HIT_OLD = 0x601e0fe1, 'c9338005f073'   # mv_lb after its gate (bne; mov 5,d0; movhu d0,(a3))
 BAD = MV.BAD
+GD_AT, GD_END = 0x61378ca0, 0x61378d40    # section 7 FF tail (loads 2nd; no edit in the line uses 0x61378c68..0x61379000; old MONO-colour v0.3 claim, not in any release since v0.15)
+QPUT0, QPUT0_OLD = 0x601e35b4, '048005f8732c'   # ex_guide q_put0: clr d1; mov 5,d0; movhu d0,(44,a3) (kind 5 writer)
+GUIDE_WORD = 0x6025aa98                    # Color Profile view part 3 (guide label) .data init word
+ALL0_IMM = (0x601e2046, 0x601e210c)        # mv_get `cmp 1686,d0` / mv_set `mov 1686,d2` imm16: 1686 is COLOR4's cursor setting, not an ALL value
+LB_COPY, LB_COPY_OLD = 0x601e0ffc, '04f040a000c80af071412102'   # mv_lb's text copy loop: clr d1; a0 text -> (a1) u16, d0 = count, add 16,sp; ret
 AP_ZC, ZC_OLD = 0x601df8e2, 'fad06403800c04'   # ap_load `add {fb}+16+52,a0; mov 12,d0`: patches/halation rewrites it here
 VKEY = 0x77                                # SCP Saturation cell (sid 119; shares its -2..2 list with sid 186, Custom-on-Vivid saturation; MOVIE_COLOUR "Buttons")
 SCR, SCR_OLD, SCR_RES = 0x60e4cea8, 'f8972004461c', 0x60e4ceae      # screen lookups (as v0.15 mc)
@@ -78,6 +85,8 @@ def check_free(spec, stock, im):
             w = np.frombuffer(d[off:off + (len(d) - off) // 4 * 4], dtype='<u4')
             for k in np.nonzero(((w >= AT) & (w < END + 16)) | ((w >= AT + 0x40000000) & (w < END + 0x40000000 + 16)))[0]:
                 at = BASE + off + 4 * int(k)
+                if at in FALSE_POS and d[at - BASE:at - BASE + 4].hex() == FALSE_POS[at]:
+                    continue
                 if at not in REFS:
                     raise SystemExit(f'{name}: reference into {AT:#x}..{END:#x} at {at:#x}')
     for r in REFS:
@@ -116,6 +125,8 @@ def apply(spec, version='0.30a1'):
         pre = stock[s - 3 - BASE:s - BASE]
         if (i == 0 and pre[-1:] != b'\x04') or (i > 0 and pre[1:] != bytes([0x85, i])):
             raise SystemExit(f'{s:#x}: S index {i} not set before the call')
+    if im[LB_COPY - BASE:LB_COPY + 12 - BASE].hex() != LB_COPY_OLD:
+        raise SystemExit('mv_lb copy loop differs')
     if im[TBLX - BASE:TBLX + 5 - BASE].hex() != TBLX_OLD or im[LB_HIT - 2 - BASE:LB_HIT + 4 - BASE].hex() != LB_HIT_OLD:
         raise SystemExit('tbl_x or mv_lb hit point differs')
     if im[MV.KEY_SITE + 5 - BASE:MV.KEY_SITE + 7 - BASE] != b'\xcb\xcb' or im[MV.MSG_SITE + 5 - BASE:MV.MSG_SITE + 8 - BASE] != b'\xcb\xcb\xcb' or im[MV.LC + 5 - BASE] != 0xcb:
@@ -140,12 +151,12 @@ def apply(spec, version='0.30a1'):
     sc_word = SM_FN + 4 * rel_ix
     sub = dict(state=hex(MV.STATE), lim=hex(MV.LIM), pool=hex(MV.POOL), neg_pool=hex((-MV.POOL) & 0xffffffff), bmagic=hex(MV.BMAGIC),
                vm=MV.VM, vp=MV.VP, vh=MV.VH, va=MV.VA, vt=MV.VT, fb=MV.FB, vmagic=hex(MV.VMAGIC), vtmagic=hex(MV.VTMAGIC), vfile=hex(MV.VFILE), pmark=hex(MV.PMARK),
-               am=AM, ap3=AP3, atr=ATR, pend=PEND, arm=ARM, boot=hex(BOOT), retries=RETRIES, vkey=hex(VKEY), ev_info=hex(0x9015), scp_hold=hex(SCP_HOLD), scp_key=hex(SCP_KEY), amagic=hex(AMAGIC), atmagic=hex(ATMAGIC), k44=hex(K44), k24=hex(K24), dirty=MV.DIRTY, status=MV.STATUS, old=MV.OLD,
+               am=AM, ap3=AP3, atr=ATR, pend=PEND, arm=ARM, boot=hex(BOOT), retries=RETRIES, san=SAN, em=MV.EM, emagic=hex(struct.unpack('<I', b'EP7E')[0]), axis=MV.AXIS, x_axis=spec['look_extras']['x_axis'], vkey=hex(VKEY), ev_info=hex(0x9015), scp_hold=hex(SCP_HOLD), scp_key=hex(SCP_KEY), amagic=hex(AMAGIC), atmagic=hex(ATMAGIC), k44=hex(K44), k24=hex(K24), dirty=MV.DIRTY, status=MV.STATUS, old=MV.OLD,
                all0=MV.ALL0, all1=MV.ALL1, ckey=hex(MV.CKEY), ev_press=hex(SB3.EV_PRESS), nmagic=hex(struct.unpack('<I', b'EP7N')[0]), fmagic=hex(MV.FMAGIC), lsize=MV.LSIZE)
     syms = dict(ep7_getter=GETTER, ep7_sget=SGET, ep7_mv_s=h(mv, 'mv_s'), ep7_mv_key=h(mv, 'mv_key'), ep7_key_ret=MV.KEY_RET, ep7_msg_ret=MV.MSG_RET, ep7_sh_msg=sh_msg,
                 ep7_mv_tbl=h(mw, 'mv_tbl'), ep7_lc_no=MV.LC_NO, ep7_lc_open=MV.LC_OPEN, ep7_mv_lc=h(mw, 'mv_lc'), ep7_mv_ccg=h(mw, 'mv_ccg'), ep7_mv_la=h(ml, 'mv_la'),
-                ep7_mv_lc2=h(ml, 'mv_lc2'), ep7_ret_a=MV.RET_A, ep7_ret_b=MV.RET_B, ep7_lb_hit=LB_HIT, ep7_mv_trig=h(mw, 'mv_trig'), ep7_trig=h(le, 'ed_trig'),
-                ep7_mv_rng=h(mw, 'mv_rng'), ep7_scr_resume=SCR_RES, ep7_scr2_resume=SCR2_RES, ep7_po_init=po_init, ep7_sc_rel=SC_REL, ep7_cell=CELL, ep7_crc=h(le, 'ed_crc'), ep7_wfile=h(le, 'ed_wfile'), ep7_m_r=h(le, 'ed_m_r'),
+                ep7_mv_lc2=h(ml, 'mv_lc2'), ep7_ret_a=MV.RET_A, ep7_ret_b=MV.RET_B, ep7_lb_hit=LB_HIT, ep7_lb_copy=LB_COPY, ep7_mv_trig=h(mw, 'mv_trig'), ep7_trig=h(le, 'ed_trig'),
+                ep7_mv_rng=h(mw, 'mv_rng'), ep7_scr_resume=SCR_RES, ep7_scr2_resume=SCR2_RES, ep7_po_init=po_init, ep7_mv_get=h(mw, 'mv_get'), ep7_mv_set=h(mw, 'mv_set'), ep7_sc_rel=SC_REL, ep7_cell=CELL, ep7_crc=h(le, 'ed_crc'), ep7_wfile=h(le, 'ed_wfile'), ep7_m_r=h(le, 'ed_m_r'),
                 **{k: int(st_[k], 16) for k in ('ep7_malloc', 'ep7_free', 'ep7_fopen', 'ep7_fclose', 'ep7_fread')})
     # patches/halation edits ap_load's zero check at a fixed address (AP_ZC): keep it there with nops after ap_pre's call
     src = (HERE / 'ap.s.in').read_text()
@@ -153,7 +164,14 @@ def apply(spec, version='0.30a1'):
     pad = AP_ZC - (AT + code.index(bytes.fromhex(ZC_OLD)))
     if pad < 0 or code.count(bytes.fromhex(ZC_OLD)) != 1:
         raise SystemExit(f'ap_load zero check would move off {AP_ZC:#x} ({pad})')
-    code, lst, s, _ = SB3.assemble(SB3.subst(src, dict(sub, pad=' .fill %d,1,0xcb' % pad if pad else '')), AT, syms)
+    for _ in range(4):                    # branch forms can grow with the padding: settle
+        code, lst, s, _ = SB3.assemble(SB3.subst(src, dict(sub, pad=' .fill %d,1,0xcb' % pad if pad else '')), AT, syms)
+        off = AT + code.index(bytes.fromhex(ZC_OLD))
+        if off == AP_ZC:
+            break
+        pad += AP_ZC - off
+        if pad < 0:
+            raise SystemExit('ap_load zero check cannot be kept at its fixed address')
     if code[AP_ZC - AT:AP_ZC - AT + 7].hex() != ZC_OLD:
         raise SystemExit('ap_load zero check not at its fixed address')
     if AT + len(code) > END:
@@ -169,11 +187,50 @@ def apply(spec, version='0.30a1'):
                MV.LB_A: 'ap_la', MV.LB_B: 'ap_lb2', MV.SD_BACK: 'ap_pre', MVT_TAIL: 'ap_post'}.get(a, 'ap_get')
         put(spec, stock, a + 1, rel(a, t), rel(a, s[new]), f'{a:#x} -> {new} (was {t:#x})')
     put(spec, stock, TBLX, bytes.fromhex(TBLX_OLD), MV.jmp(TBLX, s['ap_tx'], 5), 'tbl_x -> ap_tx')
+    for w_, nm in ((MV.W_GETV, 'mv_get'),):
+        if u32(w_) != h(mw, nm):
+            raise SystemExit(f'{w_:#x} is not {nm}')
+    put(spec, stock, MV.W_GETV, struct.pack('<I', h(mw, 'mv_get')), struct.pack('<I', s['ap_xg']), 'facade GetValue -> ap_xg (Extras on P2/P3: no grain/glow/art/halo)')
+    for at, nm, new_ in ((MV.SET_SITE, 'mv_set', 'ap_xs'),):
+        if tgt(im, at) != h(mw, nm):
+            raise SystemExit(f'{at:#x} is not a call to {nm}')
+        put(spec, stock, at + 1, rel(at, h(mw, nm)), rel(at, s[new_]), f'{at:#x} -> {new_} (was {nm})')
     put(spec, stock, SCR, bytes.fromhex(SCR_OLD), MV.jmp(SCR, s['ap_scr'], 6), 'screen lookup entry -> ap_scr')
     put(spec, stock, SCR2, bytes.fromhex(SCR2_OLD), MV.jmp(SCR2, s['ap_scr2'], 7), 'screen lookup 2 entry -> ap_scr2')
     put(spec, stock, sc_word, struct.pack('<I', SC_REL), struct.pack('<I', s['ap_sinfo']), f'SCP (state 3) INFO release handler word {rel_ix} -> ap_sinfo')
     for w in INIT_WORDS:
         put(spec, stock, w, struct.pack('<I', po_init), struct.pack('<I', s['ap_init']), f'COLOR record +4 {w:#x} -> ap_init (was {po_init:#x})')
+    # 0.31c2: the guide label for the Movie / AP slot's locked Extras sectors, in its own block
+    gin = u32(GUIDE_WORD)
+    if im[QPUT0 - BASE:QPUT0 - BASE + 6].hex() != QPUT0_OLD:
+        raise SystemExit('ex_guide q_put0 differs')
+    if im[gin - BASE:gin - BASE + 8].hex() != 'cff0f8fef493fcff':     # ex_guide: movm; add -12,sp; mov a0,a3; calls ed_guide
+        raise SystemExit(f'guide word {gin:#x} is not ex_guide')
+    for x in spec['edits']:
+        if not x['addr'].startswith('off:'):
+            a_, n_ = int(x['addr'], 16), len(x['new']) // 2
+            if a_ < GD_END + 16 and GD_AT - 16 < a_ + n_:
+                raise SystemExit(f'guide block overlaps edit {x["addr"]}')
+    import numpy as np
+    for name, d in (('stock', stock), ('base', im)):
+        for off in range(4):
+            w = np.frombuffer(d[off:off + (len(d) - off) // 4 * 4], dtype='<u4')
+            for k_ in np.nonzero(((w >= GD_AT) & (w < GD_END)) | ((w >= GD_AT + 0x40000000) & (w < GD_END + 0x40000000)))[0]:
+                at_ = BASE + off + 4 * int(k_)
+                raise SystemExit(f'{name}: reference into the guide block at {BASE + off + 4 * int(k_):#x}')
+    gcode, _, gs, _ = SB3.assemble((HERE / 'gd.s.in').read_text().replace('{guide_in}', hex(gin)), GD_AT, dict(ep7_guide_in=gin, ep7_xb=s['ap_xb'], ep7_qput0=QPUT0))
+    if GD_AT + len(gcode) > GD_END:
+        raise SystemExit(f'guide block {len(gcode)} B does not fit {GD_END - GD_AT}')
+    if set(stock[GD_AT - 16 - BASE:GD_END + 16 - BASE]) != {0xff}:
+        raise SystemExit('section-7 tail not FF')
+    gins = SB3.disasm(gcode, GD_AT, gs['gd_end'])
+    if any(op in BAD for _, op, _ in gins) or any(k == 'abs' for _, _, k, _ in SB3.store_audit(gins)) or any(gcode[a - GD_AT] == 0xfb for a, _, _ in gins):
+        raise SystemExit('guide block: forbidden instruction')
+    spec['edits'].append(dict(kind='0x100', addr=hex(GD_AT), expect=stock[GD_AT - BASE:GD_AT - BASE + len(gcode)].hex(), new=gcode.hex(), source=SRC,
+                              why=f'ap_custom 0.31c2: guide label for locked Extras sectors on P2/P3 ({len(gcode)} B, section-7 FF tail)'))
+    put(spec, stock, GUIDE_WORD, struct.pack('<I', gin), struct.pack('<I', gs['ap_gd']), 'guide part word -> ap_gd (was ex_guide)')
+    for a_, old_ in zip(ALL0_IMM, (bytes.fromhex('fac89606'), bytes.fromhex('2e9606'))):
+        put(spec, stock, a_ - len(old_) + 2, old_, old_[:-2] + b'\xff\xff', f'{a_:#x}: 1686 (COLOR4 cursor) no longer treated as an ALL value on P2/P3')
     if version:
         spec = FV.apply(spec, version)
     spec['ap_custom'] = dict(built_by=SRC, version=version, code_at=hex(AT), code_len=len(code), claim=[hex(AT), hex(END)], heap=dict(am=AM, ap3=AP3, atr=ATR, pend_p3=PEND, arm_p3=ARM),

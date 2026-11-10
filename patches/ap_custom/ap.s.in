@@ -224,7 +224,8 @@ ap_s:
 
 /* ap_tx: jmp at tbl_x: a0 = table, d3 = byte offset, frame [d2,d3],8. Keeps d0, d1, a1.
  * The pipeline always reads P's table, also while P2 or P3 is swapped into the state word (a wheel left open, or an SCP open that
- * ended without an init); COLOR4's row (192..255) in AP + Vivid -> P3 + 32 + d3. */
+ * ended without an init); COLOR4's row (192..255) in AP + Vivid -> a sanitised copy of P3's row at P3 +{san}: AP jobs never get
+ * grain, glow / clarity, halation or Art Effects, whatever the slot holds. */
 ap_tx:
  add -20,sp
  mov d0,(4,sp)
@@ -248,8 +249,33 @@ ap_tx:
  add 4,sp
  cmp 1,d0
  bne 3f
- add 32,a0
+ mov a0,a1                        /* P3: a sanitised copy of its row at P3 +{san}: no grain, glow/clarity, halation or Art Effect */
+ add 224,a1
+ add {san},a0
+ clr d1
+4:
+ movbu (d1,a1),d0
+ movbu d0,(d1,a0)
+ inc d1
+ cmp 64,d1
+ bne 4b
+ clr d0
+ movbu d0,(28,a0)                 /* effect id: bloom / halation / clarity */
+ movbu d0,(29,a0)                 /* effect strength */
+ movbu d0,(45,a0)                 /* bloom tint */
+ movbu d0,(46,a0)                 /* Art Effect */
+ movbu d0,(50,a0)                 /* Grain */
+ mov 1,d0
+ movbu d0,(52,a0)                 /* Halo: Off */
+ add -192,a0
  mov a0,(12,sp)
+ mov (16,sp),a1
+ mov (4,sp),d0
+ mov (8,sp),d1
+ mov (12,sp),a0
+ add 20,sp
+ add d3,a0
+ ret [d2,d3],8
 3:
  mov (4,sp),d0
  mov (8,sp),d1
@@ -558,18 +584,26 @@ ap_lbl:                           /* -> d0 characters drawn, or 0 with d1, a0, a
  bne 8f
  movhu (2,a2),d0
  cmp 1657,d0
+ beq 1f
+ cmp 183,d0                       /* "Muted": movie's log mode */
  bne 8f
+1:
  add -16,sp
  mov d1,(4,sp)
  mov a0,(8,sp)
  mov a1,(12,sp)
+ movhu (2,a2),d0
+ cmp 183,d0
+ bne 2f
+ jmp ap_wlog
+2:
  add -4,sp
  call ap_mode,[d2,d3,a2],16
  add 4,sp
  cmp 1,d0
- bne 7f
+ bne ap_lr
  jmp ep7_lb_hit
-7:
+ap_lr:
  mov (4,sp),d1
  mov (8,sp),a0
  mov (12,sp),a1
@@ -590,8 +624,7 @@ ap_pre:
  bne 9f
  movm [d2,d3,a2,a3],(sp)
  add -4,sp
- call ap_boot,[d2,d3,a2],16      /* once per boot: stale marks, BUNDLES retry (placed after the loaders: fixed addresses below) */
-{pad}
+ call ap_boot,[d2,d3,a2],16      /* once per boot: stale marks, BUNDLES retry */
 2:
  call ap_mode,[d2,d3,a2],16
  cmp 1,d0
@@ -660,6 +693,46 @@ ap_post:
  mov (12,sp),a1
  add 16,sp
  jmp ep7_trig
+
+/* Extras on the Movie / AP slot: sectors 1 Grain, 2 Glow/Clarity, 5 Art, 11 Halo (COLOR4 ids 1655, 1656, 1659, 1665) read 0 and
+ * ignore writes while a swapped slot (P2 or P3) is open on the X page (GetDefault is already 0 on X). In front of mv_get / mv_set; COLOR1-4 never match.
+ * ap_xb: d0 = id -> d0 = 1 blocked, else 0. `call ap_xb,[d2,d3,a2],16`. Uses d0. */
+ap_xb:
+ mov d0,d2
+ exthu d2
+ add -1655,d2
+ cmp 0,d2
+ beq 1f
+ cmp 1,d2
+ beq 1f
+ cmp 4,d2
+ beq 1f
+ cmp 10,d2
+ bne 9f
+1:
+ movhu ({state}),d3
+ HV d3,a2,9f
+ mov ({vm},a2),d3
+ cmp {vmagic},d3
+ bne 9f
+ mov ({vp},a2),d3
+ cmp a2,d3
+ bne 9f
+ mov ({em},a2),d3
+ cmp {emagic},d3
+ bne 9f
+ movbu ({axis},a2),d3
+ cmp {x_axis},d3
+ bne 9f
+ mov 1,d0
+ ret [d2,d3,a2],16
+9:
+ clr d0
+ ret [d2,d3,a2],16
+
+
+/* padding: patches/halation rewrites ap_load's zero check at a fixed address */
+{pad}
 
 /* ap_load: a2 = P. As mv_load, with AP.BIN and P3. Locals (4,sp) handle. The same range table as mv_load: +49..51 (lens, Grain, Sharp) and NR +24 are the readers' to check */
 ap_load:
@@ -1009,7 +1082,70 @@ ap_boot:
 9:
  ret [d2,d3,a2],16
 
+ap_xg:                            /* facade GetValue (CALLS: d0 id, a1 out, (0,sp) return) */
+ add -12,sp
+ mov d0,(4,sp)
+ mov mdr,d0
+ mov d0,(8,sp)
+ mov (4,sp),d0
+ call ap_xb,[d2,d3,a2],16
+ cmp 1,d0
+ bne 1f
+ cmp 0,a1
+ beq 1f
+ clr d0
+ mov d0,(a1)
+ mov (8,sp),d0
+ mov d0,mdr
+ add 12,sp
+ clr d0
+ rets
+1:
+ mov (8,sp),d0
+ mov d0,mdr
+ mov (4,sp),d0
+ add 12,sp
+ jmp ep7_mv_get
+
+ap_xs:                            /* `call ap_xs,[d2,d3,a2],16` at the GUI setter: d0 id, d1 value */
+ add -12,sp
+ mov d0,(4,sp)
+ mov mdr,d0
+ mov d0,(8,sp)
+ mov (4,sp),d0
+ call ap_xb,[d2,d3,a2],16
+ mov d0,d2
+ mov (8,sp),d0
+ mov d0,mdr
+ mov (4,sp),d0
+ add 12,sp
+ cmp 1,d2
+ bne 1f
+ clr d0                           /* blocked: no write */
+ ret [d2,d3,a2],16
+1:
+ jmp ep7_mv_set
+
+/* ap_wlog: from ap_lbl (frame as mv_lb, d1 / a0 / a1 saved): "Muted" in movie (sid 44 == 1) -> kind 5 "8-BIT LOG" through mv_lb's copy loop. */
+ap_wlog:
+ mov 44,d0
+ call ep7_sget,[],4
+ cmp 1,d0
+ beq 1f
+ jmp ap_lr
+1:
+ mov 5,d0
+ movhu d0,(a3)
+ clr d0
+ movhu d0,(26,a3)                 /* the NUL after 9 characters (text at +8) */
+ mov a3,a1
+ add 8,a1
+ mov ap_tlog,a0
+ jmp ep7_lb_copy
+
 ap_end:
+ap_tlog:
+ .asciz "8-BIT LOG"
 ap_pbin:
  .asciz "C:\\EP7MOD\\AP.BIN"
 ap_pnew:

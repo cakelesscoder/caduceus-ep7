@@ -11,7 +11,7 @@ stills, and longer video recording.
 
 *Named after the caduceus, the staff of Hermes: messenger between gods and mortals and guide of travellers.*
 
-**Latest release: [v0.31b](https://github.com/cakelesscoder/caduceus-ep7/releases/tag/v0.31b)** ·
+**Latest release: [v0.31c](https://github.com/cakelesscoder/caduceus-ep7/releases/tag/v0.31c)** ·
 **[Install guide](docs/INSTALL.md)** · **[Changelog](CHANGELOG.md)** · **[Caduceus Control Panel](https://cakelesscoder.github.io/caduceus-ep7/)** (make and share looks in your browser) · The camera's Setup › Firmware screen shows the Caduceus version.
 
 > [!WARNING]
@@ -48,7 +48,7 @@ stills, and longer video recording.
 | **Lens vignette correction off per look** | Picking a look turns the camera's lens shading correction off for that profile, for natural corners, without changing the menu setting. Extras sector 8 changes it (**VigFix Off** / **VigFix Camera**), and a look can keep the correction in the Control Panel. | **New in v0.25, please report:** not yet confirmed on photos. See [how to test](#vignette-correction-reports-wanted) |
 | **Mono film presets** | Pan F 50, Acros, T-Max 100, SFX 200, Tri-X 400, HP5 Plus, Delta 3200, Sepia Print, Selenium, Cyanotype for Monochrome Profiles, built from OM's own mono settings. Label `<name>`, `*` when modified. | Camera-tested |
 | **Live-view preview** | Hue, lightness and bloom show in live view, not only in the saved photo. | Camera-tested |
-| **True log video** | A log curve Olympus left hidden in the firmware, switched on with the **movie** picture mode set to Muted. | Camera-tested |
+| **True log video** | A log curve Olympus left hidden in the firmware, switched on with the **movie** picture mode set to Muted (shown as `8-BIT LOG` from v0.31c). | Camera-tested |
 | **XPan 65:24 and 21:9** | Panorama (5184×1920) and Wide (5184×2224) in the menu and Super Control Panel, with matching live view and playback framing, `XP` and `21:9` icons in the Super Control Panel option strip, and `XPAN`/`UW` size labels. Boots back to 4:3 each power-on, for safety. | Camera-tested; AF, guides, reboot and SCP icon fixed in v0.29 |
 | **Movie colour** | Movie picture mode Vivid becomes its own colour profile, separate from COLOR1-4 and saved in `EP7MOD/MOVIE.BIN`. Half-press once after switching on to load it, select Vivid in the movie Live Control (it reads `INFO Custom` once loaded), then press **INFO** to edit it. Clips shot before that half-press are stock Vivid. | Camera-tested, long recordings not yet |
 | **AP Custom colour** | On the AP dial position, Vivid becomes its own colour profile, saved in `EP7MOD/AP.BIN`, for Multiple Exposure, Live Composite and the other AP modes. Half-press once after switching on, then on the Super Control Panel press **INFO** on the Vivid picture-mode cell to edit it. | **New in v0.30** |
@@ -76,8 +76,8 @@ The builder downloads OM's official 1.1 firmware from OM's server, checks it, an
   - Windows: `Build Caduceus (Windows).bat`
   - macOS: `Build Caduceus (Mac).command` (the first time: right-click › **Open**)
   - Linux: `build-caduceus-linux.sh`
-- **Or from a terminal** in that folder: `python3 caduceus.py build --release v0.31b`
-  (Windows: `py caduceus.py build --release v0.31b`).
+- **Or from a terminal** in that folder: `python3 caduceus.py build --release v0.31c`
+  (Windows: `py caduceus.py build --release v0.31c`).
 
 It creates a folder with:
 

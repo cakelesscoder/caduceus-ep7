@@ -47,7 +47,7 @@ def heap(kind, swapped=False, p2=False, rw=False, table=None):
             q[A.PEND] = 1
         if ARMED:
             q[A.ARM] = 1
-        rg.append(Region('pool3', P3_AT, bytes(q), 'rw' if rw else 'r', rw))
+        rg.append(Region('pool3', P3_AT, bytes(q), 'rw', rw))   # RAM: the pipeline writes its sanitised row copy here
     if p2:
         q2 = bytearray(V.block(t, HANDLE, True)); q2[224:288] = bytes(64)
         rg.append(Region('pool2', P2_AT, bytes(q2), 'r'))
@@ -108,7 +108,7 @@ def t_tbl(new, base):
             n += 1
             hit = on(k, s44, s24, pm) and 192 <= off < 256
             rr = res[1][1]
-            want = P3_AT + 32 + off if hit else res[0][1]['a0']
+            want = P3_AT + A.SAN - 192 + off if hit else res[0][1]['a0']
             if res[1][0] or rr['a0'] != want or any(rr[x] != res[0][1][x] for x in ('d0', 'd1', 'a1', 'd2', 'd3', 'a2', 'a3', 'sp')):
                 bad.append((hex(entry), d0, k, s44, s24, pm, res[1][0], hex(rr['a0']), hex(want)))
     return n, bad
@@ -198,7 +198,7 @@ def t_lv(new, base, spec):
                 res.append((r['fault'], r['registers']))
             n += 1
             rr = res[1][1]
-            want = P3_AT + 224 if on(k, s44, s24, pm) else res[0][1]['a0']
+            want = (P3_AT + 224 if d1 == Bd.PMARK else P3_AT + A.SAN) if on(k, s44, s24, pm) else res[0][1]['a0']
             if res[1][0] or rr['a0'] != want or any(rr[x] != res[0][1][x] for x in ('d0', 'd1', 'a1', 'd2', 'd3', 'a2', 'a3', 'sp')):
                 bad.append(('tbl', k, s44, s24, pm, hex(d1), res[1][0], hex(rr['a0']), hex(want)))
     return n, bad
@@ -260,7 +260,7 @@ def t_init(new):
         if r['fault'] or struct.unpack_from('<H', mem['state'], 2)[0] != want or mem['pool3'][A.PEND] != 0 or (rr['d0'], rr['d1'], rr['a0'], rr['a1'], rr['d2'], rr['d3'], rr['a2'], rr['a3'], rr['sp']) != (1, 2, 3, 4, 5, 6, 7, 8, STK):
             bad.append((swapped, pend, r['fault'], struct.unpack_from('<H', mem['state'], 2)[0]))
     # swapped to P3, dial off AP: the pipeline reads P's table
-    for s24, off, want in ((3, 64, P_AT + 32 + 64), (3, 192, P_AT + 32 + 192), (211, 192, P3_AT + 32 + 192), (211, 64, P_AT + 32 + 64)):
+    for s24, off, want in ((3, 64, P_AT + 32 + 64), (3, 192, P_AT + 32 + 192), (211, 192, P3_AT + A.SAN), (211, 64, P_AT + 32 + 64)):
         rg = [img(new, 0x6055e700, 0x6055e800, 'sec2'), apc(new), *getter(new, props(0, s24, 1)), *heap('ap', swapped=True), Region('stack', 0x18010000, bytes(0x1000), 'rw'), caller(0x6055e7b6, '[d2,d3],8')]
         r = execute(rg, dict(pc=0x18040000, sp=STK, d0=off, d1=0x77, a1=0x88), 0x18040007, limit=20000); n += 1
         if r['fault'] or r['registers']['a0'] != want or r['registers']['d1'] != 0x77 or r['registers']['a1'] != 0x88:
@@ -347,6 +347,110 @@ def t_e2e(new, spec, card):
         want = (0, 0x10) if press == 1 else (PX - POOL + 1, 0x11)
         if r['fault'] or (st, boot) != want or (press == 2 and mem['pool'][:4] != b'EP7B'):
             bad.append((press, r['fault'], hex(r['registers']['pc']), hex(st), hex(boot), mem['pool'][:4]))
+    return n, bad
+
+
+def t_fx(new, spec):
+    """Z: an AP capture's slot read (tbl_idx(3), then the real gc_lvl grain level and hl_stg halation stage) with grain, glow,
+    halation, tint and Art bytes set in the AP slot: the row it gets has them off, every other byte is the slot's.
+    Q: Extras on a swapped slot (P3 / P2) on the X page: sectors 1, 2, 5, 11 read 0 and refuse writes; others and COLOR1-4 go on."""
+    global SLOT
+    bad, n = [], 0
+    slot = bytearray(SLOT); slot[28], slot[29], slot[45], slot[46], slot[50], slot[52], slot[24], slot[47], slot[49], slot[51] = 1, 3, 2, 2, 3, 4, 6, 0xfe, 1, 1
+    keep = SLOT
+    SLOT = bytes(slot)
+    try:
+        for k, s24 in (('ap', 211), ('ap', 3)):
+            rg = [img(new, 0x6055e700, 0x6055e800, 'sec2'), apc(new), *getter(new, props(0, s24, 1)), *heap(k, rw=True), Region('stack', 0x18010000, bytes(0x1000), 'rw'), caller(0x6055e7b0, '[d2,d3],8')]
+            r = execute(rg, dict(pc=0x18040000, sp=STK, d0=3), 0x18040007, limit=20000); n += 1
+            mem = {x['name']: bytes.fromhex(x['hex']) for x in r['memory']}
+            a0 = r['registers']['a0']
+            if s24 == 211:
+                row = mem['pool3'][a0 - P3_AT:a0 - P3_AT + 64]
+                want = bytearray(slot); want[28] = want[29] = want[45] = want[46] = want[50] = 0; want[52] = 1
+                ok = not r['fault'] and a0 == P3_AT + A.SAN and row == bytes(want) and mem['pool3'][224:288] == bytes(slot)
+            else:
+                ok = not r['fault'] and a0 == P_AT + 32 + 192
+            if not ok:
+                bad.append(('Z', s24, r['fault'], hex(a0)))
+        # the real grain level reader on an AP capture job (key 11, marker, profile 4, type 0x1000)
+        gl = int(spec['grain_cpu']['symbols']['gc_lvl'], 16)
+        JOBX = 0x1c000000
+        jb = bytearray(15600); struct.pack_into('<I', jb, 11308, 11); struct.pack_into('<H', jb, 20, 0x1000); jb[15488], jb[15489], jb[15490] = 4, 11, 0xb2
+        for s24, want in ((211, 0), (3, None)):
+            rg = [img(new, 0x601dfc3c, 0x601e0b3c, 'grain'), img(new, 0x6055e700, 0x6055e800, 'sec2'), apc(new), *getter(new, props(0, s24, 1)), *heap('ap', rw=True, table=bytes(192) + bytes(slot) + bytes(256)),
+                  Region('job', JOBX, bytes(jb), 'r'), Region('stack', 0x18010000, bytes(0x1000), 'rw'), caller(gl, '[d2,d3],16')]
+            r = execute(rg, dict(pc=0x18040000, sp=STK, a0=JOBX), 0x18040007, limit=20000); n += 1
+            d0 = r['registers']['d0']
+            if r['fault'] or (want is not None and d0 != want) or (want is None and d0 != 3):
+                bad.append(('grain', s24, r['fault'], d0))
+    finally:
+        SLOT = keep
+    s = {k: int(v, 16) for k, v in spec['ap_custom']['symbols'].items()}
+    MG, MS = int(spec['v026_movie']['wheel_symbols']['mv_get'], 16), int(spec['v026_movie']['wheel_symbols']['mv_set'], 16)
+    RET = 0x18040800
+    for sw, axis, gid in ((True, 4, 1655), (True, 4, 1656), (True, 4, 1659), (True, 4, 1665), (True, 4, 1657), (True, 4, 1664), (True, 1, 1655), (False, 4, 1655), (False, 4, 1059)):
+        hp = heap('ap', swapped=sw, rw=True)
+        for r_ in hp:
+            if r_.name in ('pool', 'pool3'):
+                b = bytearray(r_.data); b[Bd.EM:Bd.EM + 4] = b'EP7E'; b[Bd.AXIS] = axis
+                hp[hp.index(r_)] = Region(r_.name, r_.address, bytes(b), 'rw', True)
+        hit = sw and axis == 4 and gid in (1655, 1656, 1659, 1665)
+        stk = bytearray(0x1000); struct.pack_into('<I', stk, STK - 0x18010000, RET)
+        rg = [apc(new), *hp, Region('out', V.OUT, struct.pack('<I', 0x77777777), 'rw', True), Region('stack', 0x18010000, bytes(stk), 'rw'), Region('ret', RET, b'\xcb' * 4, 'rx'), Region('mg', MG, b'\xcb', 'rx'), Region('ms', MS, b'\xcb', 'rx')]
+        r = execute(rg, dict(pc=s['ap_xg'], sp=STK, d0=gid, d1=2, a0=3, a1=V.OUT, d2=5, d3=6, a2=7, a3=8), RET if hit else MG, limit=5000); n += 1
+        out = struct.unpack('<I', bytes.fromhex([x for x in r['memory'] if x['name'] == 'out'][0]['hex']))[0]
+        rr = r['registers']
+        ok = not r['fault'] and ((out == 0 and rr['d0'] == 0) if hit else (out == 0x77777777 and rr['d0'] == gid)) and (rr['d1'], rr['a0'], rr['a1'], rr['d2'], rr['d3'], rr['a2'], rr['a3']) == (2, 3, V.OUT, 5, 6, 7, 8)
+        rg2 = [apc(new), *hp, Region('stack', 0x18010000, bytes(0x1000), 'rw'), Region('ms', MS, b'\xcb', 'rx'), caller(s['ap_xs'], '[d2,d3,a2],16')]
+        r2 = execute(rg2, dict(pc=0x18040000, sp=STK, d0=gid, d1=3, a0=3, a1=4, d2=5, d3=6, a2=7, a3=8), 0x18040007 if hit else MS, limit=5000); n += 1
+        rr2 = r2['registers']
+        ok = ok and not r2['fault'] and ((rr2['d2'], rr2['d3'], rr2['a2'], rr2['sp']) == (5, 6, 7, STK) if hit else (rr2['d0'], rr2['d1'], rr2['a0'], rr2['a1']) == (gid, 3, 3, 4))
+        if not ok:
+            bad.append(('Q', sw, axis, gid, r['fault'], hex(out), hex(rr['pc']), r2['fault'], hex(rr2['pc'])))
+    return n, bad
+
+
+def t_guide(new, spec):
+    """J: ap_gd after ex_guide (stubbed: the view's label already holds ex_guide's text; the real q_put0 writer runs) on a swapped
+    slot on X: sectors 1 / 2 / 5 / 11 -> "<name>: stills"; others, other pages and COLOR1-4 (no swap) unchanged.
+    W: COLOR4's cursor setting 1686 on a swapped slot reaches the stock get / set (no longer P2/P3 +972), so the wheel's marker follows."""
+    bad, n = [], 0
+    s = {k: int(v, 16) for k, v in spec['ap_custom']['symbols'].items()}
+    gd = int([e for e in spec['edits'] if e['addr'] == hex(A.GD_AT)][0]['addr'], 16)
+    VIEW, RET = 0x18030000, 0x18040800
+    sym_gd = A.GD_AT          # ap_gd is the block's first routine
+    for sw, axis, text, want in ((True, 4, '1 Grain Low', 'Grain: stills'), (True, 4, '2 Clarity +', 'Glow: stills'), (True, 4, '2 Clarity/Glow 0', 'Glow: stills'),
+                                 (True, 4, '5 Art Off', 'Art: stills'), (True, 4, '11 Halo Med', 'Halo: stills'), (True, 4, '10 Sharp Off', None), (True, 4, '3 WB A-B', None),
+                                 (True, 4, '1', None), (True, 1, '1 Grain Low', None), (False, 4, '1 Grain Low', None)):
+        hp = heap('ap', swapped=sw, rw=True)
+        for r_ in hp:
+            if r_.name in ('pool', 'pool3'):
+                b = bytearray(r_.data); b[Bd.EM:Bd.EM + 4] = b'EP7E'; b[Bd.AXIS] = axis
+                hp[hp.index(r_)] = Region(r_.name, r_.address, bytes(b), 'rw', True)
+        view = bytearray(0x200); struct.pack_into('<H', view, 44, 5)
+        for i, c in enumerate(text):
+            struct.pack_into('<H', view, 52 + 2 * i, ord(c))
+        stk = bytearray(0x1000); struct.pack_into('<I', stk, STK - 0x18010000, RET)
+        rg = [img(new, A.GD_AT, A.GD_END, 'gd'), apc(new), img(new, A.QPUT0, A.QPUT0 + 0x60, 'qput'), stub(0x601e3460, ' mov 0x5a,d0\n rets', 'exg'), *hp,
+              Region('view', VIEW, bytes(view), 'rw', True), Region('stack', 0x18010000, bytes(stk), 'rw'), Region('ret', RET, b'\xcb' * 4, 'rx')]
+        r = execute(rg, dict(pc=sym_gd, sp=STK, a0=VIEW, d2=5, d3=6, a2=7, a3=8), RET, limit=20000); n += 1
+        vw = bytes.fromhex([x for x in r['memory'] if x['name'] == 'view'][0]['hex'])
+        got = ''.join(chr(struct.unpack_from('<H', vw, 52 + 2 * i)[0]) for i in range(20)).split('\0')[0]
+        rr = r['registers']
+        ok = not r['fault'] and rr['d0'] == 0x5a and got == (want or text) and (rr['d2'], rr['d3'], rr['a2'], rr['a3'], rr['sp']) == (5, 6, 7, 8, STK)
+        if not ok:
+            bad.append(('J', sw, axis, text, r['fault'], got, hex(rr['pc'])))
+    mw = spec['v026_movie']['wheel_symbols']
+    nget = int(spec['v026_movie']['get_next'], 16)
+    ra = 0x60e99998
+    for gid in (1686, 1687):
+        stk = bytearray(0x1000); struct.pack_into('<I', stk, 0x800, ra)
+        rg = [img(new, Bd.W_AT, Bd.W_END, 'mvw'), img(new, Bd.S_AT, Bd.S_END, 'mvs'), apc(new), V.sget(0, 0), *heap('ap', swapped=True), Region('out', V.OUT, bytes(4), 'rw', True),
+              Region('stack', 0x18010000, bytes(stk), 'rw'), Region('ra', ra, b'\xcb' * 4, 'rx'), Region('n', nget, b'\xcb', 'rx')]
+        r = execute(rg, dict(pc=int(mw['mv_get'], 16), sp=STK, d0=gid, a0=0xa0a0, a1=V.OUT, d2=1, d3=2, a2=3, a3=0x18030000), nget if gid == 1686 else ra, limit=6000); n += 1
+        if r['fault'] or r['registers']['pc'] != (nget if gid == 1686 else ra):
+            bad.append(('W', gid, r['fault'], hex(r['registers']['pc'])))
     return n, bad
 
 
@@ -493,10 +597,13 @@ def t_label(new, base):
               *heap(kind), Region('stack', 0x18010000, bytes(0x1000), 'rw')]
         return execute(rg, dict(pc=0x18040000, sp=STK, a0=0x77, d2=0x1111, d3=0x2222, a3=0x3333), 0x18040000 + len(c) - 2, limit=20000)
     for build_a in (True, False):
-        for kind, s44, s24, sid_id in (('ap', 0, 211, 1657), ('ap', 0, 14, 1657), ('ap', 0, 3, 1657), ('p', 0, 211, 1657), ('ap', 0, 211, 1658), ('none', 0, 211, 1657)):
+        for kind, s44, s24, sid_id in (('none', 1, 3, 183), ('p', 1, 3, 183), ('p', 0, 3, 183), ('ap', 0, 211, 183), ('ap', 0, 211, 1657), ('ap', 0, 14, 1657), ('ap', 0, 3, 1657), ('p', 0, 211, 1657), ('ap', 0, 211, 1658), ('none', 0, 211, 1657)):
             r = run(new, build_a, kind, s44, s24, sid_id); n += 1
             l = bytes.fromhex(r['memory'][0]['hex'])
-            if kind == 'ap' and s24 in (211, 14) and sid_id == 1657:
+            if sid_id == 183 and s44 == 1:
+                w8 = b'8-BIT LOG'
+                ok = not r['fault'] and l[0] == 5 and l[8:8 + 2 * len(w8) + 2] == b''.join(bytes([c, 0]) for c in w8) + b'\0\0' and r['registers']['d0'] == len(w8)
+            elif kind == 'ap' and s24 in (211, 14) and sid_id == 1657:
                 ok = not r['fault'] and l[0] == 5 and l[8:8 + 2 * len(want)] == b''.join(bytes([c, 0]) for c in want) and r['registers']['d0'] == len(want)
             else:
                 b = run(base, build_a, kind, s44, s24, sid_id)
@@ -523,13 +630,15 @@ def main():
     rep('R BUNDLES retry after a failed attempt', *t_retry(new, spec))
     if len(sys.argv) > 3:
         rep('E real BUNDLES loader: restart, failed first press, retry loads the card', *t_e2e(new, spec, sys.argv[3]))
+    rep('Z/Q AP effects off, Extras on P2/P3', *t_fx(new, spec))
+    rep('J/W guide labels on P2/P3, cursor setting', *t_guide(new, spec))
     rep('I editor init / swapped table', *t_init(new))
     rep('L Live Control INFO (real handler)', *t_lc(new, base))
     rep('C Color Creator guard', *t_ccg(new, spec['v026_movie']['wheel_symbols']))
     rep('F AP.BIN load / save / triggers', *t_file(new, spec))
     rep('N label builders', *t_label(new, base))
     # D: only our sites differ from v0.29a (fw_version's label included)
-    al = [(A.AT, A.AT + spec['ap_custom']['code_len']), (A.TBLX, A.TBLX + 5), (A.SCR, A.SCR + 6), (A.SCR2, A.SCR2 + 7), (A.SM_FN + 4 * 24, A.SM_FN + 4 * 24 + 4)] + [(w, w + 4) for w in A.INIT_WORDS] + [(int(a, 16) + 1, int(a, 16) + 5) for a in spec['ap_custom']['sites']]
+    al = [(A.AT, A.AT + spec['ap_custom']['code_len']), (A.TBLX, A.TBLX + 5), (A.SCR, A.SCR + 6), (A.SCR2, A.SCR2 + 7), (Bd.W_GETV, Bd.W_GETV + 4), (A.GD_AT, A.GD_END), (A.GUIDE_WORD, A.GUIDE_WORD + 4), (0x601e2046, 0x601e2048), (0x601e210c, 0x601e210e), (Bd.SET_SITE + 1, Bd.SET_SITE + 5), (A.SM_FN + 4 * 24, A.SM_FN + 4 * 24 + 4)] + [(w, w + 4) for w in A.INIT_WORDS] + [(int(a, 16) + 1, int(a, 16) + 5) for a in spec['ap_custom']['sites']]
     al += [(int(e['addr'], 16), int(e['addr'], 16) + len(e['new']) // 2) for e in spec['edits'] if e.get('source') == A.FV.SRC]
     diff = [i + BASE for i in range(len(new)) if new[i] != base[i]]
     rest = [hex(a) for a in diff if not any(x <= a < y for x, y in al)]

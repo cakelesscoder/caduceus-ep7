@@ -3,6 +3,13 @@
 Caduceus firmware patches for the Olympus PEN E-P7 (firmware 1.1). Releases from v0.25 are betas; earlier ones
 were early-development pre-releases. Use at your own risk (see the README).
 
+## v0.31c — 2026-11-10 (beta)
+
+- **Effects off in Movie and AP colour:** on the Movie and AP colour wheels, Grain, Glow/Clarity, Art and Halo are locked and read "…: stills". AP shots never apply them, whatever the slot holds (they could crash the camera in AP modes). Movie already left them out. Stills COLOR1–4 are unchanged.
+- **Wheel cursor fixed on the Movie and AP wheels:** the selection line now moves with the cursor, as on COLOR1–4.
+- **Movie picture mode Muted now reads `8-BIT LOG`**, since it records Caduceus's log curve. Stills Muted is unchanged.
+- Firmware screen shows `Caduceus: 0.31c`.
+
 ## v0.31b — 2026-11-10 (beta)
 
 - **Bright scenes with grain and halation no longer crash.** v0.31a's pauses during processing let other camera tasks run halfway through a photo, and on bright daylight frames that crashed the camera about 2 s after the shot. The pauses are gone: grain and halation run uninterrupted as in v0.31, and the camera's watchdog limit is raised from 10 s to 30 s so long saves can't trip it. Very bright, overexposed frames skip halation and save quicker.

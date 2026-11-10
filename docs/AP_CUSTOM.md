@@ -253,6 +253,52 @@ proven context. A handle, a P2 / P3 swap or 0 are never touched. Without card fi
   re-arms; press 2 loads (`EP7B`, handle published). **R:** 0xFFFF is reset only on a press and only up to the cap.
 - **Workaround on the camera:** if it happens, half-press a few times; the reset never needs a battery pull.
 
+## 0.31c1: no effects on the Movie / AP slots, movie "8-BIT LOG"
+
+**Pipeline (AP):** every AP capture reads its slot through `tbl_idx` / `tbl_off` → `ap_tx`. `ap_tx` now answers with a **sanitised copy**
+of P3's row at P3 +896 (rebuilt on each read): +28 / +29 effect id and strength = 0 (no bloom, clarity or halation effect), +45 tint 0,
++46 Art Effect 0, +50 Grain 0, +52 Halo = 1 (Off). Every other byte is the slot's.
+- This covers grain (`gc_lvl`), glow and clarity (`bloom_flag`, `bloom_w`), halation (`hl_lvl` / `hl_stg`, `hl_flag`) and the Art flag
+  converter: all of them find the slot through the accessor [V for grain, the accessor path for the others].
+- Live view H/L and tone still get the raw row through `ap_tb`; no effect reads that route.
+- **Movie:** already effect-free. Movie and live view jobs are IPCR jobs: grain needs job type 0x1000, halation goes through grain's
+  guard and the 0x80 blend, `mv_cons` clears 0x80000 and skips lv_art (no transport, no 0x80), and the record's mode < 100 keeps Art
+  bits off [V code].
+
+**UI (P2 and P3):** `ap_xg` (facade GetValue) and `ap_xs` (GUI setter) sit in front of `mv_get` / `mv_set`. With a swapped slot (P2 or P3)
+on the X page, sectors 1 Grain, 2 Glow/Clarity, 5 Art and 11 Halo (COLOR4 ids 1655, 1656, 1659, 1665) read 0 and refuse writes.
+GetDefault is already 0 on X. Not hidden: the wheel cursor still stops there, and the polygon and guide label may show the stored
+byte. COLOR1–4 never match (no swap).
+
+**Film picks on P2 / P3** still copy those bytes into the slot, so MOVIE.BIN and AP.BIN can carry them. The pipeline ignores them.
+
+**Movie "Muted" → "8-BIT LOG":** `ap_lbl` also catches string 183 ("Muted"; its only uses are the four picture-mode text lists, next to
+Vivid 1657). With sid 44 == 1 it writes kind 5 "8-BIT LOG" through mv_lb's copy loop (`0x601e0ffc`). The same builders draw Live
+Control, the SCP and the info lists. 9 characters, shorter than the camera-proven "INFO Custom" (11). Stills keep "Muted".
+
+**Space:** claim now 0x601df03c–0x601dfc2c (3051 B). The table at 0x601df03c is in (its step word 0x601e3bd0 is checked), and the
+0xa01df0cc false positive at 0x606c1305 is pinned (jmp / cmp bytes). ap_load's zero check stays at `0x601df8e2` for patches/halation.
+
+## 0.31c2: locked-sector labels, the wheel's selection line
+
+**Selection line missing on P2 / P3 [V code, I for the drawing]:** sid 1686 is **COLOR4's cursor setting** (LOOK_EDITOR §1: key
+0x140c → 1686 cursor, 1655–1666 sectors), but v0.26's `mv_get` / `mv_set` took 1686 / 1687 for "ALL" values:
+- with a swapped slot, GetValue(1686) answered P2/P3 +972 (a snapshot from load time);
+- SetValue(1686) went to +972, and the stock manager then ran with the old real value.
+So the real cursor never moved, and whatever draws from it (the C3D marker, the setting's listeners) stayed on a stale sector.
+The fix is two imm16 bytes in the movie block: `cmp 1686,d0` at `0x601e2044` and `mov 1686,d2` at `0x601e210b` become −1, so
+1686 takes the stock path on every slot. 1687 keeps the old handling. The emulator can't draw the wheel: W only shows that
+1686 now reaches the stock get and set.
+
+**Labels:** `ap_gd` takes the guide part word `0x6025aa98` (was ex_guide `0x601e3460`), calls it, then on a swapped slot on X rewrites
+the locked sectors' text, found by its number ("1 " Grain, "2 " Glow/Clarity, "5 " Art, "11" Halo):
+"Grain: stills", "Glow: stills", "Art: stills", "Halo: stills" (≤ 13 characters; ex_guide caps at 16). It writes through
+ex_guide's own writer `q_put0` (`0x601e35b4`, same frame). COLOR1–4, other sectors and other pages keep ex_guide's text.
+- Code: 152 B in the **section-7 FF tail** `0x61378ca0–0x61378d40` (loads 2nd; nothing in the line uses 0x61378c68–0x61379000;
+  it was MONO-colour v0.3's claim, not in any release since v0.15). The main block was full.
+- The cursor still stops on locked sectors (not hidden): skipping them would need the editor's Up/Down child walk, which the
+  emulator can't run.
+
 ## Open risks
 
 - **Key 11 in AP job kinds** is a combination stock never makes in AP. COLOR + Multiple Exposure (menu) and COLOR + Live Composite
