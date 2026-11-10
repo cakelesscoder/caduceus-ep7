@@ -2,11 +2,24 @@
 // The pack stays the one shared format. The OM-3 has 5 looks for each of COLOR 1-4, so the first 20 colour looks fill
 // COLOR 1-5, 2-5... in list order; toOm3 limits ranges (docs/OM3_NOTES.md lists what carries over). Hue numbers copy
 // across as they are: the direction on each body is an open question there.
-import { COLORS, PER, emptyBank, profilesBin, readProfiles, toOm3, type Bank } from '../om3';
+import { COLORS, PER, emptyBank, profilesBin, readProfiles, toOm3, type Bank, type Fw } from '../om3';
 import { PACK_SCHEMA, type Look, type Pack } from '../pack';
 import type { Target } from './types';
 
 export const OM3_REPO = 'https://github.com/androidfanman/caduceus-om3';
+
+/** The OM-3 firmware the LOOKS.BIN is written for (om3.ts `profilesBin(bank, fw)`). Newer bytes (lens correction +50,
+ *  Grain +51, Sharp +52, split toning +53..+56, WB past ±5) are left out for older firmware, which would refuse the file. */
+export const OM3_FWS: [Fw, string][] = [
+  [26, 'v0.26.1 or later'], [25, 'v0.26'], [24, 'v0.25'], [23, 'v0.24.1'], [22, 'v0.22'], [21, 'v0.21'], [20, 'v0.20 or older'],
+];
+export const OM3_FW_LATEST: Fw = 26;
+const STORE_OM3_FW = 'caduceus.om3.fw';
+export function om3Fw(): Fw {
+  try { const v = Number(localStorage.getItem(STORE_OM3_FW)); if (OM3_FWS.some(([f]) => f === v)) return v as Fw; } catch { /* no storage */ }
+  return OM3_FW_LATEST;
+}
+export function setOm3Fw(fw: Fw) { try { localStorage.setItem(STORE_OM3_FW, String(fw)); } catch { /* no storage */ } }
 export interface Placed { name: string; k: number; v: number; changed: string[]; dropped: string[] }
 export interface Om3Bank { bank: Bank; placed: Placed[]; mono: number; extra: string[]; lens: number }
 
@@ -47,7 +60,7 @@ export const om3: Target = {
   label: 'OM SYSTEM OM-3 (Caduceus for OM-3)',
   status: 'ready',
   doc: OM3_REPO,
-  note: 'LOOKS.BIN and NAMES.BIN for the Film page (Caduceus for OM-3 v0.19 or later).',
+  note: 'LOOKS.BIN and NAMES.BIN for the Film page (Caduceus for OM-3 v0.26.1 or later).',
   supports: (l) => (l.kind === 'colour' ? true : 'OM-3 looks are colour only.'),
-  export: (pack) => [{ name: 'OM3MOD/LOOKS.BIN', data: profilesBin(packToBank(pack).bank) }],
+  export: (pack) => [{ name: 'OM3MOD/LOOKS.BIN', data: profilesBin(packToBank(pack).bank, OM3_FW_LATEST) }],
 };

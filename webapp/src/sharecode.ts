@@ -201,7 +201,7 @@ export function encodeLookCode(l: Look, group = false): string {
   }
   const withTone = !!l.tone && !toneIsZero(l.tone);
   const lc = !!l.lens_correction && l.kind === 'colour';
-  const g7 = lc || l.grain === 'standard';           // "standard" and the correction codes use the radix-7 grain digit
+  const g7 = lc || l.grain === 'standard' || l.grain === 'high';   // "standard" (and OM-3 "high", written as standard) and the correction codes use the radix-7 grain digit
   const ver = lc ? (withTone ? LOOK_VERSION_LC_TONE : LOOK_VERSION_LC) : g7 ? (withTone ? LOOK_VERSION_G7_TONE : LOOK_VERSION_G7) : (withTone ? LOOK_VERSION_TONE : LOOK_VERSION);
   const syms = [ALPHABET.indexOf(ver), ...toSymbols(lookToBigInt(l, withTone, g7 ? 7 : 4))];
   const c = crc15(syms);

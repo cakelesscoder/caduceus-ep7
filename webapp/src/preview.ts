@@ -201,7 +201,7 @@ export function renderLook(src: ImageData, dst: ImageData, look: Look, opt: Prev
     }
   }
   // 6. grain (Olympus xorshift32 luma grain with brightness mask; v0.4 colour gains / stock mono gains)
-  const gi = opt.nr ? GRAINS.indexOf(look.grain) : 0;
+  const gi = opt.nr ? GRAINS.indexOf(look.grain === 'high' ? 'standard' : look.grain) : 0;
   const pg = mono ? 0 : PROFILE_GRAIN[Math.max(0, FILM_GRAINS.indexOf(opt.grain ?? 'off'))];
   const gain = Math.max(gi > 0 ? (mono ? MONO_GRAIN : COLOUR_GRAIN)[gi] : 0, pg);
   const scale = Math.min(1, w / FULL_WIDTH) * 2.2;   // a little stronger than full-res-viewed-small, so it stays visible

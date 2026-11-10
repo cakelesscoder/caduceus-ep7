@@ -37,16 +37,17 @@ The OM-3 holds 5 looks for each of COLOR 1-4, in `OM3MOD/LOOKS.BIN` and `NAMES.B
 | Look value | On the OM-3 |
 |---|---|
 | Hue, Light | Limited to ±5; hue numbers copied as they are (above) |
-| WB shift | Limited to ±5 |
-| Saturation, tone, NR, glow, clarity, Star Light, Pin Hole | Carried over |
-| Contrast, Sharpness | Real settings there, limited to ±2 |
+| WB shift | ±7 for v0.26.1 or later, else limited to ±5 |
+| Saturation, tone, NR (High too), glow, clarity, Grain, split toning | Carried over |
+| Art Effects (Star Light, Pin Hole) | Carried for v0.24.1 and older; v0.25 and later have none (written as Off) |
+| Contrast, Sharpness | Real settings there: Contrast ±2, Sharp −5 (Off)..+2 from v0.22 |
 | Vignette | Becomes the camera's Shading |
 | Halation | Becomes plain glow; glow colour is dropped |
 | Blur | Left out |
-| Lens correction choice | Left out (not built on the OM-3 yet) |
+| Lens correction choice | Carried (v0.21 or later) |
 | Monochrome looks | Left out (COLOR only) |
 
-`webapp/src/om3.ts` and `om3names.ts` are vendored unchanged; our glue is `webapp/src/targets/om3.ts`. One-look (`op1_`) and bank (`ob1_`) links from the OM-3 panel open here. In the other direction, its panel rejects our version 7 and 8 look codes (looks that keep the lens correction), which it could fix by updating its `sharecode.ts`.
+`webapp/src/om3.ts`, `om3names.ts`, `split.ts` and `om3films.ts` are vendored unchanged (`87b3e6f`); our glue is `webapp/src/targets/om3.ts`. One-look (`op1_`) and bank (`ob1_`) links from the OM-3 panel open here.
 
 ## Update read 2026-11-10 (their `87b3e6f`, v0.26.1; research only, nothing built here)
 
@@ -120,12 +121,20 @@ Keep CPU grain as the fallback for anything that fails: OM-3 Frame + Glow is the
 
 ### Control Panel and formats
 
-- **Their panel reads `op1_` / `ob1_` codes** (`27ae32b`). Our panel keeps importing those and exporting OM-3 files, through the vendored `om3.ts` and glue in `targets/`.
-- **Their look JSON has grown** in `webapp/src/pack.ts`: `film_grain` 1..3, `split` {sh_color, sh, hl_color, hl}, `lens_correction`, Sharp −5..+2 in `advice.sharpness`, and NR `grain: 'high'`.
-  - **Conflict:** our `parseLook` throws on `grain: 'high'`, so an `op1_` / `ob1_` link with NR High fails to open here.
-  - **Lost silently:** `film_grain` and `split`.
-  - **Fix on our side:** accept `high` (map to `standard` for the E-P7) and carry `film_grain` / `split` as OM-3-only fields. That keeps one format. `film_grain` conflicts with nothing: E-P7 grain is a profile setting, not a look field.
-- **Our vendored `om3.ts` (`daa453b`) writes the v0.20 record.** v0.26.1 still accepts it, because the new bytes +50..+56 are zero. But it drops lens correction (VigFix +50 now exists), Sharp (+52) and split toning, and writes the old ±2 sharpness into +42. Re-vendoring at `87b3e6f` also needs `split.ts`, `om3films.ts` and `data/om3films.json`, and a firmware choice for `profilesBin(bank, fw)`, which defaults to 22 there.
+Resynced 2026-11-10: `om3.ts`, `om3names.ts`, `split.ts`, `om3films.ts`, `data/om3films.json` and `tests/om3.test.ts` are vendored unchanged at `87b3e6f`.
+- **Their look JSON fields, now carried by ours** (`webapp/src/pack.ts`):
+  - `film_grain` 1..3 and `split` {sh_color, sh, hl_color, hl}: OM-3 only. Kept in packs and `pk1_` links, written to the OM-3 LOOKS.BIN, ignored by the E-P7 card files and look codes.
+  - NR `grain: 'high'`: the E-P7 writes it as `standard`.
+  - Before the resync, the legacy-name mapping read `high` as `film` (NR Off). Old v0.21-era packs with `high` now read as NR High, and the E-P7 ignores a look's NR since v0.27.
+- **OM-3 export** (`targets/om3.ts`, `profilesBin(bank, fw)`): firmware choice on export, default v0.26.1 (fw 26). Carries:
+  - lens correction (+50)
+  - Grain (+51)
+  - Sharp (+52, −5 Off..+2; the editor row now uses that range)
+  - split toning (+53..+56)
+  - WB ±7
+
+  Older firmware choices leave out what they would refuse. The editor's lens-correction choice is shown for the OM-3 too.
+- Not changed: the look-code format (v1–v8 decode as before) and `pk1_` packs.
 
 ### Licence and credit
 

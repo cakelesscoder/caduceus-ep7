@@ -1,5 +1,5 @@
 // @ts-nocheck  (canvas pixel code ported 1:1 from the Caduceus for OM-3 Look Lab; typed loosely on purpose)
-// Vendored from androidfanman/caduceus-om3 @ daa453b (Apache-2.0, see NOTICE), unchanged. Update by copying; our glue is in ./targets/om3.ts.
+// Vendored from androidfanman/caduceus-om3 @ 87b3e6f (Apache-2.0, see NOTICE), unchanged. Update by copying; our glue is in ./targets/om3.ts.
 // NAMES.BIN v1 for Caduceus for OM-3 v0.17+: one picture per profile number, shown under the wheel on the Profiles
 // page. 'OM3N' | total | crc32(12..) | u16 1 | u16 20 | u16 175 | u16 50 | 12 zero | 4 groups {u32 offset, u32 length}
 // at 32 (COLOR k's five pictures, contiguous from 144, each group <= 16384 B) | 20 entries {u16 offset in group,

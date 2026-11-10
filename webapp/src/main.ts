@@ -11,9 +11,9 @@ import { renderLook } from './preview';
 import { decodeLookCode, decodePackCode, encodeLookCode, encodePackCode, isPackCode } from './sharecode';
 import { makeZip } from './zip';
 import { namesBin } from './om3names';
-import { COLORS, OM3, PER, parseBank, profilesBin, toOm3, validateBank } from './om3';
+import { COLORS, OM3, PER, SHARP, parseBank, profilesBin, sharpLabel, toOm3, validateBank, type Fw as Om3Fw } from './om3';
 import { CAMERAS, type Cam } from './cameras';
-import { OM3_REPO, bankToPack, decodeOm3Code, isOm3Code, looksBinToPack, packToBank } from './targets/om3';
+import { OM3_FWS, OM3_REPO, bankToPack, decodeOm3Code, isOm3Code, looksBinToPack, om3Fw, packToBank, setOm3Fw } from './targets/om3';
 import { rrpreset } from './rapidraw';
 import { TARGETS, targetById } from './targets';
 import { recipeCard } from './targets/recipe';
@@ -386,7 +386,7 @@ function renderEditor() {
     l.kind === 'colour' ? sectorPanel(l, changed) : monoPanel(l, changed),
     ...(l.kind === 'colour' ? [tonePanel(l, changed)] : []),
     ...(cam().lookNr ? [h('div', { class: 'group' },
-      seg('Noise reduction', [['off', 'Camera'], ['standard', 'Standard'], ['fine', 'Low'], ['film', 'Off (most texture)']], l.grain, (v) => { l.grain = v as Look['grain']; renderEditor(); changed(); }))] : []),
+      seg('Noise reduction', [['off', 'Camera'], ['standard', 'Standard'], ['fine', 'Low'], ['film', 'Off (most texture)'], ...(CAM === 'om3' ? [['high', 'High']] as [string, string][] : [])], l.grain, (v) => { l.grain = v as Look['grain']; renderEditor(); changed(); }))] : []),
     effectPanel(l, changed),
     wbPanel(l, changed),
     ...(l.kind === 'colour' && cam().settings ? [settingsPanel(l, changed)] : []),
@@ -395,7 +395,9 @@ function renderEditor() {
         if (v === 'on') l.lens_correction = true; else delete l.lens_correction;
         renderEditor(); changed();
       }),
-      h('span', { class: 'help' }, 'Picking this look on the camera turns the lens\'s vignette correction off, so corners stay natural, unless you keep it here. Needs Caduceus v0.25 or later. Change it on the camera in Extras sector 8. Not shown in the preview.'))] : []),
+      h('span', { class: 'help' }, CAM === 'om3'
+        ? 'Picking this look on the camera turns the lens\'s vignette correction off, unless you keep it here. Needs Caduceus for OM-3 v0.21 or later. Not shown in the preview.'
+        : 'Picking this look on the camera turns the lens\'s vignette correction off, so corners stay natural, unless you keep it here. Needs Caduceus v0.25 or later. Change it on the camera in Extras sector 8. Not shown in the preview.'))] : []),
     ...(l.kind === 'colour' ? [h('label', { class: 'field' }, h('span', { class: 'lbl' }, 'Art Effect'),
       h('select', { onchange: (e: Event) => { l.art_effect = (e.target as HTMLSelectElement).value as Look['art_effect']; changed(); } },
         ...ARTS.filter((a) => cam().arts.includes(a) || a === l.art_effect).map((a) =>
@@ -636,14 +638,14 @@ function overNote(vals: number[], lim: number): string[] {
 }
 
 function settingsPanel(l: Look, changed: () => void): HTMLElement {
-  const row = (label: string, lim: number, value: number, on: (v: number) => void) => {
-    const { inp, out } = slider(-lim, lim, value, on, undefined, label);
+  const row = (label: string, lim: number, value: number, on: (v: number) => void, lo = -lim, fmt?: (v: number) => string) => {
+    const { inp, out } = slider(lo, lim, value, on, fmt, label);
     return h('div', { class: 'srow plain' }, h('span', { class: 'sname' }, label), inp, out);
   };
   return h('div', { class: 'group' },
     h('div', { class: 'field' }, h('span', { class: 'lbl' }, 'Camera settings')),
     row('Contrast', OM3.contrast, l.advice.contrast ?? 0, (v) => { l.advice.contrast = v; changed(); }),
-    row('Sharpness', OM3.sharpness, l.advice.sharpness ?? 0, (v) => { l.advice.sharpness = v; changed(); }),
+    row('Sharp', SHARP.hi, l.advice.sharpness ?? 0, (v) => { l.advice.sharpness = v; changed(); }, SHARP.lo, sharpLabel),
     row('Shading', OM3.shading, l.vignette, (v) => { l.vignette = v; changed(); }),
     h('span', { class: 'help' }, `Saved in the look on the ${cam().short}. Sharpness and Shading aren't shown in the preview.`));
 }
@@ -976,7 +978,7 @@ function setupDialog(first = false) {
     h('p', { class: 'help' }, 'On anything older than v0.22, install the latest release first.'),
     ...FW_OPTIONS.map(([f, label, help]) => row(label, help, 'ep7', f)),
     h('h3', {}, 'OM SYSTEM OM-3'),
-    row('Caduceus for OM-3 v0.19 or later', 'Exports OM3MOD/LOOKS.BIN and NAMES.BIN. NR, Glow / Clarity and Art Effects need v0.20. The firmware is a separate project: never use E-P7 firmware on an OM-3.', 'om3'),
+    row('Caduceus for OM-3 v0.19 or later', 'Exports OM3MOD/LOOKS.BIN and NAMES.BIN (choose your firmware version on export). The firmware is a separate project: never use E-P7 firmware on an OM-3.', 'om3'),
     h('p', { class: 'help' }, 'Other bodies aren\'t supported yet: ', h('a', { href: `${GH}/blob/main/docs/BODIES.md`, target: '_blank', rel: 'noopener' }, 'see where each one stands'), '.'));
   const dlg = modal(first ? 'Welcome to the Caduceus Control Panel' : 'Your camera', body);
 }
@@ -1018,10 +1020,10 @@ function om3Body(): HTMLElement {
   const notes = [
     r.extra.length ? `Left out (only 20 fit; drag looks in the list to choose): ${r.extra.join(', ')}.` : '',
     r.mono ? `${r.mono} monochrome look(s) left out: the OM-3 editor is COLOR only.` : '',
-    r.lens ? `${r.lens} look(s) keep the lens correction: that choice doesn't exist on the OM-3 yet.` : '',
+    r.lens && om3Fw() < 21 ? `${r.lens} look(s) keep the lens correction: that choice needs v0.21 or later.` : '',
   ].filter(Boolean);
   const files = async () => [
-    { name: 'OM3MOD/LOOKS.BIN', data: profilesBin(r.bank) },
+    { name: 'OM3MOD/LOOKS.BIN', data: profilesBin(r.bank, om3Fw()) },
     { name: 'OM3MOD/NAMES.BIN', data: await namesBin(r.bank) as Uint8Array },
   ];
   const busy = (b: HTMLButtonElement, f: () => Promise<void>) => { b.disabled = true; f().catch((e) => toast((e as Error).message, 'err')).finally(() => { b.disabled = probs.length > 0; }); };
@@ -1034,6 +1036,10 @@ function om3Body(): HTMLElement {
     probs.length
       ? h('div', { class: 'problems-box' }, h('b', {}, `${probs.length} problem(s) to fix first:`), h('ul', { class: 'problems' }, ...probs.slice(0, 12).map((p) => h('li', {}, p.message))))
       : h('p', { class: 'ok' }, `✓ ${r.placed.length} looks pass the OM-3's checks.`),
+    h('label', { class: 'field' }, h('span', { class: 'lbl' }, 'Caduceus for OM-3 on the camera'),
+      h('select', { onchange: (e: Event) => { const sel = e.target as HTMLSelectElement; setOm3Fw(Number(sel.value) as Om3Fw); sel.closest('dialog')?.close(); exportDialog(); } },
+        ...OM3_FWS.map(([f, label]) => h('option', { value: String(f), selected: f === om3Fw() }, label))),
+      h('span', { class: 'help' }, 'Older firmware refuses newer settings, so they are left out for it.')),
     h('p', { class: 'warn' }, 'This replaces the looks on the card, including ones made on the camera. To keep those, Open… the card\'s LOOKS.BIN first.'),
     ...Array.from({ length: COLORS }, (_, k) => h('p', { class: 'help' }, h('b', {}, `COLOR ${k + 1}: `),
       Array.from({ length: PER }, (_, v) => r.bank[k][v]?.name ?? 'Empty').join(' · '))),
@@ -1046,7 +1052,7 @@ function om3Body(): HTMLElement {
     h('div', { class: 'ex-row' },
       h('div', {}, h('b', {}, 'Single files'), h('p', { class: 'help' }, 'Both go in OM3MOD/. NAMES.BIN holds the names the camera shows on the Film page.')),
       h('div', { class: 'ex-btns' },
-        h('button', { disabled: probs.length > 0, onclick: () => download('LOOKS.BIN', profilesBin(r.bank)) }, 'LOOKS.BIN'),
+        h('button', { disabled: probs.length > 0, onclick: () => download('LOOKS.BIN', profilesBin(r.bank, om3Fw())) }, 'LOOKS.BIN'),
         names)));
 }
 

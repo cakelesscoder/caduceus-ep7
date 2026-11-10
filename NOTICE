@@ -10,8 +10,10 @@ Third-party:
 - external/oly_fw_analysis (git submodule, fishcu): PEN-F firmware research and MN103 emulator harness,
   used by the developer verification tools only. It is not part of Caduceus and keeps its own licence
   (GPL-3.0 for its code); it is not needed to build or install Caduceus.
-- webapp/src/om3.ts, webapp/src/om3names.ts and webapp/tests/om3.test.ts are from Caduceus for OM-3
-  (androidfanman/caduceus-om3, Apache-2.0, Copyright 2026 androidfanman), with a source line added.
+- webapp/src/om3.ts, webapp/src/om3names.ts, webapp/src/split.ts, webapp/src/om3films.ts, webapp/src/data/om3films.json
+  (its film sims, androidfanman's own designs) and webapp/tests/om3.test.ts are from Caduceus for OM-3
+  (androidfanman/caduceus-om3 @ 87b3e6f, Apache-2.0, Copyright 2026 androidfanman), unchanged, with a source line added
+  to each .ts file.
 - The colour-grain method (CPU grain on the developed photo through the bus window) follows Caduceus for OM-3
   (androidfanman/caduceus-om3, Apache-2.0), research/grain/model.py and firmware/src/xblock.s. The E-P7 code in
   patches/grain_cpu is our own.

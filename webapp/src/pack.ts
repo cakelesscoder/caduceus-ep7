@@ -1,5 +1,6 @@
 // Pack model (schema "caduceus-pack/1") and its structural parsing. The value vocabulary is the one of the repo's
 // library/bundle JSON (bundles/*.json, patches/bundles/build.py) so packs read naturally next to the Python tools.
+import { parseSplit, type Split } from './split';
 
 export const SECTORS = ['Yellow', 'Orange', 'Orange-red', 'Red', 'Magenta', 'Violet', 'Blue', 'Blue-cyan', 'Cyan',
   'Green-cyan', 'Green', 'Yellow-green'] as const;
@@ -7,13 +8,18 @@ export const SECTORS = ['Yellow', 'Orange', 'Orange-red', 'Red', 'Magenta', 'Vio
 //   off -> 0 "Global" (Noise Filter untouched), standard -> 6 "Off" (Standard), fine -> 1 "Fine" (Low), film -> 2 "Film" (Off).
 // Older bytes 3..5 read as film. Index = share-code digit (v1/v2: off/fine/film = old 0/1/2; standard = digit 6, v5/v6).
 export const GRAINS = ['off', 'fine', 'film', 'standard'] as const;
-export const GRAIN_BYTE: Record<string, number> = { off: 0, fine: 1, film: 2, standard: 6 };
-export const GRAIN_LABEL: Record<string, string> = { off: 'Camera', standard: 'Standard', fine: 'Low', film: 'Off (most texture)' };   // "Noise reduction: …"
+// 'high' (Caduceus for OM-3 v0.23: the camera's Noise Filter High) is a look value only, not in GRAINS (the E-P7 choices).
+// The E-P7 has no High: its card files and look codes write it as standard (byte 6), the strongest E-P7 choice.
+export const NR_HIGH = 'high' as const;
+export const GRAIN_BYTE: Record<string, number> = { off: 0, fine: 1, film: 2, standard: 6, high: 6 };
+export const GRAIN_LABEL: Record<string, string> = { off: 'Camera', standard: 'Standard', fine: 'Low', film: 'Off (most texture)', high: 'High' };   // "Noise reduction: …"
 // Older names (packs / share codes made before v0.22), by their old byte: low -> fine, medium..extreme -> film.
+// Except 'high': the shared format (OM-3 panel) now uses it for NR High, so it reads as that. Only v0.21-era packs used the
+// old meaning, and the E-P7 ignores a look's NR since v0.27.
 export const LEGACY_GRAINS = ['off', 'low', 'medium', 'high', 'heavy', 'extreme'] as const;
 export const grainFromByte = (b: number): Grain => (b <= 0 ? 'off' : b === 1 ? 'fine' : b === 6 ? 'standard' : b > 6 ? 'off' : 'film');
 export const grainFromName = (v: string): Grain | undefined =>
-  (GRAINS as readonly string[]).includes(v) ? (v as Grain) : v === 'med' ? 'film'
+  (GRAINS as readonly string[]).includes(v) ? (v as Grain) : v === NR_HIGH ? NR_HIGH : v === 'med' ? 'film'
     : v === 'global' ? 'off'
     : (LEGACY_GRAINS as readonly string[]).includes(v) ? grainFromByte(LEGACY_GRAINS.indexOf(v as never)) : undefined;
 // v0.27 per-COLOR-profile settings (the user's, never a look's): Grain (BUNDLES.BIN +50: 0 off, 1 low, 2 med, 3 high;
@@ -41,7 +47,7 @@ export const NAME_MAX = 12;
 export const NOTE_MAX = 200;
 export const PACK_SCHEMA = 'caduceus-pack/1';
 
-export type Grain = (typeof GRAINS)[number];
+export type Grain = (typeof GRAINS)[number] | typeof NR_HIGH;
 export type EffectType = (typeof EFFECTS)[number];
 export type Tint = (typeof TINTS)[number];
 export type Art = (typeof ARTS)[number];
@@ -74,7 +80,7 @@ export function setLookHalo(l: { effect: Effect | null }, stage: HaloStage, tint
 export interface Advice {
   tone?: { highlights: number; shadows: number; midtones: number };
   contrast?: number;
-  sharpness?: number;  // a real setting on the OM-3, kept when a look is opened from there
+  sharpness?: number;  // a real setting on the OM-3 (Sharp -5 Off..+2 from its v0.22), kept when a look is opened from there
   mono_filter?: { colour: MonoFilter; strength: number };
 }
 /** Per-look tone (LOOKS.BIN v0.19 tone block, colour looks only). H/S/M -7..7: the Film pick writes them to the profile's stock tone settings.
@@ -101,6 +107,8 @@ export interface Look {
   art_effect: Art;     // COLOR slots of BUNDLES.BIN only: LOOKS.BIN has no field for it
   tone: Tone;          // LOOKS.BIN tone block when non-zero (H/S/M/B/W); B/W also go into COLOR slots of BUNDLES.BIN
   advice: Advice;      // camera settings the look recommends (preview only; not in any card file)
+  film_grain?: number; // OM-3 only: the look's Grain 1 Low, 2 Med, 3 High (absent = off). Not the E-P7's grain (a profile setting)
+  split?: Split;       // OM-3 only (v0.26): split toning, Shadows / Highlights colour 0..11 and strength -5..5 (absent = off)
   origin?: string;     // app-only: the built-in library look this one came from (for Reset look); not exported
   lib?: string;        // app-only: fingerprint of the library values it was copied from (unmodified = still equal)
 }
@@ -191,6 +199,8 @@ export function parseLook(v: unknown, what = 'look'): Look {
     ...(v.lens_correction === true ? { lens_correction: true } : {}),
     tone,
     advice: adv,
+    ...(Number.isInteger(v.film_grain) && (v.film_grain as number) > 0 ? { film_grain: Math.min(3, v.film_grain as number) } : {}),
+    ...(parseSplit(v.split) ? { split: parseSplit(v.split) } : {}),
     ...(typeof v.origin === 'string' ? { origin: v.origin } : {}),
     ...(typeof v.lib === 'string' ? { lib: v.lib } : {}),
   };
@@ -220,6 +230,7 @@ export function parsePack(v: unknown): Pack {
       if (!(COLOR_SLOTS as readonly string[]).includes(k)) throw new Error(`pack: profiles: unknown COLOR profile ${k}`);
       if (!isObj(ps)) throw new Error(`pack: profiles ${k} must be {"grain", "nr", "sharp", "halo"}`);
       const pr: ProfileSettings = { grain: oneOf(ps.grain, FILM_GRAINS, `${k} grain`, 'off'), nr: oneOf(ps.nr, GRAINS, `${k} NR`, 'off') };
+      if (pr.nr === NR_HIGH) pr.nr = 'standard';   // NR High is OM-3 only
       if (ps.sharp !== undefined) pr.sharp = oneOf(ps.sharp, SHARPS, `${k} sharp`, 'camera');
       if (ps.halo !== undefined) pr.halo = oneOf(ps.halo, HALOS, `${k} halo`, 'look');
       profiles[k as ColorSlot] = pr;
