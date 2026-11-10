@@ -563,3 +563,9 @@ forced branch with a type other than 0x1000. Record +58 is the Mode.
 
 **Not a grain_cpu source change.** It is a layer, so the camera-tested r2 bytes and the v0.27→v0.30 chain are untouched. The
 committed chain (`patches/v030/build.py releases/v0.28/edits.json`) rebuilds `releases/v0.30/edits.json` exactly.
+
+## Open: RAW+JPEG (2026-11-10)
+
+Grain (and halation) have not been camera-tested with RAW+JPEG. The OM-3 port's texture-grain route freezes with RAW+JPEG
+(androidfanman/caduceus-om3 #18); ours is a different (CPU) route, but test RAW+JPEG with grain on before claiming it works.
+Decision (user, 2026-11-10): keep the CPU grain for authenticity; the OM-3 texture-grain route is not being ported.
