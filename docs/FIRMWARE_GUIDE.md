@@ -665,7 +665,9 @@ Start with [BODIES.md](BODIES.md) (where each body stands, and the test order on
 6. features one at a time.
 Keep the restore file for every build. Never let anyone flash an E-P7 build on another body.
 
-**6. Join the shared Control Panel** (per [`../AGENTS.md`](../AGENTS.md)). Don't fork it.
+**6. Join the shared Control Panel** (per [`../AGENTS.md`](../AGENTS.md)). Don't fork it, and don't start your own look
+format or share codes. **Contact @cakelesscoder (issue or PR) to merge your export target here**, and propose any new
+look field in this repo first so every body stays compatible.
 - Add a camera entry in `webapp/src/cameras.ts` (ranges, which controls exist).
 - Add an export target in `webapp/src/targets/` (translation to the body's card files), listed in
   `targets/index.ts`.
