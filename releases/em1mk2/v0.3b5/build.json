@@ -1,0 +1,21 @@
+{
+  "camera": "em1mk2",
+  "components": [
+    "0x100",
+    "0x101",
+    "0x106",
+    "0x10e",
+    "0x102"
+  ],
+  "edits": 20,
+  "changed_payload_bytes": 3923,
+  "spec": "/home/hertzel/projects/olympus-firmware/caduceus-ep7/releases/em1mk2/v0.3b5/edits.json",
+  "spec_sha256": "abdf036156e4be5b8af70591c03cf38ee2033e3e0c639f136415e37ddc2a891d",
+  "stock_sha256": "f0c25dd80e3fe2f38af0bc515f250692c47c42758eef411dfaef1f9674dd66dc",
+  "patched_sha256": "72552d29994c4047213761213385d53bcb43702009597bb3e9466d8800574e9a",
+  "restore_sha256": "f0c25dd80e3fe2f38af0bc515f250692c47c42758eef411dfaef1f9674dd66dc",
+  "bytes": 93050944,
+  "camera_name": "Olympus OM-D E-M1 Mark II",
+  "camera_contacted": false,
+  "note": "Not SD-loadable by name. Card update name is E1259999.BIN. Container validity != bootability."
+}

@@ -1,6 +1,7 @@
 // Export target registry. A new camera = a new module implementing Target (./types.ts), listed here.
 import { ep7 } from './ep7';
 import { om3 } from './om3';
+import { em1mk2 } from './em1mk2';
 import { recipe } from './recipe';
 import type { Target } from './types';
 
@@ -13,6 +14,7 @@ const soon = (id: string, label: string, doc: string): Target => ({
 
 export const TARGETS: Target[] = [
   ep7,
+  em1mk2,
   om3,
   recipe,
   soon('em10iv-caduceus', 'Olympus E-M10 IV (Caduceus port)', 'PORT_EM10IV.md'),
