@@ -190,3 +190,12 @@ Layered on v0.30 (needs grain_cpu r2). Composes with recview in either order (ch
 | 0x61242c30–0x61242ce0 | 6 | **Released (0.31b4).** Held hl_unl (h3–b3 pauses), then hl_cap / hl_g6 in drafts; 0.31b4 uses none of it. Back to the look editor's unused tail |
 | 0x601e04c8, 0x601e0510, 0x601e0537 (4 each, rel32 inside grain r2's gc_grain) | hooks | h3–b3 only: gc_grain's unlock calls -> hl_unl. **Stock again from 0.31b4** |
 | 0x6005b23a, 0x6005bcff (2 each) | code | halation b4: `mov 10,d0` -> `mov 30,d0` before the watchdog timer set (0x6005b1f8 when SYS_WDT is switched on; 0x600219ab after the flash-op path). Hardware watchdog timeout 10 s -> 30 s |
+
+## exif_name (0.31d, patches/exif_name, docs/FEATURE_GAPS.md "1. Look name in EXIF"; emulator-verified, not camera-tested)
+
+Layered last in patches/v031 (after halation). Text layout shared with Caduceus for OM-3 (name only, no settings code).
+
+| Range | Section | Owner |
+|---|---|---|
+| 0x61378d80–0x61378ead (301 B, claim 0x61378d80–0x61378f00) | 7 | ex_get / ex_fill / ex_cp / ex_st / ex_fl + "Caduceus ". '*' after the name when the editor's modified test (word ed_cfg_fm = lt_mod) says the slot differs from its look. Section-7 FF tail after ap_custom's ap_gd claim (to 0x61378d40); 16 B FF guards; before the aperture-ring claim 0x61378f8c. No reference into it (build-checked) |
+| 0x6030288e (4, rel32) | hook | capture setup `call 0x6005e971,[d2,d3],12` (key 0x5ef1) -> ex_get; writes cap+1448 (ImageDescription, 32 B) and cap+1668 (UserComment text, 117 B) |

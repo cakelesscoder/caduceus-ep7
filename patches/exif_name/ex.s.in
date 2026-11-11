@@ -1,0 +1,145 @@
+/* E-P7 1.1 look name in the JPEG's EXIF (ep7-firmware, our own code). docs/FEATURE_GAPS.md "1. Look name in EXIF".
+ * Text layout shared with Caduceus for OM-3 (its docs/PHOTO_CODE.md), name only (no settings code yet):
+ *   ImageDescription (0x10E, cap+1448, 32 B ASCII): the slot name, NUL-filled
+ *   UserComment (0x9286, cap+1660, 125 B: 8-byte character code, stock zeros, kept; then 117 ASCII, stock spaces):
+ *               "Caduceus <name>", spaces after it
+ * Tag table 0x604dadf0: (0x10E, 2, 32, 0x5a8), (0x9286, 7, 125, 0x67c). Stock fills cap+1668..1784 with spaces
+ * (0x60301252) and never writes cap+1448.
+ *
+ * ex_get takes the place of the getter at 0x6030288d (`call 0x6005e971,[d2,d3],12`, key 0x5ef1, d1 0, a0 0) in capture
+ * setup 0x603017f3, whose (8,sp) is cap: (20,sp) inside this frame. Only when the picture mode is COLOR k (sc_slot),
+ * the slot entry is in the SD-loaded table at P+32+64k (P checked as the tbl accessor does), P+672 is 'EP7N' and the
+ * name P+544+16k is non-empty, both fields are written. Otherwise nothing is written (stock blanks). Then the real
+ * getter runs on the site's frame with the site's d0/d1/a0 and a1.
+ * Edited mark: the name gets a '*' in both fields when the look editor's modified test says so (the word ed_cfg_fm =
+ * v0.19 lt_mod as layered: CALLS, a2 = P, d1 = k -> d0 1 when slot k sits on a LOOKS.BIN look and its entry bytes 0..48,
+ * except +24, differ from that look's place(); keeps d2/d3/a2/a3). The Film page's own '*' uses the same test.
+ * Stores: cap only (movbu d0,(a0)). No absolute stores, no mul/div/setlb.
+ */
+ .am33_2
+ .text
+ .global _start
+_start:
+ex_get:
+ mov a1,d2                        /* the site's d2/d3 are saved by this frame */
+ mov (20,sp),a0                   /* cap = the caller's (8,sp) */
+ call ex_fill,[d2,d3,a2,a3],20     /* 16 B regs + (0,sp), where the calls below put their return address */
+ mov d2,a1
+ mov 24305,d0
+ clr d1
+ mov 0,a0
+ jmp ep7_getter
+
+/* ex_fill: a0 = cap. Uses d0, d1, a0, a1; d2/d3/a2/a3 saved. */
+ex_fill:
+ mov a0,d2                        /* d2 = cap */
+ call ep7_sc_slot,[],4            /* -> a0 = entry of COLOR k, or 0 (keeps d2/d3) */
+ cmp 0,a0
+ beq 9f
+ movhu ({state}),d3               /* P = pool + h - 1, as tbl_idx */
+ add -1,d3
+ cmp {lim},d3
+ bcc 9f
+ btst 3,d3
+ bne 9f
+ mov d3,a2
+ add {pool},a2
+ mov (a2),d3
+ cmp {bmagic},d3
+ bne 9f
+ mov a0,d0                        /* entry - P - 32 = 64 k, k 0..3 */
+ mov a2,d1
+ sub d1,d0
+ add -{hdr_len},d0
+ cmp 256,d0
+ bcc 9f                           /* the flashed table: no names */
+ mov d0,d1
+ and 63,d1
+ bne 9f
+ mov ({nmark},a2),d1
+ cmp {nmagic},d1
+ bne 9f
+ mov d0,d3                        /* keep 64 k */
+ mov d0,d1
+ lsr 6,d1                         /* k */
+ mov (ep7_cfg_fm),a0              /* the editor's modified test, as ed_guide calls it */
+ calls (a0)                       /* writes its return address at (0,sp): this frame's spare word */
+ and 1,d0
+ mov d0,a3                        /* a3 = '*' flag */
+ mov d3,d0
+ lsr 2,d0                         /* 16 k */
+ add {names},d0
+ add d0,a2                        /* a2 = name */
+ movbu (a2),d0
+ cmp 0,d0
+ beq 9f
+ mov d2,a0                        /* ImageDescription */
+ add 1448,a0
+ mov a2,a1
+ mov 31,d3
+ call ex_cp,[],4
+ call ex_st,[],4
+ mov d2,d1
+ add 1480,d1
+ clr d0
+ call ex_fl,[],4
+ mov d2,a0                        /* UserComment text */
+ add 1668,a0
+ mov ex_uc,a1
+ mov 9,d3
+ call ex_cp,[],4
+ mov a2,a1
+ mov 16,d3
+ call ex_cp,[],4
+ call ex_st,[],4
+ mov d2,d1
+ add 1785,d1
+ mov 32,d0
+ call ex_fl,[],4
+9:
+ ret [d2,d3,a2,a3],20
+
+/* ex_cp: a1 = text (NUL-ended), d3 = max bytes, a0 = out -> printable bytes copied, a0 moved on. Uses d0, d3, a1. */
+ex_cp:
+ movbu (a1),d0
+ cmp 0,d0
+ beq 9f
+ cmp 0,d3
+ beq 9f
+ add 1,a1
+ add -1,d3
+ cmp 32,d0
+ bcs ex_cp
+ cmp 127,d0
+ bcc ex_cp
+ movbu d0,(a0)
+ add 1,a0
+ bra ex_cp
+9:
+ ret [],4
+
+/* ex_st: a3 = '*' flag, a0 = out -> '*' written when set, a0 moved on. Uses d0. */
+ex_st:
+ mov a3,d0
+ cmp 0,d0
+ beq 9f
+ mov 42,d0
+ movbu d0,(a0)
+ add 1,a0
+9:
+ ret [],4
+
+/* ex_fl: a0 = out, d1 = end, d0 = byte -> [a0, d1) filled. Uses d3. */
+ex_fl:
+ mov a0,d3
+ cmp d1,d3
+ bcc 9f
+ movbu d0,(a0)
+ add 1,a0
+ bra ex_fl
+9:
+ ret [],4
+ex_end:
+
+ex_uc:
+ .asciz "Caduceus "
