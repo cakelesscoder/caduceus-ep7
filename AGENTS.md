@@ -16,6 +16,7 @@ panel, looks stop moving between cameras and the work splits in two.
   and it will be reviewed and hosted here, with credit in `NOTICE`.
 - **Keep field meanings identical.** A value means the same thing on every body; translate only in the export
   target, for what a body can't do.
+- **Credit Caduceus as your groundwork.** A port owns its firmware, but builds on this repo's research, tools and formats. Keep our `NOTICE` (Apache-2.0 requires it when you reuse our code or docs). Also say near the top of your README and in your About text: "Based on Caduceus for the Olympus PEN E-P7 by cakelesscoder (github.com/cakelesscoder/caduceus-ep7)".
 - **Firmware stays in your own repo** (install guide, releases, bug reports). Only the look format, share codes
   and panel are shared.
 

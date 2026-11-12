@@ -40,7 +40,7 @@ your own words, are yours to share. The rules this repo follows, and that we ask
   the E-P7 file. The reason is in §8.
 - The MN103 processor module is GPL-3.0 and isn't ours. We don't redistribute it or a diff of it.
   `fix_mn103.py` is our own script, and it edits your checkout (§2).
-- Credit: if our names or scripts help your port, a line in your `NOTICE` is welcome. Caduceus is Apache-2.0.
+- Credit: Caduceus is Apache-2.0, so keep our `NOTICE` if you reuse our code, names or docs. Ports built on this groundwork are asked to say so in their README and About text: "Based on Caduceus for the Olympus PEN E-P7 by cakelesscoder" (see `AGENTS.md`).
 
 ## 2. Toolchain
 

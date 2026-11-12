@@ -36,3 +36,7 @@ Looks stay in one format, made and shared through the same [Control Panel](https
 ## Credit
 
 This project exists because of [u/fischgurke](https://www.reddit.com/user/fischgurke/) and their PEN-F HSL firmware mod, which showed an Olympus body could get in-camera HSL editing.
+
+**Ports:** each port owns its firmware, but builds on Caduceus's research, tools and formats. Ports are asked to keep
+our `NOTICE` and to say "Based on Caduceus for the Olympus PEN E-P7 by cakelesscoder" in their README and About text
+([`AGENTS.md`](../AGENTS.md)).
