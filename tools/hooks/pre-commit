@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# Refuse commits that would publish OM firmware material or decompiled code.
+# Install: git config core.hooksPath tools/hooks   (see docs/RE_PRIVATE.md)
+fail=0
+while IFS= read -r f; do
+  [ -f "$f" ] || continue
+  case "$f" in
+    analysis/*|generated/*|stock_firmware/*.BIN|*.gpr|*.rep/*|*/ep7fw-private/*|*.decomp.c)
+      echo "pre-commit: private path staged: $f" >&2; fail=1; continue;;
+  esac
+  # Ghidra decompiler fingerprints: many auto-named locals/types in one file.
+  n=$(git show ":$f" 2>/dev/null | grep -cE '\b(undefined[1248]|[uicb]Var[0-9]+|in_[a-z0-9]+|unaff_[a-z0-9]+|extraout_[a-z0-9]+)\b' || true)
+  if [ "${n:-0}" -ge 8 ]; then
+    echo "pre-commit: $f looks like decompiler output ($n auto-named symbols)." >&2
+    echo "  Keep decompiled code in ~/ep7fw-private/decomp/; write our own prose instead." >&2
+    fail=1
+  fi
+done < <(git diff --cached --name-only --diff-filter=ACM)
+[ $fail -eq 0 ] || { echo "Commit blocked (docs/RE_PRIVATE.md). Override only if sure: git commit --no-verify" >&2; exit 1; }

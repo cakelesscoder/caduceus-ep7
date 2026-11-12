@@ -1,0 +1,70 @@
+# New atlas entries from docs/RE_DRAW_PLUGIN.md (drawing stack, GUI task, cache control).
+# Same record format as atlas_data.py: (addr, name, kind, subsystem, conf, sig, notes, source).
+# Not merged; exec after atlas_data.py (uses its E()).
+o = 'osd'
+u = 'ui'
+r = 'rtos'
+SRC = 'docs/RE_DRAW_PLUGIN.md'
+
+# ---------------- OSDControl API (section 5), trace ids 0x111nn ----------------
+E(0x6023ff38, 'osdcontrol_api_names', 'table', o, 'V', 'u32 char* [n]; id = 0x11100 + index + 1', '.data image: OSDControl::initOsdControl .. drawTrapezoid; trace ids passed by every API function (drawDot 0x11106)', SRC + ' §2.1')
+E(0x60799a99, 'osd_init', 'func', o, 'V', '()', 'OSDControl::initOsdControl (0x11101); caller GPIInitPlatform 0x60d115d4', SRC + ' §2.2')
+E(0x60799d3c, 'osd_copyAreaBlock', 'func', o, 'V', 'a0 request', '0x1110c; callers gpiDrawOsdBlockCopy 0x60d12adf, 0x60ea9bba', SRC + ' §2.2')
+E(0x60799e64, 'osd_copyFrame', 'func', o, 'V', 'a0 src VRAM_INFO*, a1 dst', '0x1110b; caller 0x60d135cf', SRC + ' §2.2')
+E(0x60799f3f, 'osd_drawBitmap', 'func', o, 'V', 'a0 request', '0x1110a; callers gpiDrawBitmap 0x60d12c4b, 0x60ea9b4d', SRC + ' §2.2')
+E(0x6079a01f, 'osd_drawDot', 'func', o, 'V', 'a0 request; `[d2,d3,a2],52`', '0x11106. Request +0 VRAM_INFO*, +4 plane kind, +8/+10 x/y, +14 colour index -> renderer 0x60baf798', SRC + ' §2.2')
+E(0x6079a0e6, 'osd_drawFont', 'func', o, 'V', 'a0 request; `[d2,d3,a2,a3],68`', '0x11109. +8/+10 x/y, +12/+14 w/h, +24..27 four colour indices (2-bit glyph levels), +28 glyph ptr -> 0x60bb0256', SRC + ' §2.2')
+E(0x6079a1e0, 'osd_drawLine', 'func', o, 'V', 'a0 request; `[d2,d3,a2],56`', '0x11107 -> renderer 0x60baf88a', SRC + ' §2.2')
+E(0x6079a2b3, 'osd_drawRect', 'func', o, 'V', 'a0 request; `[d2,d3,a2],60`', '0x11108. Request +0 VRAM_INFO*, +4 plane kind, +8/+10 x/y, +12/+14 w/h, +16 u16 (unknown), +20 colour index, +24 fill -> 0x60baf99e', SRC + ' §2.2')
+E(0x6079a395, 'osd_freeVramInfo', 'func', o, 'V', 'a0 VRAM_INFO*', '0x11114; caller gpi deinit 0x60d118fd', SRC + ' §2.2')
+E(0x6079a432, 'osd_getVramInfo', 'func', o, 'V', 'd0 plane 0..5 -> a0 VRAM_INFO* or 0; `[d2,d3,a2],16`', '0x11113. Planes: 0 LAYER1, 1 LAYER2, 2 LAYER3, 3 WORK, 4 image normal, 5 image wide. VRAM_INFO {+0 pData, +4 s8 plane, +8/+10 w/h, +12/+14 start, +16/+18 new w/h, +20/+22 new start}', SRC + ' §2.2')
+E(0x6079a565, 'osd_setColorPalette', 'func', o, 'V', '', '0x11110; callers GPIInitPlatform, palette commit 0x60d132e6, SetBlackScreen 0x60ea28d7. Source block not traced', SRC + ' §2.2')
+E(0x6079a60d, 'osd_setTransparent', 'func', o, 'I', '', 'Role from position/callers (same callers as setColorPalette)', SRC + ' §2.2')
+E(0x6079a69d, 'osd_updateDisplay', 'func', o, 'V', 'a0 present descriptor; `[d2,d3,a2,a3],184`', '0x1110e; three plane VRAM pointers (0 = plane off). Callers gpiUpdateDisplay 0x60d12f60, 0x60d130e1', SRC + ' §2.2')
+E(0x6079b068, 'osd_customDisplay', 'func', o, 'V', '', '0x1110d; callers 0x60d13679, 0x60d1bb8f', SRC + ' §2.2')
+E(0x6079bad5, 'osd_drawOsdStart', 'func', o, 'V', '(); `[],4`', '0x11102. Sets bracket flag 0x61fa90d4; nested call only logs "called twice"; renderer begin 0x60bb077e', SRC + ' §2.2')
+E(0x6079bb4a, 'osd_drawOsdEnd', 'func', o, 'V', '(); `[],4`', '0x11103. Renderer flush 0x60bb079a; clears 0x61fa90d4', SRC + ' §2.2')
+E(0x6079bbbe, 'osd_setOsdOrder', 'func', o, 'V', 'd0 top, d1 middle, a0 bottom', '0x11104; caller GPISetOsdOrder 0x60d13180', SRC + ' §2.2')
+E(0x61fa90d4, 'osd_bracket_open', 'data', o, 'V', 'u32 (1 open)', 'drawOsdStart/End batch flag', SRC + ' §2.2')
+E(0x61fa90c8, 'osd_trace_level', 'data', o, 'V', 'u32', 'API trace gate tested at every OSDControl entry', SRC + ' §2.2')
+E(0x607dd584, 'sdk_api_osd_cmds', 'func', o, 'V', 'shell handlers', 'Debug shell "sdk api" commands calling init/drawOsdStart/End/drawDot/Rect/getVramInfo with plane numbers (0x607dd584-0x607de2e8)', SRC + ' §2.1')
+E(0x60baf798, 'osd_render_dot', 'func', o, 'V', '', 'Renderer: mallocs a 108-B command (0x60022700) and queues it via 0x60babdda; others 0x60baf88a line, 0x60baf99e rect, 0x60bb0256 font', SRC + ' §2.1')
+E(0x60bb079a, 'osd_render_flush', 'func', o, 'V', '', 'Renderer batch flush at drawOsdEnd; begin 0x60bb077e', SRC + ' §2.2')
+
+# ---------------- GUI gpi platform layer (section 6) ----------------
+E(0x60d115d4, 'GPIInitPlatform', 'func', u, 'V', '', 'getVramInfo for layers 0..2 x 2 buffers + WORK; clears each layer (rect 0,0,800,600); builds DC function tables; 800x600 canvas', SRC + ' §2.3')
+E(0x60d1192f, 'gpi_dc_get', 'func', u, 'V', 'd0 layer -> a0 DC', '0..2 -> 0x6246a774 + 164n; -1 -> 0x6246a960; -2 -> 0x6246aa04', SRC + ' §2.3')
+E(0x60d11964, 'gpi_dc_dot', 'func', u, 'V', 'DC fn +0', 'Picks back-buffer VRAM of DC layer -> gpiDrawOsdDot', SRC + ' §2.3')
+E(0x60d119a2, 'gpi_dc_line', 'func', u, 'V', 'DC fn +4', '-> gpiDrawOsdLine', SRC + ' §2.3')
+E(0x60d11b02, 'gpi_dc_rect', 'func', u, 'V', 'DC fn +16', '-> gpiDrawOsdRectangle', SRC + ' §2.3')
+E(0x60d1216c, 'gpi_dc_char', 'func', u, 'I', 'DC fn +28; d0 x, d1 y, a0 DC, a1 -> char code', 'One character via font engine 0x60d15xxx -> gpiDrawCharactor; 0x40 (@) -> symbol path 0x60d154fa. Stack args not decoded', SRC + ' §2.3')
+E(0x60d125f0, 'gpi_dc_sync_rect', 'func', u, 'V', 'DC fn +8', 'drawOsdStart; copy rect front -> back (0x60d12adf); drawOsdEnd; dirty = 1', SRC + ' §2.3')
+E(0x60d127f8, 'gpiDrawOsdDot', 'func', u, 'V', 'd0 x, d1 y, a0 VRAM_INFO*, a1 colour, (4,sp) layer; `[d2,d3,a2,a3],68`', '-> osd_drawDot', SRC + ' §2.3')
+E(0x60d128c5, 'gpiDrawOsdLine', 'func', u, 'V', 'd0 x, d1 y, a0 VRAM, a1 w, (4) h, (8) colour, (12) layer; `[d2,d3,a2,a3],84`', '-> osd_drawLine', SRC + ' §2.3')
+E(0x60d129d0, 'gpiDrawOsdRectangle', 'func', u, 'V', 'd0 x, d1 y, a0 VRAM, a1 w, (4) h, (8) colour index, (12) layer; `[d2,d3,a2,a3],92`', 'Filled; adds draw offset, clip 800x600 (overflow only logged) -> osd_drawRect', SRC + ' §2.3')
+E(0x60d12adf, 'gpiDrawOsdBlockCopy', 'func', u, 'V', '`[d2,d3,a2,a3],108`', '-> osd_copyAreaBlock', SRC + ' §2.3')
+E(0x60d12c4b, 'gpiDrawBitmap', 'func', u, 'V', 'd0 x, d1 y, a0 VRAM, (4) w, (8) h, ..; `[d2,d3,a2,a3],96`', '-> osd_drawBitmap; data format not traced', SRC + ' §2.3')
+E(0x60d12d57, 'gpiDrawCharactor', 'func', u, 'V', '`[d2,d3,a2,a3],152`', 'Fills static drawFont request 0x6246a74c -> osd_drawFont', SRC + ' §2.3')
+E(0x60d12f60, 'gpiUpdateDisplay', 'func', u, 'V', 'd0 0 = show cur, 1 = show cur^1; `[d2,a2],88`', 'Builds the present descriptor from 0x6246aaa8 and mask 0x61fb2954 -> osd_updateDisplay; then 0x60d139e4 posts GE event 0xa401', SRC + ' §2.4')
+E(0x60d125af, 'gpi_present_if_dirty', 'func', u, 'V', '()', 'If dirty 0x61fb2939: palette commit 0x60d132e6, gpiUpdateDisplay(0), cur ^= 1, dirty = 0. Sole caller 0x60d0ed79', SRC + ' §2.4')
+E(0x60d0ed79, 'ge_present', 'func', u, 'V', '`call 0x60d125af,[],4; ret [],4`', 'Callers 0x60d06475 (single-layer paint end 0x60d06468), 0x60d065d4 (multi-layer 0x60d0658a). Proposed overlay hook site', SRC + ' §2.4, §4.1')
+E(0x60d0658a, 'ge_paint_end_multi', 'func', u, 'V', '', 'Per flagged layer: 0x60d0fd95 + ge_present; then drawOsdEnd. Called at 0x60d00612', SRC + ' §2.4')
+E(0x60d06468, 'ge_paint_end_single', 'func', u, 'V', '', 'ge_present, then dirty-rect copy loop (0x60d0ed81). Called at 0x60d0061b', SRC + ' §2.4')
+E(0x60d13180, 'GPISetOsdOrder', 'func', u, 'V', 'd0, d1 layer pair', '-> osd_setOsdOrder', SRC + ' §2.3')
+E(0x60d131db, 'gpi_layer_mask_set', 'func', u, 'V', 'd0 mask, d1 present now', 'Stores 0x61fb2954; d1 != 0 -> gpiUpdateDisplay(1)', SRC + ' §2.3')
+E(0x60d132e6, 'gpi_palette_commit', 'func', u, 'V', '', '"cw_setColorPalette (128Color Layer)"; run before every present', SRC + ' §2.4')
+E(0x60d13a0b, 'gpiSetDrawOffset', 'func', u, 'V', 'd0 x, d1 y', 'Stores 0x61fb2964/66; clear 0x60d13a33; get 0x60d13a52 (a0 &x, a1 &y)', SRC + ' §2.3')
+E(0x60f95f10, 'gpi_layer_plane', 'table', u, 'V', 'u8[3] = {1, 2, 0}', 'GUI layer -> OSD API plane', SRC + ' §2.3')
+E(0x60f95f2c, 'gpi_layer_bpp', 'table', u, 'V', 'u8[3] = {4, 8, 4}', 'Stride = 800*bpp/8 (DC+148)', SRC + ' §2.3')
+E(0x6246aaa8, 'gpi_vram_tab', 'table', u, 'V', 'VRAM_INFO* [3 layers][2 buffers]', 'Back buffer of layer L = [L][(u8)0x61fb2938]', SRC + ' §2.3')
+E(0x6246aac0, 'gpi_vram_work', 'data', u, 'V', 'VRAM_INFO*', 'Plane 3 (WORK)', SRC + ' §2.3')
+E(0x6246a774, 'gpi_dc_layers', 'struct', u, 'V', '3 x 164 B: +0 layer, +2 800, +4 600, +6 bpp, +72 layer desc, +76 fn table (18 words), +148 stride', 'Also DC -1 0x6246a960, DC -2 0x6246aa04', SRC + ' §2.3')
+E(0x61fb2938, 'gpi_cur_buf', 'data', u, 'V', 'u8 0/1', 'Current back-buffer index; toggled by present', SRC + ' §2.3')
+E(0x61fb2939, 'gpi_dirty', 'data', u, 'V', 'u8', 'Set by sync rect, cleared by present', SRC + ' §2.3')
+E(0x61fb2954, 'gpi_layer_off_mask', 'data', u, 'V', 'u16: 0x02 layer 0, 0x10 layer 1, 0x100 layer 2', 'Planes hidden at present', SRC + ' §2.3')
+
+# ---------------- GUI task, cache control ----------------
+E(0x60dd5067, 'GUI_TASK', 'func', r, 'V', 'dynamic task entry', 'Created at 0x60cfcee5 via 0x607a791e (name "GUI_TASK", stack 16384) -> WinMain 0x60cfd311 message loop. Runs the GE paint and present', SRC + ' §2.4')
+E(0x60cfd311, 'gui_WinMain', 'func', u, 'V', '', '"[GUI App]:WinMain called" / messageloop', SRC + ' §2.4')
+E(0x00008070, 'CHCTR', 'data', r, 'V', 'u16: ICEN 0x1, DCEN 0x2, ICBUSY 0x4, DCBUSY 0x8, ICINV 0x10, DCINV 0x20', 'Cache control. Stock only drives the D-cache bits (0x60066fc0, sec 9 0x6136a7fd..); no I-cache invalidate anywhere. I-cache bit names [I]', SRC + ' §3.2')
+E(0x6136a854, 'dcache_range_op', 'func', r, 'V', 'd0 addr, d1 len, a0 mode', 'Section 9 ranged D-cache op; >8 KB -> whole-cache 0x6136a7fd. Wrappers 0x6136a8e9 (mode 0), 0x6136a8f3 (mode 1)', SRC + ' §3.2')

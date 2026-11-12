@@ -19,3 +19,9 @@ out/
 # one-press builder output + cached OM download (never commit)
 cache/
 Caduceus-v*/
+
+# Private RE material (docs/RE_PRIVATE.md)
+*.gpr
+*.rep/
+*.decomp.c
+ep7fw-private/

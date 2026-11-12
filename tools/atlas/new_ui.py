@@ -1,0 +1,87 @@
+# New atlas entries from docs/RE_UI.md (HSM, screens, actuators/viewers, menu tree, SCP/LC, key routing).
+# Same record format as atlas_data.py: (addr, name, kind, subsystem, conf, sig, notes, source).
+# Not merged; exec after atlas_data.py (uses its E()).
+# Not repeated (already in the atlas): ssmenulv_dispatch 0x60d11448, gui_WinMain 0x60cfd311, screen_lookup_a 0x60e4cea8,
+# canexec_get 0x607b3c32, item_cond_table 0x60adf518, main_menu_root 0x6117b410, prop_child_vtable 0x61155a7c,
+# editor_parent_vtable 0x61187534, lc_actuator 0x60e23b98, CursorMove_Init 0x60de3540, column_init_table 0x61150c2c.
+u = 'ui'
+SRC = 'docs/RE_UI.md'
+
+# ---------------- HSM engine and GUI task ----------------
+E(0x6246684c, 'hsm_ctx', 'data', u, 'V', '32 B: +0 u8 ss, +1 u8 state, +2 u8 n_ss, +4 ss table, +8 u16 cur handler', 'Pointer stored in 0x61fb2564 by gui_WinMain', SRC + ' §2.1')
+E(0x611317c4, 'hsm_ss_table', 'table', u, 'V', '19 x u32 descriptor*, index ss-1', 'Descriptor 32 B: +0 u8 n_states, +2 u16 n_events, +4 u16 n_handlers, +6 s16 n_map, +8 matrix, +0xc handlers, +0x10 event map {code, index}, +0x14 entry[], +0x18 exit[], +0x1c u8 wide', SRC + ' §2.1')
+E(0x60d113d1, 'hsm_init', 'func', u, 'V', '(n_ss, ss, ctx, table, state)', 'Clears ctx, runs first entry. Called from 0x60dd4b19 (19, 1, ctx, 0x611317c4, 2)', SRC + ' §2.1')
+E(0x60d1144d, 'hsm_dispatch', 'func', u, 'V', '(event, lparam, ctx, uparam) -> 0 ok, 1-4 errors', 'Call-site entry of ssmenulv_dispatch (prologue 0x60d11448). handler rc = new_ss<<8 | new_state; exit/entry on change. Sole caller gui_WinMain 0x60cfd558', SRC + ' §2.1')
+E(0x60d1158b, 'hsm_event_index', 'func', u, 'V', '(event, ., ctx) -> index or 0xffff', 'Linear scan of the descriptor event map', SRC + ' §2.1')
+E(0x60d115c2, 'hsm_desc_get', 'func', u, 'V', 'a0 ctx -> descriptor of ctx.ss', '', SRC + ' §2.1')
+E(0x60dd4b47, 'hsm_default_handler', 'func', u, 'V', '-> 0', 'Matrix default in every Ss: unmapped events are dropped', SRC + ' §2.1, §5')
+E(0x611992c4, 'ss_SsCommon', 'struct', u, 'V', 'HSM descriptor, 14 states, 89 events', 'ss 1', SRC + ' §2.2')
+E(0x611ada58, 'ss_SsRec', 'struct', u, 'V', 'HSM descriptor, 5 states, 47 events', 'ss 2', SRC + ' §2.2')
+E(0x611a6410, 'ss_SsMenuMain', 'struct', u, 'V', 'HSM descriptor, 13 states, 77 events', 'ss 3; state 2 StWizardMenu (entry 0x60e5db2e)', SRC + ' §2.2')
+E(0x611a3bc8, 'ss_SsMenuLv', 'struct', u, 'V', 'HSM descriptor, 29 states, 112 events, 138 handlers', 'ss 4; state 2 Live Control, 3 SCP, 7 setting screen. Matrix 0x611a2e30, handlers 0x611a2c08, map 0x611a2888, entry 0x611a3ae0, exit 0x611a3b54', SRC + ' §2.2, §6')
+E(0x611abc5c, 'ss_SsPlaySingle', 'struct', u, 'V', 'HSM descriptor, 43 states', 'ss 6', SRC + ' §2.2')
+E(0x611a9d44, 'ss_SsPlayMovieSlide', 'struct', u, 'V', 'HSM descriptor, 30 states', 'ss 7', SRC + ' §2.2')
+E(0x611a82f4, 'ss_SsPlayIndex', 'struct', u, 'V', 'HSM descriptor, 18 states', 'ss 8', SRC + ' §2.2')
+E(0x611a22ac, 'ss_SsMenu', 'struct', u, 'V', 'HSM descriptor, 3 states, 66 events', 'ss 17 (MENU key entry)', SRC + ' §2.2')
+E(0x611a1f48, 'ss_SsEdit', 'struct', u, 'V', 'HSM descriptor, 9 states', 'ss 18', SRC + ' §2.2')
+E(0x62466870, 'gui_msg_queue', 'data', u, 'V', '500 x 32 B {u8 used, msg 7 words}; head/tail u16 0x6246a6f0/0x6246a6f2', 'Get 0x60d10133 (0x1002/0x1100 first), purge-by-code 0x60d1050a', SRC + ' §2.3')
+E(0x60d10133, 'gui_msg_get', 'func', u, 'V', '(timeout) -> nonzero when a message was copied', 'Serves 0x1002 and 0x1100 first', SRC + ' §2.3')
+E(0x60d1050a, 'gui_msg_purge', 'func', u, 'V', 'code -> n removed', '', SRC + ' §2.3')
+E(0x60d0ffb4, 'gui_post', 'func', u, 'I', '(code, lparam, ., ., msg*)', 'Builds a 28-B message (sender 0xfffe) and enqueues; 61 callers, most in the input layer 0x60d1d9ec..0x60d25a02', SRC + ' §2.3')
+E(0x60e9eb89, 'gui_event_trace', 'func', u, 'V', '(kind, code, arg)', 'Event trace ring entry, not a filter', SRC + ' §2.3')
+E(0x60e9e771, 'gui_transition_log', 'func', u, 'V', '(event, old ss/state, new ss/state)', '"Event 0x%04x: [%s][%s]-->[%s][%s]"', SRC + ' §2.1')
+E(0x60ea15a3, 'gui_timer_start', 'func', u, 'I', '(id, ticks)', '76 callers; cancel 0x60ea15ca', SRC + ' §2.3')
+
+# ---------------- screens (IGui_Controler) ----------------
+E(0x6119fadc, 'screen_group_table', 'table', u, 'V', '13 x 12 B {u32 group, u32 list, u16 n}', 'Groups 8 (429 popups), 14 (132 2CNL pages, n at 0x6119faf0), 15 (menus), 18 (257 editors by sid), 20 LC, 21, 3, 16, 17, 26-29. Descriptor 24 B {key, act kind, act param, view kind, view param, hook}', SRC + ' §3.1')
+E(0x6119cb54, 'screen_list_g14', 'table', u, 'V', '132 x 24 B', 'Menu sub-pages: act 21 (Cursor_2CNL) param = 2CNL kind, view param = item-info key', SRC + ' §3.1')
+E(0x6119a31c, 'screen_list_g8', 'table', u, 'V', '429 x 24 B', 'Popups (value pickers act 5 + view 25/30/56/122, ...)', SRC + ' §3.1')
+E(0x6119dafc, 'screen_list_g18', 'table', u, 'V', '257 x 24 B, key = sid', 'Setting editors (act 26 Plural_Direct), opened by SsMenuLv state 7', SRC + ' §3.1, §6')
+E(0x6119d7b4, 'screen_list_g15', 'table', u, 'V', '3 x 24 B', 'Key 0 main menu (act 24 / view 57), keys 1-2 Custom Menu (act 25 / view 58)', SRC + ' §3.1')
+E(0x60e4c9a0, 'IGui_Controler_ctor', 'func', u, 'V', '(controller kind, args, obj 228 B)', 'Kind -> layout (0x6119a0b0 or RAM resolver 0x61fc4198+8k) -> 0x6119a100 {layout, act kind, view kind}; wrapper with alloc 0x60e4ce8b', SRC + ' §3.1')
+E(0x6119a100, 'screen_layout_table', 'table', u, 'V', '45 x 12 B {layout, actuator kind, viewer kind}', 'Layout 13 = SCP (act 8, view 15), 14 = RC SCP (act 9, view 16)', SRC + ' §3.1')
+E(0x6119a0b0, 'screen_ctrl_kind_table', 'table', u, 'V', '{u32 controller kind, u32 layout} until kind 0x20', '10 -> 13 (SCP), 11 -> 14', SRC + ' §3.1')
+E(0x60e4cb5a, 'screen_build', 'func', u, 'V', '(key, 0, obj, desc words)', 'Fills the 228-B object from a 24-B descriptor; act_create + view_create', SRC + ' §3.1')
+E(0x60e4cf21, 'screen_open_ex', 'func', u, 'V', '(group, key, arg, arg)', 'As screen_lookup_a with args (build 0x60e4cc53, alt factory 0x60dd51cb)', SRC + ' §3.1')
+E(0x60e4ce26, 'screen_close', 'func', u, 'V', 'a0 screen', 'Frees binding; actuator vtbl +0x28, viewer vtbl +4. 61 callers', SRC + ' §3.1')
+E(0x60e4d032, 'screen_event', 'func', u, 'V', '(event, lparam, screen) -> 0, 1 decide, 2 back, 3 open request', 'Pre-callback +28/+32, actuator vtbl[0]; rc 1 -> viewer vtbl[0] redraw (not touch 0xaf00-03); maps actuator rc 2/3/4 -> 1/2/3. 179 callers', SRC + ' §3.1, §5')
+E(0x60e4d16c, 'screen_next', 'func', u, 'V', '(&key, &type, screen)', 'Pending open request; type 0x20 when the screen has no actuator', SRC + ' §3.1')
+E(0x60dd5125, 'open_request_set', 'func', u, 'V', 'd0 group, d1 key', 'Stores u16 0x61fc1bb0 / 0x61fc1bb2; getter 0x60dd5110', SRC + ' §4.2')
+
+# ---------------- actuators and viewers ----------------
+E(0x60dd5146, 'act_create', 'func', u, 'V', 'kind -> actuator', 'Table 0x611401f4 (45 x {kind, create}); sends 0xf805 init', SRC + ' §3.2')
+E(0x611401f4, 'act_factory_table', 'table', u, 'V', '45 x {u32 kind, fn create}', 'e.g. 5 Cursor_Move_Set_Mode, 21 Cursor_2CNL, 24 main menu, 26 Plural_Direct, 27 Plural_Lv_Control, 8/9 Func_Scp', SRC + ' §3.2')
+E(0x60dd518e, 'column_create', 'func', u, 'V', '(column kind, ., &param)', 'Table 0x6114035c (12): 0 Cursor_Move_Set_Mode, 1 kind-4 class, 3/4 Cursor_Move, 5/6 Cursor_2CNL, 7 Plural_Direct, 8 AF_Target, 14 Direct', SRC + ' §3.2')
+E(0x60dd520c, 'column_create_b', 'func', u, 'V', '(kind, ., &param)', 'Table 0x611403dc (5); used by the main-menu actuator', SRC + ' §3.2')
+E(0x60dd5250, 'act_event_base', 'func', u, 'V', 'vtbl[0] of every actuator: (event, lparam, act)', 'Hash 0x6114040c -> vtbl +44 Up, +48 Down, +52 Left, +56 Right, +60 0x9032, +64 0x9031, else +68; key grab 0x61fc1bac', SRC + ' §3.2')
+E(0x6114040c, 'act_key_slot_table', 'table', u, 'V', '16 x {u32 event-0x9003, stub}', '', SRC + ' §3.2')
+E(0x60df249e, 'view_create', 'func', u, 'V', 'kind -> viewer', 'Table 0x6115c724 (126 x {kind, create}); vtbl[0] draw, [1] dtor', SRC + ' §3.3')
+E(0x61179560, 'menu_main_act_vtable', 'table', u, 'V', 'actuator kind 24 (68 B): +0x34 tab column, +0x38 2CNL of the tab, +0x3e focus', 'Create 0x60e0e7b4; tab -> 2CNL kind table 0x611794a8; per-tab 2CNL built at 0x60e0f2cb', SRC + ' §4.1')
+E(0x611794a8, 'menu_tab_2cnl_table', 'table', u, 'V', '7 x {u16 tab, u32 2CNL kind}', 'Tabs 0..6 -> 2CNL 62..68; loop bound 7 in 0x60e0f2cb', SRC + ' §4.1')
+E(0x60e0f9e3, 'Menu_Viewer_ctor', 'func', u, 'V', 'viewer kind 57', 'Vtable 0x6117efc8; stores main_menu_root 0x6117b410', SRC + ' §3.3, §4.1')
+E(0x6114d1a8, 'cursor_2cnl_vtable', 'table', u, 'V', 'Cursor_2CNL_Actuator (0x88 B)', '+0x30..+0x48 handler words, +0x4c kind, +0x50 depth, +0x58/+0x5c columns, +0x60.. lists A/B/C. Create 0x60dda3fd, ctor 0x60dda522/0x60dda561', SRC + ' §4.2')
+E(0x60dda5cf, 'cursor_2cnl_init', 'func', u, 'V', 'Cursor_2CNL_Actuator::Initialize', 'Copies 7 handler words from RAM 0x61fc1c00 (image 0x60259ec0), then per-kind init 0x6114569c (35) or default 0x60dda6a0', SRC + ' §4.2')
+E(0x61fc1c00, 'cursor_2cnl_handlers', 'data', u, 'V', '7 words: Up, Down, Left, Right, dial, dial, other', 'RAM .data, image 0x60259ec0: 0x60ddab47, 0x60ddac5f, 0x60ddad77, 0x60ddaee9, 0x60ddb06d, 0x60ddb0de, 0x60ddb14e. Data-hookable', SRC + ' §4.2')
+E(0x6114b2e0, 'cursor_2cnl_kind_table', 'table', u, 'V', '156 x 36 B {kind, column kind, column mode, listA, nA, listB, nB, listC, nC}', 'Bound 0x9c hard-coded (0x60dda6a0, 0x60dda760). listA 12 B inline column; listB (Right) / listC (OK) 24 B transitions', SRC + ' §4.2')
+E(0x60ddc1f1, 'cursor_2cnl_transition', 'func', u, 'V', '(n, ., act, list) -> rc', 'Entry {u32 depth, u16 row, u16 sub, fn pre(a0 act), u16 group, u16 key, fn post(a0 act, a1 &group, d0 &key)}; open -> rc 4', SRC + ' §4.2')
+E(0x60ddaee9, 'cursor_2cnl_right', 'func', u, 'V', 'handler word +0x3c', 'listB transition, else listA opens column 2 (depth 2)', SRC + ' §4.2')
+E(0x60ddb1c2, 'cursor_2cnl_ok', 'func', u, 'V', 'via invidual_act_base 0x60ddb150 / table 0x6114d028', 'listC transition, else OK to the column and rc 2', SRC + ' §4.2')
+E(0x60ddad77, 'cursor_2cnl_left', 'func', u, 'V', 'handler word +0x38', 'Depth 2: close column 2 (rc 1); depth 1: rc 3', SRC + ' §4.2')
+E(0x61150e0c, 'cursor_move_col_vtable', 'table', u, 'V', 'Cursor_Move column (0x5c B)', '+0x40 mode, +0x48 n, +0x4a first enabled, +0x4c grey flags, +0x50 ids, +0x54/+0x56 first/last enabled; init 0x60de2134', SRC + ' §4.3')
+E(0x61150328, 'cursor_move_mode_lists', 'table', u, 'V', '150 x 12 B {u32 mode, u32 u16-list, u16 n}', 'Default rows (0x60de21b0); bound 0x96', SRC + ' §4.3')
+E(0x61150af4, 'menu_tab_row_lists', 'table', u, 'V', '7 x {u16 mode 80..86, u16 n, ptr -> {u16 key, u16 n, u32 list}}', 'Key-0 record used (0x60de2628). Setup tab record 0x61150aec -> 0x61150aa6 (7)', SRC + ' §4.3, §8.1')
+E(0x61150bb4, 'custom_menu_row_lists', 'table', u, 'V', '15 x {u16 mode 87..116, u16 n, ptr}', 'Lists in RAM .data (0x61fc1dcc..); init 0x60de276f', SRC + ' §4.3')
+E(0x61150d74, 'menu_row_remap', 'table', u, 'V', '{u16 id, fn} until 3200', '10 -> 0x60de2e70, 111 -> 0x60de2e9b', SRC + ' §4.3')
+E(0x611c2c78, 'item_info_index', 'table', u, 'V', '129 x 24 B {key = viewer param, records, n, 0, ., .}', 'Read by the 2CNL viewer at 0x60e89a28 (bound 129). Record 36 B {id, title label, value list, n, 0, text, popup list, n}. Second tree 0x611cce58..', SRC + ' §4.4')
+E(0x61fc4ffc, 'menu_history', 'data', u, 'V', '10 x 6 B {u16 item, u8 cursor, ., u16 x}; depth u8 0x61fc5038', 'Push 0x60ea7dcc, pop 0x60ea7d42, drop 0x60ea7da4, peek 0x60ea7c89', SRC + ' §5.1')
+E(0x60cfec91, 'gui_db_get', 'func', u, 'V', '(id, size, buf)', '244 callers; set 0x60cfeca9(id, size, buf, flag)', SRC + ' §5.1')
+E(0x60e5db2e, 'SsMenuMain_StWizardMenu_Entry', 'func', u, 'V', 'state 2 entry of ss 3', 'Restores cursor from menu_history; wizard screen object 0x61fc5060', SRC + ' §5.1')
+
+# ---------------- SCP / Live Control ----------------
+E(0x60e56973, 'SsMenuLv_LC_entry', 'func', u, 'V', 'state 2 entry', 'screen_open(20, 0) -> 0x61fc432c', SRC + ' §6')
+E(0x60e56ea0, 'SsMenuLv_SCP_entry', 'func', u, 'V', 'state 3 entry', 'IGui_Controler(10, 0x62472e44) -> 0x61fc4328', SRC + ' §6')
+E(0x60e56a7f, 'SsMenuLv_DtlScp_ok', 'func', u, 'V', 'state 3 OK handler', 'Cell sid -> 0x61fc4370, CANEXEC, rc (4, 7) default', SRC + ' §6')
+E(0x60e59198, 'SsMenuLv_open_editor', 'func', u, 'V', '()', 'screen_open(18, 0x61fc4370) -> 0x61fc4330, then event 0x9749', SRC + ' §6')
+E(0x61fc4328, 'scp_screen', 'data', u, 'V', 'IGui_Controler*', 'SCP screen; LC 0x61fc432c; group-18 editor 0x61fc4330; open key 0x61fc4370', SRC + ' §5, §6')
+E(0x61159f08, 'scp_cell_table', 'table', u, 'V', '39 x 14 B {u16 sid, 6 x u16}', 'Copied by Func_Scp_Actuator::initActModeDetail 0x60df1429 to actuator +0x5c; per-mode swaps in 0x60df149c', SRC + ' §6')
+E(0x6115ba70, 'func_scp_vtable', 'table', u, 'V', 'Func_Scp_Actuator (actuator kinds 8/9)', '', SRC + ' §3.2, §6')
