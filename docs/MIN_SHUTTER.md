@@ -171,7 +171,7 @@ Output m4: `generated/min_ss/m4/edits.json`, package `generated/min_ss/m4/rel/` 
 ## 4. Camera test (m4)
 
 1. It boots, and the Firmware screen shows the version.
-2. Custom Menu E1 (Exp/ISO/BULB): "Lowest S/S Setting" appears under ISO-Auto Set and reads Auto. ISO-Auto Set still opens its wizard.
+2. Custom Menu D1 (Exp/ISO/BULB): "Lowest S/S Setting" appears under ISO-Auto Set and reads Auto. ISO-Auto Set still opens its wizard.
 3. OK on the row opens a full "Lowest S/S Setting" picker screen that scrolls with up/down (Auto, 1/1.3 … 1/8000).
    OK on 1/250 returns to E1, and the row reads 1/250. Check that 1/8000 and Auto are reachable, and that MENU / back
    leaves the picker.
