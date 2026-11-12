@@ -6,7 +6,8 @@ Status: the **PEN E-P7** is tested here, and the **OM-3** has its own camera-tes
 
 | Body | Closeness to the E-P7 | Home for looks | Status |
 |---|---|---|---|
-| **E-M10 IV** | Closest: same file size and load address, 47% of edits match by signature | No COLOR profiles, so looks need a new home | **First target.** In development, not yet run on a camera. **Needs a volunteer to test and report issues:** [issue #21](https://github.com/cakelesscoder/caduceus-ep7/issues/21) (`docs/PORT_EM10IV.md`) |
+| **E-M1 Mark II** | Different base (0x60021020); TruePic VIII | Color Creator / Picture Mode | **Port In Development** (v0.1 on camera: rec limit and focus stacking work; Color Creator looks did nothing in v0.1 and v0.2b1, caused by patch state inside a stock callback ring. v0.3b1 on camera: E-P7 COLOR engine route changes colours; looks past the first 2–3 broken by a section-bound bug, fixed in v0.3b2, not camera-tested) (`docs/PORT_EM1MK2.md`) |
+| **E-M10 IV** | Closest: same file size and load address, 47% of edits match by signature | No COLOR profiles, so looks need a new home | **Candidate.** In development, not yet run on a camera. **Needs a volunteer to test and report issues:** [issue #21](https://github.com/cakelesscoder/caduceus-ep7/issues/21) (`docs/PORT_EM10IV.md`) |
 | **E-M5 III** | 36% match; SD loader and log hook don't match | None | Second choice (`docs/PORT_EM5III.md`) |
 | **E-M1 III** | Larger file and different load address; match not worked out | None | Firmware analysed on disk only |
 | **E-M10 III, E-PL9** | Same main size; match not run | Probably none | Not analysed |

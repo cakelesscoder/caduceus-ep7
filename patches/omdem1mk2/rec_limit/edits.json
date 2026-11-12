@@ -1,0 +1,22 @@
+{
+ "patch": "rec_limit",
+ "components": [
+  "0x100"
+ ],
+ "edits": [
+  {
+   "kind": "0x100",
+   "addr": "0x603549d7",
+   "expect": "cc06",
+   "new": "907e",
+   "why": "Video record limit 1740s -> 32400s"
+  },
+  {
+   "kind": "0x100",
+   "addr": "0x603549dc",
+   "expect": "201c",
+   "new": "907e",
+   "why": "Video record limit 7200s -> 32400s"
+  }
+ ]
+}

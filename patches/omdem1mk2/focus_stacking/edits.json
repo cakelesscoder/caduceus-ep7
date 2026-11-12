@@ -1,0 +1,15 @@
+{
+ "patch": "focus_stacking",
+ "components": [
+  "0x100"
+ ],
+ "edits": [
+  {
+   "kind": "0x100",
+   "addr": "0x60656a4a",
+   "expect": "c904",
+   "new": "cbcb",
+   "why": "Focus stacking on all lenses (bne -> nop nop)"
+  }
+ ]
+}

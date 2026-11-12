@@ -1,0 +1,162 @@
+# Caduceus Port to Olympus OM-D E-M1 Mark II (v3.70): Status & TODO
+
+Updated 2026-11-10 (after the v0.2b1 camera test). Addresses and evidence: em1mk2/docs/ARCHITECTURE_AND_MEMORY_MAP.md §6–7,
+em1mk2/docs/REA_FIRMWARE_FUNCTIONS_REFERENCE.md §1, docs/PORT_EM1MK2.md §4, WORKLOG.md (2026-11-10).
+
+---
+
+## 1. What exists
+
+### A. Firmware container & build tooling
+* Target: E-M1 Mark II fw 3.70 (build 3700, model 0x1250), MN10300 / AM33-2, main base VMA 0x60021020.
+* 5-component 93 MB container rebuilt by tools/build_package.py; edits verified against stock bytes.
+* Releases: v0.1, v0.2b1, v0.2b2 (camera-tested, looks wrong), v0.3b1 (built, NOT camera-tested).
+  `python3 tools/omdem1mk2_make_release_edits.py <VERSION>` rebuilds patches and seals a release in its own folder.
+
+### B. Working on camera (v0.1)
+* rec_limit (29 min / 2 h → 9 h), focus_stacking (lens whitelist removed).
+
+### C. SD card look loader (sd_loader)
+* Cave 0x60580200 (Section 2), trigger at TRIG1 half-press classifier 0x6023d0db.
+* Reads EM1MOD/LOOKS.BIN (2,080 B: 32 B header 'EM1B' + 16 × 128 B slots), CRC-32 check.
+* Owns the shared state block P (patches/omdem1mk2/p_layout.inc): p_get / p_ensure, handle u16 at 0x621e24ae.
+* Slot = shared Caduceus 64 B lookRecord (webapp/src/format.ts) + E-M1 extras: +64 vividness, +65 hue.
+
+### D. Color Creator look editor (color_creator_wheel), v0.2b1
+* Editor record 0x61259c40 (key 0x13a9), cave 0x612e6900 (1,944 B), guide label .data init word 0x60297fb4,
+  SCP cell call 0x60e25ec8.
+* Writes: hue 617 (0..29), vividness 618 (-4..+3), tone 889/890/891 (HL/MID/SH, order inferred from E-P7),
+  all through facade SetValue(sid, 0, v) = the call the stock Color Creator commit 0x60e4c0a7 makes.
+* Page 1 Chroma is shown but NOT applied. Banner shows " Exx" if a 617/618 write fails.
+
+---
+
+## 2. Camera issues and what caused them
+
+v0.2b1 report (2026-11-10): saturation always 0; looks all look the same; garbage look names;
+hue/saturation/chroma do nothing.
+
+**Main cause (v0.1 and v0.2b1):** all patch state lived at 0x621e2f76..0x621e2f87, inside a stock
+32-entry {callback, argument} ring at 0x621e2f74 (drained by 0x6023d1cb, which calls each entry).
+Stock overwrote our card flag, buffer pointer, look index, page and dial flag, causing the garbage
+names, looks not sticking and wrong pages. We overwrote queued callbacks. The "unreferenced .bss"
+claim only checked absolute addresses. Fixed in v0.2b2: heap block P + validated u16 handle at
+0x621e24ae (alignment padding; statically checked, camera-unproven).
+
+Also fixed in v0.2b2: sd_check had no call slot (could corrupt the caller's saved a2 = buffer);
+loader free was the uncached-pool free; names are filtered to printable ASCII.
+
+Fixed in v0.2b1 (still valid): E-P7 sid numbers (this body = E-P7 minus 2), d2/d3 clobbered in the
+arrow/dial handlers, vividness -5, untraced commit/refresh calls, card generator writing sat over
+the tone bytes. SetValue has no "mode filter" (it rejects only on global busy bits).
+
+"Saturation always 0": the Chroma page is intentionally not applied yet (P3 below). If the stock
+wheel's vividness also stays 0, that is a separate symptom.
+
+## 2b. v0.3b1 (2026-11-10): E-P7 colour route
+* Colour stage = E-P7/PEN-F (selector 0x603ec82c, builder 0x603ec642). Hooks in the Section 2 cave:
+  cc_sel at 0x603ec89b (CC + active look -> S into request+1816, COLOR branch), cc_hl at 0x603ec8b8
+  (E-P7 `lv` H/L). Gate: live raw 0x9481 == value recorded when the CC editor opened.
+* EM1MOD/LOOKS.BIN = E-P7 v3 file (Control Panel em1mk2 target now = shared encoder; byte-identical).
+* P uncached (0x6002329a). Chroma page now offsets all 12 sectors.
+* Banner diag: " K<hex key>" (+ "+" once applied). Test list in docs/PORT_EM1MK2.md.
+
+## 2c. v0.3b1 camera result (2026-11-11) -> v0.3b2
+* Colours change (COLOR engine route confirmed working). Only 2 labels / 2-3 distinct looks: the built-in
+  looks were past the real Section 6 end 0x612e7000 (the docs' 0x61300000 was Section 7's start). Same bug
+  hid preset tables in v0.1-v0.2. Fixed: built-ins in the Section 5 tail 0x60bc8150; check_loaded.py gates
+  every release. Card not loading: banner now shows " C1/C0/CF".
+* CC cave has 8 bytes left in Section 6: next features go to the S3/S4/S5 tails (code may call earlier sections).
+
+## 2d. Upstream v0.31c merged (2026-11-11): what matters for this port
+* AGENTS.md now requires ports to keep the shared look format/share codes/panel (we do: E-P7 LOOKS.BIN v3),
+  to keep **firmware in its own repo**, and to contact @cakelesscoder (issue/PR) to merge the panel export
+  target. To do once v0.3 works on camera: move em1mk2/ firmware to its own repo; offer
+  webapp/src/targets/em1mk2.ts + the cameras.ts profile upstream.
+* Look format: LOOKS.BIN unchanged (v3). New bytes are BUNDLES.BIN slot fields only (Sharp +51, Halo +52).
+* docs/PORT_EM5III.md: E-M5 III also uses base 0x60021020 and the same 12-byte section records, which matches
+  our E-M1 II section table (0x60027450).
+* For later features: hardware watchdog (v0.31b raised it 10 s -> 30 s for CPU grain/halation; yields crashed);
+  grain/halation untested with RAW+JPEG (docs/GRAIN_PORT.md). Flat profile lead in docs/UNLOCK_LEADS.md.
+
+## 2e. v0.3b2 camera result (2026-11-11) -> v0.3b3
+* Colours change better. B&W look's vividness -4 stuck for all looks (colour looks never reset 618; CC's own
+  processing still runs on top). Only hue had an effect: tone wrote 889-891, which are dead on this body.
+* v0.3b3: colour looks set 618 = 0; tone -> 449 (HL) / 450 (SH) (descriptor callbacks 0x602db1b2/0x602db195);
+  Midtones page removed (no Midtone control on the E-M1 II); INFO cycles 3 pages.
+* Open: CC hue still tints looks (find CC's neutral hue or bypass CC's stage); confirm HL/SH not swapped.
+
+## 2f. v0.3b3 camera result (2026-11-11) -> v0.3b4
+* B&W bug gone; looks change colour but subtly; Chroma/Luminance manual steps show no effect.
+* v0.3b4: lv_refresh (re-write 618 current value) after manual steps; Strength page (x1..x3; S <= +-10,
+  H/L <= +-15); look_fill moved to the Section 2 cave (0x60580622). Section 2 cave 1,248 B.
+
+## 2g. v0.3b4 camera (2026-11-11)
+* Velvia JPEG ~ Panel preview (first camera confirmation of a look end to end, stills included). Blues a bit
+  more cyan: check Provia on the same scene to separate the look from CC's hue / the monitor.
+* v0.3b4 pages: Strength works; Chroma works (+5 visibly punchier; single steps subtle); Luminance: values stored
+  (449/450 read back) but no visible effect. Pending: Test B JPEGs (H 0/S 0 vs H -7/S +7); LV vs JPEG for Chroma.
+* Desk test (neutral / Provia / Velvia JPEGs): CC base ~ neutral (no compensation); Velvia +10..14 S at x1 = as
+  designed. 449/450 swap: unknown (the earlier hint came from an unreliable patch). Check Page 2: front dial must move
+  only bright areas, rear dial only dark ones; if reversed, swap the sids.
+
+## 2h. v0.3b4 Test B (2026-11-11) -> v0.3b5
+* 449/450 at 0/0, +5/+5, -5/-5: no change in live view or JPEG. v0.3b5 writes the request-side tone 384 (HL) /
+  692 (MID) / 383 (SH), same keys and mapping as the E-P7; midtones from looks come back.
+* CAMERA OK (v0.3b5): +7/+7 vs -7/-7 moves highlights (+14) and shadows (+24), mids +3, live view and JPEG.
+* HL/SH order confirmed on camera (Highlights dial = bright areas only).
+* Remaining: Provia vs Velvia back to back (same light, x1, Chroma 0) + Natural; then Velvia vs Panel.
+
+## 3. TODO
+
+### Priority 1: Camera test v0.3b2 (docs/PORT_EM1MK2.md §4 "Camera test for v0.3b1")
+0. Half-press once after power-on, open Color Creator: readable names?
+1. Page 0 look step: does the reticle move and the image change? Any " Exx" code?
+2. After picking Velvia (H+1 M0 S-4), does the stock Highlight & Shadow screen show it, in that order?
+   This confirms or rejects 889/890/891 and their order.
+3. Page 2/3 banners follow the dials? (They are read back from the settings.)
+4. Multi-detent dial turns now step more than once?
+5. SCP tile: does the rear dial change the live view or the icon while the text stays on the look name?
+
+### Priority 2: Decide from the test
+* If " E58": find what sets the busy bits (0x607abb14) while the editor is open, and defer the write
+  (e.g. do it from the child commit path instead of the key handler).
+* If " E16": dump the value we pass vs the child's list (+104) for that sid.
+* If no code but still no image change: the write succeeds and something reverts it. Check the editor's
+  cancel/restore path and whether 617/618 are snapshotted on entry.
+* If tone lands in the wrong slot: try 449/450 and the mirrors 383 (SH) / 384 (HL) / 692 (MID).
+
+### Priority 3: next E-P7 features on the colour route (after v0.3b1 works)
+* Tone Blacks/Whites: locate the E-P7 `tone` site (0x603b14ff) here; mono looks (B&W path);
+  stills vs live view check; persistence of the picked look across power-off.
+
+### (done in v0.3b1) port the E-P7 colour route instead of Color Creator values
+* Found: this body has the E-P7/PEN-F COLOR engine (selector 0x603ec82c, builder 0x603ec642, hook site
+  0x603ec8b3 byte-identical to E-P7 0x603b02d9), gated on job key 11.
+* Copy the E-P7 movie layer design (docs/MOVIE_COLOUR.md "As built"): job key -> 11 when a look is active,
+  effective-S reads -> look S, 0xF6B1 message byte non-zero; then H/L at 0x603ec8b3 like the E-P7 `lv` hook.
+* Read LOOKS.BIN in the E-P7 container so both cameras share one file.
+
+### Priority 3b (old plan): 12-sector saturation
+* Read-site override at the builder's 0xF6EA reads (0x602d24fb..0x602d25db, getter 0x6005e6cf):
+  when picture mode = Color Creator and a look is active, return the look's sector values.
+  Same technique as the E-P7 NR override (docs/FIRMWARE_GUIDE.md).
+* First check: does the pipeline use request +24208 outside picture mode 11? An emulator run of the
+  builder or a camera A/B with an extreme value.
+* Also find the capture-side copy (0x60cc1f.. fills the same offsets for the mirrors; check for 0xF6EA there).
+
+### Priority 4: SCP tile
+* Show "look name" only when 617/618 still equal the look's values; otherwise show the stock text.
+* Confirm by camera first (Priority 1 item 5).
+
+### Priority 5: Consolidated Caduceus for E-P7 + E-M1 II
+* One Control Panel: the em1mk2 target already exports the shared lookRecord. Add +64/+65
+  (vividness/hue) mapping from the look's colour data so panel-made cards get a Color Creator base too.
+* Feature map E-P7 → E-M1 II (each needs its own hook on this body; nothing is copied by address):
+  - Film looks: hue/vivid/tone now; per-sector sat next (P3); per-sector hue/light needs a request field
+    (look for the E-P7 COLOR table equivalent in TruePic VIII).
+  - Mono looks: Color Creator cannot do B&W. Options: switch picture mode 111 to Monotone for mono looks
+    (leaves Color Creator) or a request-level override.
+  - Grain, sharpening off, NR per look: E-P7 hooks are CPU-side save paths; find E-M1 II equivalents.
+  - Aspect ratios, button functions: list-table edits; repeat the stride search on this body.
+* Keep each body's firmware in its own patch folder; share only the look format and the panel.

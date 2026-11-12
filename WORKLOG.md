@@ -340,3 +340,166 @@ Every step, check and decision, newest last. "Verified" = checked by hash or rep
 - **v0.31a** (patches/v031: ap_custom a1 loader retry + halation h4 = h2 output + watchdog yields, 2026-11-10): camera-tested as 0.31b2. h3 speed-ups looked wrong (too strong, blocky, missed LED) and were dropped (docs/HALATION_RED.md §18-19).
 - **v0.31b** (patches/v031: halation h2 code unchanged + hardware WDT 10 s -> 30 s at 0x6005b23a/0x6005bcff, no yields, 2026-11-10): camera-tested as 0.31b4. v0.31a yields caused a crash ~2 s after the shot on bright frames.
 - **v0.31c** (patches/v031 + ap_custom c2, 2026-11-10): Movie/AP Extras sectors 1/2/5/11 locked with "stills" labels, AP slot read returns a cleaned copy (no FX), sid 1686 is the wheel cursor (v0.26 movie code treated it as S·All; fixed), movie Muted label "8-BIT LOG". Camera-tested as 0.31c1/c2.
+
+## 2026-11-10 — E-M1 Mark II: why Color Creator looks did nothing (v0.1 → v0.2b1)
+- Camera report on em1mk2 v0.1: Page 0 changes the look name only; Chroma/Luminance/Midtones change only the banner;
+  the SCP rear dial seems dead on the Color Creator tile.
+- Traced the stock route (em1mk2/docs/ARCHITECTURE_AND_MEMORY_MAP.md §7.5): Up = child 1 `0x9004` + `0x900c`; children
+  from descriptor `0x6125a038`, vtable `0x6122ba84`, fn table `.data 0x61fbd444` (flash `0x60297f04`); commit
+  `0x60e4c0a7` writes with facade `SetValue(sid, 0, list[idx])`, the same call v0.1 makes. **SetValue does not filter by
+  mode**: `0xF0000058` comes from global camera-state bits (`0x607abb14`), so the TODO's "mode filter" diagnosis was wrong.
+- Found the sid table (`0x604f808c`, E-P7 format) and the validator (`0x604ee648`, 1,215 × 20 B, unsorted). This body's
+  tone/sat sids are the E-P7's minus 2: effective sat `0xF6EA` = 913..924, per-profile sat `0xF6FA` = 925..960, COLOR tone
+  961..969, ordinary tone 889/890/891. v0.1 wrote E-P7 numbers (915..926, 963..965) plus the untraced 449/450.
+- Request builder `0x602d1de5..` (getter `0x6005e6cf`) reads 617/618, tone mirrors 383/384/692, picture mode, COLOR/MONO
+  profile numbers and `0xF6EA[0..11]`: the TruePic VIII pipeline has COLOR-profile plumbing; the E-M1 II lacks the UI.
+- Patch bugs: arrow handlers clobbered `d2`/`d3` before saving (the stock dial loop's counter/count), dial wrappers left
+  `d2` changed; mono looks wrote vividness −5 (valid −4..+3); untraced `0x602da6b9` / `(0x61fbfc94)`+76 calls;
+  init read tone via `0x602da5f9` (not the sid getter). Card generator wrote raw sat over the tone bytes.
+- v0.2b1 (`releases/em1mk2/v0.2b1`, patched SHA-256 `473e4414…`): fixes above, tone → 889/890/891, sector writes
+  removed (Chroma page kept but inert), ` Exx` diagnostic for failed 617/618 writes, tone banners read back. Cave 1,944 B.
+  `make_release_edits.py` / `make_looks_bin.py` take a version so v0.1 is not overwritten (v0.1 SHA256SUMS still OK).
+  `caduceus.py build` + `verify`: All good. **Not camera-tested.** Test list in docs/PORT_EM1MK2.md §4.
+- Own mistake caught mid-way: first lookup said 449/450 had no validator record (assumed a sorted table); the full table
+  has them (byte −7..+7). Docs and comments corrected.
+
+## 2026-11-10 — E-M1 Mark II v0.2b1 camera test → v0.2b2 (state moved out of a stock ring)
+- Camera (v0.2b1): saturation always 0; looks all the same; garbage look names; hue/sat/chroma do nothing.
+- Root cause: the patch state block 0x621e2f76..0x621e2f87 ("verified unreferenced .bss") is inside a stock
+  32-entry `{callback, arg}` ring at 0x621e2f74 (writer 0x6023d231, drain 0x6023d1cb `calls` each entry; head
+  0x621e2f70, tail 0x621e2f72). Only base+index*8 accesses, so the absolute-address search missed it. Present since v0.1.
+- New design = E-P7 heap P: `em1mk2/patches/p_layout.inc`; sd_loader owns `p_get` 0x605803a2 / `p_ensure` 0x605803d1
+  (exported via sd_loader/exports.json to color_creator_wheel); handle u16 at 0x621e24ae (padding between byte
+  0x621e24ac and word 0x621e24b0; nearest base 0x621e2488 is a 2-word array). Magic 'EM1P' + handle copy; any
+  handle maps into RAM 0x61b00000..0x622fff80. Without P all CC handlers fall through to stock.
+  Rejected: 0x6227d254 / 0x6223678c (tails of runtime-sized buffers after −1 markers).
+- Also: sd_check frame had no call slot (sd_crc's return address could land on the caller's saved a2 = buffer);
+  em1_free was 0x600232d9 (uncached pool) → 0x6002323d; names filtered to printable ASCII; page-banner numbers
+  print '?' when out of range. Loader/fseek/fopen conventions checked against stock callers.
+- Store audit of both caves: only absolute stores are the stock replay 0x621e2f6e and the handle 0x621e24ae; no fb
+  opcodes, no mul/div/setlb.
+- v0.2b2: releases/em1mk2/v0.2b2, patched SHA-256 43224d02…; caduceus build + verify All good; v0.1 and v0.2b1
+  SHA256SUMS still OK. Caves: sd_loader 648 B, color_creator_wheel 1,904 B. **Not camera-tested.**
+
+## 2026-11-10 — E-M1 Mark II v0.3b1: looks through the E-P7 COLOR engine, E-P7 LOOKS.BIN
+- Camera (v0.2b2): some looks load but look wrong (Eterna B&W-looking at vividness −3). Color Creator's single
+  hue/vividness can't express a look; user asked to follow the E-P7 implementation.
+- Downloaded E-P7 1.1 stock (tools/fetch_stock.sh, SHA OK); main extracted with caduceus.parse to
+  analysis/ep7_1100/00_0100_406a0020.decoded.bin (5dd9af16…, matches docs/ep7_1100_components.sha256; the fishcu
+  submodule is not checked out). New em1mk2/scripts/ep7_match.py (masked signature match).
+- Colour stage identical: E-P7 selector 0x603b0252 / builder 0x603b0068 ↔ E-M1 II 0x603ec82c / 0x603ec642 (builder
+  differs in 3 bytes = one table pointer; selector in addresses only). E-P7 movie-layer sites (record/message/
+  constructor) have no match, so v0.3 hooks only the colour stage: cc_sel 0x603ec89b, cc_hl 0x603ec8b8 (E-P7 lv).
+- EM1MOD/LOOKS.BIN is now the E-P7 v3 file; loader ignores E-P7-only header fields. make_looks_bin writes it; panel
+  check (webapp checkLooksBin/decodeLooksBin via node --experimental-transform-types) passes; the em1mk2 target now
+  uses encodeLooksBin and its export is byte-identical. Generator fix: mono looks carry no tone (format.ts hasTone).
+  cameras.ts em1mk2 settings:false (firmware has no per-look Contrast/Sharpness/Shading).
+- P moved to the uncached pools (0x6002329a/0x600232d9, P_BASE 0xa1b00000). Audit: absolute stores only 0x621e2f6e
+  (stock replay) and 0x621e24ae; no fb/mul/div/setlb. Built-in looks table == card records.
+- v0.3b1: releases/em1mk2/v0.3b1, patched SHA-256 ae765736…; caduceus build + verify All good; earlier releases
+  untouched. Caves: sd_loader 1,060 B, color_creator_wheel 2,764 B. **Not camera-tested.**
+
+## 2026-11-11 — E-M1 Mark II v0.3b1 camera test → v0.3b2 (section bounds)
+- Camera (v0.3b1): colours change with looks (COLOR engine route works). Only 2 looks labelled, 2–3 distinct, the
+  rest repeat; chroma/hue do nothing on those.
+- Root cause: Section 6 really ends at 0x612e7000 (descriptor table 0x60027450, end getter 0x60042b35 / jump table
+  0x6004354c; matched from E-P7 0x60045786 / 0x600457e7 with ep7_match.py). The doc's 0x61300000 is Section 7's start.
+  The CC cave's data (v0.1–v0.2 preset names/values, v0.3b1 built-in looks at 0x612e6fcc) was never loaded — also
+  explains the earlier garbage names and Eterna-as-B&W. Card file not loading either (names would come from it).
+- Fix: built-in looks to the Section 5 FF tail 0x60bc8150 (S5 = 0x60796000..0x60bc8800; tail unreferenced except two
+  call-displacement false positives at 0x60cd07c5 / 0x613ac57f); CC cave now 0x612e6900..0x612e6fe8 (8 B left).
+  New em1mk2/scripts/check_loaded.py (all sections from the firmware's table; .data init word 0x60297fb4 a known,
+  camera-proven exception); make_release_edits.py runs it. v0.1/v0.2b2/v0.3b1 fail it, v0.3b2 passes.
+- Banner: card state " C1/C0/CF" before " K…". Paths C:/D: confirmed as SD slots (stock "C:\DCIM\100OLYMP\").
+- v0.3b2: releases/em1mk2/v0.3b2, patched SHA-256 cf4ecc5b…; build + verify All good; store audit clean.
+  **Not camera-tested.**
+
+## 2026-11-11 — Upstream v0.31c merged into the E-M1 II working branch
+- Fast-forward to origin/main (14 commits: v0.30–v0.31c, panel OM-3 resync, AGENTS "ports keep to the shared formats").
+  Local work stashed and restored; conflicts resolved in cameras.ts (upstream OM-3 lensCorrection + our em1mk2 entry),
+  caduceus.py (our camera-generic copy_to_card + upstream AP.BIN handling) and WORKLOG.md (both appendices kept).
+- Checks after merge: v0.3b2 rebuilds to the same package hash (cf4ecc5b…); check_loaded OK; panel checkLooksBin on
+  the E-M1 card = no problems and the em1mk2 export is byte-identical with the updated format.ts; caduceus.py parses
+  and lists all em1mk2 releases. LOOKS.BIN format unchanged upstream (new bytes are BUNDLES.BIN +51/+52 only).
+- Relevant upstream notes recorded in current.todo §2d (own-repo/merge-export guidance, watchdog, RAW+JPEG, E-M5 III
+  section table agreeing with ours).
+
+## 2026-11-11 — v0.3b2 pre-flash review
+- Package: caduceus verify All good; restore/E1259999.BIN == stock (f0c25dd8…); check_loaded OK.
+- vs v0.3b1 (flashed): Section 2 cave (loader, P, cc_sel, cc_hl) byte-identical, so it is camera-run (colours changed, no
+  crash). Changes: built-in looks at 0x60bc8150 (new), CC cave 2764 → 1768 B, SCP call displacement. All 10 hook
+  words and the SCP call land on their function starts (relinked symbol table); SCP keeps `f0 88`.
+- CC code diff vs v0.3b1: only shifted string addresses, the two built-in-table references (0x60bc8150 / +48), the card
+  status block and one bra→jmp. Banner worst case 29 of 33 units.
+- Loader file path checked against stock: fseek(fh,0,1)/ftell/fseek(fh,0,2) is the sequence at 0x60c0b8b5; fread
+  (a0 buf, d0 1, d1 count, a1 fh) as stock 0x60199dc7; "fread == size" as the camera-proven E-P7 loader.
+- Card file passes the firmware's checks (re-implemented in Python): magic, version, lengths, n, CRC; 16 names.
+- Handle slot 0x621e24ae and P ran in v0.3b1 without a crash (still only static evidence that nothing else uses it).
+
+## 2026-11-11 — E-M1 Mark II v0.3b2 camera test → v0.3b3 (tone settings, vividness reset)
+- Camera (v0.3b2): colours change better; after a B&W look (vividness −4) all looks stay B&W; only hue affects the image.
+- Colour looks never reset 618, and Color Creator's own processing still runs (its hue acts), so −4 stuck.
+- Tone: 889/890/891 have no descriptor in the 60-byte registry (0x6046eb7c, 344 records; copy at 0x60474db0) and no code
+  reads 0xF609/F619/F629 → dead. 449/450 (0xD7EA/D7F9) have records 0x60472308/0x604722cc with apply callbacks
+  0x602db1b2 → 0x602f0d3a(v,8) and 0x602db195 → 0x602efaca(v,8), plus readers at 0x60192d71..0x601a0156. The
+  E-M1 II has Highlight/Shadow only, no Midtone.
+- v0.3b3: tone → 449/450, Midtones page removed (N_PAGES 3), colour looks set 618 = 0. CC cave 1,716 B. Section 2 cave
+  unchanged. Audit: stores only 0x621e2f6e/0x621e24ae, no fb ops, hooks on instruction starts, check_loaded OK.
+  releases/em1mk2/v0.3b3 patched SHA-256 6fffb0fe…; build + verify All good. **Not camera-tested.**
+
+## 2026-11-11 — E-M1 Mark II v0.3b3 camera test → v0.3b4 (refresh + Strength)
+- Camera (v0.3b3): B&W bug gone; looks change colour (tone too on look change) but subtly; Chroma and Luminance steps
+  have no visible effect.
+- Look changes write 618 and show; manual steps didn't write it. 0x60863a8a always stores, calls 0x608647c0(sid) and
+  notifies (no unchanged-value skip), so v0.3b4 re-writes 618 with its current value after Chroma/Luminance/Strength.
+- New Strength page (P_STR, x1/x1.5/x2/x3 via repeated add; S clamp ±10, H/L ±15; builder scales S linearly). look_fill
+  now in the Section 2 cave at 0x60580622 (cave 1,248 B; earlier bytes unchanged except 2 padding bytes). CC cave 1,716 B.
+- Audit: stores only 0x621e2f6e/0x621e24ae; no fb/mul/div; hooks on instruction starts; check_loaded OK.
+  releases/em1mk2/v0.3b4 patched SHA-256 f02172d0…; build + verify All good. **Not camera-tested.**
+
+## 2026-11-11 — v0.3b4 on camera: Velvia matches the Panel preview
+- Camera JPEG of the Panel sample photo with Velvia ≈ the Panel's Velvia preview: red ground, saturated blue boats,
+  red/yellow clothing, deepened shadows, neutral sky. Blues lean slightly more cyan. First end-to-end confirmation that a
+  look renders as designed on the E-M1 II, and that the capture path goes through the colour-stage hooks.
+- The violet cast in the earlier live-view photo came from shooting a monitor (AWB + phone), not from the look.
+- Open: Provia on the same scene (cyan lean: look vs Color Creator hue), Chroma/Luminance/Strength on v0.3b4.
+
+## 2026-11-11 — v0.3b4 desk test: neutral vs i-Enhance vs Velvia (camera JPEGs)
+- Patch measurements (HSV, 24 px squares; wall/strap patches unreliable across framings):
+  orange S 56→74 (+18, H 26→24), purple S 46→55 (V 82→78), blue mouse S 84→88 (H 201→204), light desk pad V 91→80,
+  black speaker V 9→7. i-Enhance: orange S 74, purple S 61, mouse clipped (S 99, H 186).
+- Saturation at Strength ×1 is in Velvia's range (≈ i-Enhance punch, different hues): keep ×1 as the default for now.
+- Tone suspicious: Velvia HL +1 / SH −4 should not darken light areas by ~11 points; consistent with 449/450 swapped
+  (HL −4, SH +1), or with a metering difference between shots. Camera check pending (Luminance page dials).
+
+## 2026-11-11 — v0.3b4 desk test: Provia baseline (corrects the previous entry)
+- Provia (Color Creator + neutral look) vs stock neutral: orange S 56→60, purple 46→45, mouse S 84=84 (H 201→204), blacks
+  V 9=9. Color Creator at vividness 0 adds almost nothing: no compensation needed.
+- Provia → Velvia: orange S 60→74, purple 45→55, mouse 84→88, blacks V 9→7. Moderate, as designed at E-P7 strength;
+  Strength ×1 stays the default, ×1.5 for punchier.
+- Correction: the earlier "light areas −11, 449/450 swapped?" came from the desk-pad patch, which is not comparable across
+  these framings (Provia's reads V 71, neutral 91, Velvia 80). The swap question stays open, for the Luminance page check.
+
+## 2026-11-11 — v0.3b4 page checks
+- Camera: Luminance page: H/S numbers change (read back from 449/450, so the writes succeed), image doesn't. Chroma
+  page: number changes; single steps not visible, but Chroma +5 on Provia makes the image punchier → the per-sector S
+  path (P_SAT → request+1816) works. Strength ×2: visible. look_fill disassembly checked: P_CHR (P+25) is added to S.
+- Open: was Chroma +5 visible in live view or only in the JPEG (refresh); Test B (JPEG at H 0/S 0 vs H −7/S +7) decides
+  whether 449/450 reach stills, or whether tone must go to the request's mirrors 383/384/692.
+
+## 2026-11-11 — Test B → v0.3b5 (tone = the request's own values)
+- Camera: Luminance at 0/0, +5/+5, −5/−5 (449/450) → no change in live view or JPEG.
+- E-P7 vs E-M1 II sid tables: 383 = 0x3719, 384 = 0x3739, E-P7 694 / E-M1 II 692 = 0xEFC9 on both; the E-M1 II request
+  builder reads exactly these (0x602d243d/2453/2466 → +24937..9). E-P7 mapping 384 HL / 694 MID / 383 SH.
+- v0.3b5: SID_TONE_HL 384, SID_TONE_MID 692 (written again from looks), SID_TONE_SH 383. CC cave 1,724 B; loader/hooks
+  unchanged from v0.3b4. Audit clean. releases/em1mk2/v0.3b5 patched SHA-256 72552d29…; verify All good. Not camera-tested.
+
+## 2026-11-11 — v0.3b5 on camera: tone works (request-side 384/692/383)
+- Camera: Luminance +7/+7 vs −7/−7 changes live view and the JPEG. Measured (V, 20 px patches): wall 93→80 (+14), white
+  tag 99→91, orange (mid) 100→96 (+3), speaker face 31→6 (+24), monitor arm 40→20 (+20). Highlights and shadows move
+  strongly, mids barely: a real highlight/shadow curve. So until v0.3b5 no look's tone reached the image.
+- Still open: which dial is which (single-dial test: H −7 / S 0), and Velvia vs Panel preview with tone now active.
+- Camera (v0.3b5): Highlights dial affects only bright areas → 384 = Highlights, 383 = Shadows (not swapped). Tone done.
+- 4000 (Velvia) vs 4001 ("neutral"): 4001 matches the earlier i-Enhance signature (mouse H184/S99, orange S82), so it
+  was not a neutral mode. This Velvia measured less saturated than the earlier session (orange 65 vs 74, purple 40 vs 55)
+  under warmer/dimmer light; cross-session comparison inconclusive. Next: Provia and Velvia (×1, Chroma 0) back to back.

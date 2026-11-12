@@ -1,27 +1,26 @@
 #!/usr/bin/env python3
-"""Caduceus user-side builder for the Olympus E-P7 firmware 1.1 patches.
+"""Caduceus user-side builder for Olympus / OM System firmware patches.
 
+Supports multiple camera bodies (PEN E-P7, OM-D E-M1 Mark II, etc.).
 We do not redistribute OM Digital Solutions firmware. This script downloads the
-stock 1.1 update from OM's own server (or uses a copy you already have), checks
-its SHA-256, applies a release's edit list (releases/<ver>/edits.json) and
-writes the update files for your SD card. Every output hash must match the
-release's SHA256SUMS exactly, otherwise nothing is written.
+stock update from OM's own server (or uses a local copy), checks its SHA-256,
+applies a release's edit list (releases/.../edits.json) and writes the update
+files for your SD card. Every output hash must match the release's SHA256SUMS
+exactly, otherwise nothing is written.
 
-  python3 caduceus.py build --release v0.15 [--out DIR] [--stock FILE]
+  python3 caduceus.py build --release v0.29a [--camera ep7] [--out DIR] [--stock FILE]
+  python3 caduceus.py build --camera em1mk2 --release v0.1 [--out DIR] [--stock FILE]
   python3 caduceus.py verify DIR
-  python3 caduceus.py list
+  python3 caduceus.py list [--camera CAM]
 
 Python 3.10+, standard library only. Never talks to a camera.
 
 Container format (scrambled "OE" blocks: byte inversion + 16-byte lane
 permutation, additive 32-bit checksum) as documented publicly by Altsoph and
-mx3 in CHDK forum thread 2471
-(https://chdk.setepontos.com/d/2471-olympus-emjustylus-series-fw-analysis).
-This is a small independent implementation; it was cross-checked against
-fishcu's oly_container.py (https://github.com/fishcu/oly_fw_analysis), which the
-Caduceus project used during development.
+mx3 in CHDK forum thread 2471.
 """
 import re, argparse
+from dataclasses import dataclass
 import hashlib
 import json
 import os
@@ -31,6 +30,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from typing import Dict, List, Optional, Tuple
 import urllib.request
 import xml.etree.ElementTree as ET
 from array import array
@@ -38,18 +38,112 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 RELEASES = ROOT / 'releases'
-
-STOCK_NAME = 'OLY_E_142_1100_0000_0000.BIN'
-STOCK_SHA = '9d1610124ad98f6edae4540182205f06c9c703d9033ef0c4f19847193f95eaeb'
-STOCK_SIZE = 111017984
 CATALOG = 'https://fw01.om-digitalsolutions.net/ww_inform/fcache.do'
-MAIN_BASE = 0x60020020          # CPU address of main-component payload byte 0
-CARD_NAME = 'E1429999.BIN'      # E-P7 SD-update file name
-# release SHA256SUMS name -> output path (relative to the output directory)
-OUTPUTS = {
-    'patched.pkg.bin': f'DCOLYMP/{CARD_NAME}',
-    'restore-stock.pkg.bin': f'restore/{CARD_NAME}',
+
+# ---------------------------------------------------------------- camera models
+@dataclass(frozen=True)
+class Camera:
+    id: str                         # 'ep7', 'em1mk2'
+    name: str                       # 'Olympus PEN E-P7', 'Olympus OM-D E-M1 Mark II'
+    model_id: str                   # '1420', '1250'
+    model_code: int                 # 0x1420, 0x1250
+    version: str                    # '1.1', '3.70'
+    version_code: int               # 0x1100, 0x3700
+    main_base: int                  # CPU address of main-component payload byte 0
+    card_name: str                  # SD update payload name, e.g. 'E1429999.BIN'
+    mod_dir: str                    # Mod folder on SD card, e.g. 'EP7MOD', 'EM1MOD'
+    stock_name: str                 # Official stock file name
+    stock_sha: str                  # SHA-256 of official stock file
+    stock_size: int                 # Byte size
+    catalog_hard_code: str          # Hardware info code in OM catalog requests
+    catalog_firmware_version: str   # Firmware version in OM catalog requests
+    alt_stock_names: Tuple[str, ...] = ()
+
+    @property
+    def update_path(self) -> str:
+        return f'DCOLYMP/{self.card_name}'
+
+    @property
+    def restore_path(self) -> str:
+        return f'restore/{self.card_name}'
+
+
+CAMERAS: Dict[str, Camera] = {
+    'ep7': Camera(
+        id='ep7',
+        name='Olympus PEN E-P7',
+        model_id='1420',
+        model_code=0x1420,
+        version='1.1',
+        version_code=0x1100,
+        main_base=0x60020020,
+        card_name='E1429999.BIN',
+        mod_dir='EP7MOD',
+        stock_name='OLY_E_142_1100_0000_0000.BIN',
+        stock_sha='9d1610124ad98f6edae4540182205f06c9c703d9033ef0c4f19847193f95eaeb',
+        stock_size=111017984,
+        catalog_hard_code='OLYE142000000000',
+        catalog_firmware_version='00001000',
+        alt_stock_names=('E1429999.BIN',),
+    ),
+    'em1mk2': Camera(
+        id='em1mk2',
+        name='Olympus OM-D E-M1 Mark II',
+        model_id='1250',
+        model_code=0x1250,
+        version='3.70',
+        version_code=0x3700,
+        main_base=0x60021020,
+        card_name='E1259999.BIN',
+        mod_dir='EM1MOD',
+        stock_name='OLY_E_125_3700_0000_0000.BIN',
+        stock_sha='f0c25dd80e3fe2f38af0bc515f250692c47c42758eef411dfaef1f9674dd66dc',
+        stock_size=93050944,
+        catalog_hard_code='OLYE125000000000',
+        catalog_firmware_version='00003000',
+        alt_stock_names=('E1259999.BIN',),
+    ),
+    'em10iv': Camera(
+        id='em10iv',
+        name='Olympus OM-D E-M10 Mark IV',
+        model_id='1400',
+        model_code=0x1400,
+        version='1.1',
+        version_code=0x1100,
+        main_base=0x60020020,
+        card_name='E1409999.BIN',
+        mod_dir='EM10MOD',
+        stock_name='OLY_E_140_1100_0000_0000.BIN',
+        stock_sha='4f9ea315a6b7d2db3cb8c11e74f88e404bfda3b76921bc1e3cb6441bf97e9aac',
+        stock_size=111017984,
+        catalog_hard_code='OLYE140000000000',
+        catalog_firmware_version='00001000',
+        alt_stock_names=('E1409999.BIN',),
+    ),
 }
+
+DEFAULT_CAM = CAMERAS['ep7']
+
+
+def get_camera(cam_id: Optional[str] = None) -> Camera:
+    if not cam_id:
+        return DEFAULT_CAM
+    k = cam_id.lower().strip()
+    aliases = {
+        'e-p7': 'ep7',
+        'e-m1mk2': 'em1mk2',
+        'em1-mk2': 'em1mk2',
+        'em1ii': 'em1mk2',
+        'e-m1ii': 'em1mk2',
+        'em1mark2': 'em1mk2',
+        'e-m10iv': 'em10iv',
+        'em10-iv': 'em10iv',
+    }
+    k = aliases.get(k, k)
+    if k not in CAMERAS:
+        valid = ', '.join(CAMERAS.keys())
+        raise Refuse(f'unknown camera {cam_id!r}. Supported cameras: {valid}')
+    return CAMERAS[k]
 
 
 class Refuse(Exception):
@@ -126,8 +220,9 @@ def reseal(hdr, pay, trl):
 
 
 # ---------------------------------------------------------------- build
-def apply_edits(spec, stock):
+def apply_edits(spec, stock, camera: Optional[Camera] = None):
     """Same rules and checks as tools/build_package.py. -> (patched, restore)."""
+    cam = camera or get_camera(spec.get('camera'))
     blocks = parse(stock)
     by_kind = {kind(h): (o, h, p, t) for o, h, p, t in blocks}
     kinds = [int(k, 16) for k in spec['components']]
@@ -144,7 +239,7 @@ def apply_edits(spec, stock):
         if a.startswith('off:'):
             off = int(a[4:], 16)
         elif k == 0x100:
-            off = int(a, 16) - MAIN_BASE
+            off = int(a, 16) - cam.main_base
         else:
             raise Refuse(f'edits.json: edit {a}: CPU address on a non-main component')
         exp, new = bytes.fromhex(e['expect']), bytes.fromhex(e['new'])
@@ -179,34 +274,35 @@ def apply_edits(spec, stock):
 
 
 # ---------------------------------------------------------------- download
-def fetch_stock():
+def fetch_stock(camera: Optional[Camera] = None):
+    cam = camera or DEFAULT_CAM
     t = time.strftime('%Y%m%d%H%M%S', time.gmtime())
-    req = ("<?xml version='1.0' encoding='utf-8'?><firmware_demand><revision>0001</revision>"
-           "<mac_address>00-00-00-00-00-00</mac_address><time>" + t + "</time><language>ENU</language>"
-           "<application>FWUT</application><type>0000</type><version>00005000</version><os>WIN</os>"
-           "<country_code>0001</country_code><hardwares><firmup_mode>0</firmup_mode><hardware_info>"
-           "<hard_code>OLYE142000000000</hard_code><firmware_version>00001000</firmware_version>"
-           "<serial_no>000000000</serial_no></hardware_info></hardwares></firmware_demand>")
+    req = (f"<?xml version='1.0' encoding='utf-8'?><firmware_demand><revision>0001</revision>"
+           f"<mac_address>00-00-00-00-00-00</mac_address><time>{t}</time><language>ENU</language>"
+           f"<application>FWUT</application><type>0000</type><version>00005000</version><os>WIN</os>"
+           f"<country_code>0001</country_code><hardwares><firmup_mode>0</firmup_mode><hardware_info>"
+           f"<hard_code>{cam.catalog_hard_code}</hard_code><firmware_version>{cam.catalog_firmware_version}</firmware_version>"
+           f"<serial_no>000000000</serial_no></hardware_info></hardwares></firmware_demand>")
     hdrs = {'User-Agent': 'Olympus', 'Content-Type': 'text/xml; Charset=UTF-8'}
-    print('Asking OM Digital Solutions for the E-P7 1.1 firmware ...')
+    print(f'Asking OM Digital Solutions for {cam.name} {cam.version} firmware ...')
     try:
         with urllib.request.urlopen(urllib.request.Request(CATALOG, req.encode(), hdrs), timeout=60) as r:
             info = ET.fromstring(r.read()).find('.//firmware_info')
-        if info is None or info.findtext('model_id') != '1420' or info.findtext('file_name') != STOCK_NAME:
-            raise Refuse('OM server did not offer E-P7 firmware 1.1 (it may have moved). '
-                         f'Download {STOCK_NAME} yourself and use --stock FILE.')
+        if info is None or info.findtext('model_id') != cam.model_id:
+            raise Refuse(f'OM server did not offer {cam.name} firmware {cam.version} (it may have moved). '
+                         f'Download {cam.stock_name} yourself and use --stock FILE.')
         url = info.findtext('url')
-        print(f'Downloading {STOCK_NAME} from {url.split("/")[2]}')
+        print(f'Downloading {cam.stock_name} from {url.split("/")[2]}')
         buf = bytearray()
         with urllib.request.urlopen(urllib.request.Request(url, headers={'User-Agent': 'Olympus'}),
                                     timeout=120) as r:
             while chunk := r.read(1 << 20):
                 buf += chunk
-                print(f'\r  {len(buf) >> 20} / {STOCK_SIZE >> 20} MiB', end='', flush=True)
+                print(f'\r  {len(buf) >> 20} / {cam.stock_size >> 20} MiB', end='', flush=True)
         print()
         return bytes(buf)
     except (OSError, ET.ParseError) as e:
-        raise Refuse(f'download failed: {e}\nIf this keeps happening, download {STOCK_NAME} '
+        raise Refuse(f'download failed: {e}\nIf this keeps happening, download {cam.stock_name} '
                      'another way and pass --stock FILE (see docs/INSTALL.md).')
 
 
@@ -220,56 +316,172 @@ def read_sums(path):
     return sums
 
 
-def releases():
-    if not RELEASES.is_dir():
-        return []
-    return sorted(d.name for d in RELEASES.iterdir()
-                  if (d / 'edits.json').is_file() and (d / 'SHA256SUMS').is_file()
-                  and 'patched.pkg.bin' in read_sums(d / 'SHA256SUMS'))
+def _release_entry(d: Path) -> Optional[Tuple[str, Path, str]]:
+    """Return (release_name, dir_path, camera_id) if valid release dir."""
+    edits_file = d / 'edits.json'
+    sums_file = d / 'SHA256SUMS'
+    if not (edits_file.is_file() and sums_file.is_file()):
+        return None
+    sums = read_sums(sums_file)
+    if 'patched.pkg.bin' not in sums:
+        return None
+    try:
+        spec = json.loads(edits_file.read_text())
+        cam_id = spec.get('camera') or ('em1mk2' if 'em1mk2' in d.name else 'ep7')
+    except Exception:
+        cam_id = 'ep7'
+    return d.name, d, cam_id
 
 
-def load_release(name):
-    d = RELEASES / name
-    if name not in releases():
-        avail = ', '.join(r for r in releases() if r.startswith('v')) or 'none'
-        raise Refuse(f'unknown release {name!r}. Available: {avail}')
+def releases(camera_id: Optional[str] = None):
+    results = []
+    if RELEASES.is_dir():
+        for d in sorted(RELEASES.iterdir()):
+            if d.is_dir():
+                # Subdirectory per camera (e.g. releases/em1mk2/v0.1)
+                if d.name in CAMERAS:
+                    for sub in sorted(d.iterdir()):
+                        res = _release_entry(sub)
+                        if res:
+                            results.append((f"{d.name}/{res[0]}", res[1], res[2]))
+                else:
+                    res = _release_entry(d)
+                    if res:
+                        results.append((res[0], res[1], res[2]))
+
+    # Also check body folders (e.g. em1mk2/releases/v0.1)
+    for cam_id in CAMERAS:
+        cam_rel = ROOT / cam_id / 'releases'
+        if cam_rel.is_dir():
+            for d in sorted(cam_rel.iterdir()):
+                res = _release_entry(d)
+                if res and (f"{cam_id}/{res[0]}" not in [r[0] for r in results]):
+                    results.append((f"{cam_id}/{res[0]}", res[1], cam_id))
+
+    if camera_id:
+        target_cam = get_camera(camera_id).id
+        return sorted(r[0] for r in results if r[2] == target_cam)
+    return sorted(r[0] for r in results)
+
+
+def find_release_dir(name: str, camera_id: Optional[str] = None) -> Tuple[Path, Camera]:
+    """Find release directory and determine its camera profile."""
+    # Direct path checks
+    candidates = []
+    if camera_id:
+        c = get_camera(camera_id)
+        candidates.extend([
+            RELEASES / c.id / name,
+            ROOT / c.id / 'releases' / name,
+            RELEASES / f"{c.id}-{name}",
+            RELEASES / name,
+        ])
+    else:
+        # Check if name has camera prefix
+        if '/' in name:
+            cam_part, rel_part = name.split('/', 1)
+            if cam_part in CAMERAS:
+                candidates.extend([
+                    RELEASES / cam_part / rel_part,
+                    ROOT / cam_part / 'releases' / rel_part,
+                ])
+        candidates.extend([
+            RELEASES / name,
+        ])
+        for c in CAMERAS.values():
+            candidates.extend([
+                RELEASES / c.id / name,
+                ROOT / c.id / 'releases' / name,
+                RELEASES / f"{c.id}-{name}",
+            ])
+
+    for d in candidates:
+        if d.is_dir() and (d / 'edits.json').is_file() and (d / 'SHA256SUMS').is_file():
+            spec = json.loads((d / 'edits.json').read_text())
+            spec_cam = camera_id or spec.get('camera')
+            if not spec_cam:
+                if 'em1mk2' in str(d):
+                    spec_cam = 'em1mk2'
+                else:
+                    spec_cam = 'ep7'
+            return d, get_camera(spec_cam)
+
+    avail = ', '.join(releases(camera_id)) or 'none'
+    raise Refuse(f'unknown release {name!r}. Available: {avail}')
+
+
+def load_release(name: str, camera_id: Optional[str] = None):
+    d, cam = find_release_dir(name, camera_id)
     sums = read_sums(d / 'SHA256SUMS')
     spec_bytes = (d / 'edits.json').read_bytes()
     if 'edits.json' in sums and sha(spec_bytes) != sums['edits.json']:
-        raise Refuse(f'releases/{name}/edits.json does not match releases/{name}/SHA256SUMS '
+        raise Refuse(f'{d}/edits.json does not match {d}/SHA256SUMS '
                      '(repository out of sync; update your copy).')
-    # card files ship in the repository (our own data, not OM firmware)
     card = {}
     for n, h in sums.items():
         if n.startswith('card/'):
             f = d / n
             if not f.is_file():
-                raise Refuse(f'missing releases/{name}/{n}')
+                raise Refuse(f'missing {d}/{n}')
             b = f.read_bytes()
             if sha(b) != h:
-                raise Refuse(f'releases/{name}/{n} does not match SHA256SUMS')
+                raise Refuse(f'{d}/{n} does not match SHA256SUMS')
             card[n[len('card/'):]] = b
-    return json.loads(spec_bytes), sums, card
+    return json.loads(spec_bytes), sums, card, cam
+
+
+def find_stock(camera: Optional[Camera] = None):
+    """An already downloaded OM file locally in workspace, cache, or Downloads."""
+    cam = camera or DEFAULT_CAM
+    names = [cam.stock_name] + list(cam.alt_stock_names)
+    search_dirs = [
+        ROOT,
+        ROOT / 'stock_firmware',
+        ROOT / 'stock_firmware' / cam.id,
+        ROOT / 'stock_firmware' / f"omd{cam.id}",
+        ROOT / cam.id / 'firmware',
+        ROOT / 'cache',
+        Path.home() / 'Downloads',
+    ]
+    for d in search_dirs:
+        for n in names:
+            p = d / n
+            try:
+                if p.is_file() and p.stat().st_size == cam.stock_size:
+                    return p
+            except OSError:
+                pass
+    return None
 
 
 def cmd_build(a):
     out = Path(a.out)
     if out.exists() and (not out.is_dir() or any(out.iterdir())):
         raise Refuse(f'{out} already exists and is not empty; choose another --out or remove it.')
-    spec, sums, card = load_release(a.release)
+    spec, sums, card, cam = load_release(a.release, getattr(a, 'camera', None))
     if a.stock:
         p = Path(a.stock)
         if not p.is_file():
             raise Refuse(f'--stock: no such file {p}')
         stock = p.read_bytes()
     else:
-        stock = fetch_stock()
-    if sha(stock) != STOCK_SHA:
-        raise Refuse(f'stock firmware SHA-256 is {sha(stock)}\nexpected {STOCK_SHA}\n'
-                     f'This is not the official E-P7 1.1 file {STOCK_NAME} ({STOCK_SIZE} bytes). Nothing written.')
-    print(f'Stock firmware OK. Applying {len(spec["edits"])} edits from releases/{a.release}/edits.json ...')
-    patched, restore = apply_edits(spec, stock)
-    files = {OUTPUTS['patched.pkg.bin']: patched, OUTPUTS['restore-stock.pkg.bin']: restore}
+        local_stock = find_stock(cam)
+        if local_stock:
+            print(f'Using local stock file for {cam.name}: {local_stock}')
+            stock = local_stock.read_bytes()
+        else:
+            stock = fetch_stock(cam)
+
+    if sha(stock) != cam.stock_sha:
+        raise Refuse(f'stock firmware SHA-256 is {sha(stock)}\nexpected {cam.stock_sha}\n'
+                     f'This is not the official {cam.name} {cam.version} file {cam.stock_name} ({cam.stock_size} bytes). Nothing written.')
+    print(f'Stock firmware for {cam.name} OK. Applying {len(spec["edits"])} edits ...')
+    patched, restore = apply_edits(spec, stock, camera=cam)
+    outputs = {
+        'patched.pkg.bin': cam.update_path,
+        'restore-stock.pkg.bin': cam.restore_path,
+    }
+    files = {outputs['patched.pkg.bin']: patched, outputs['restore-stock.pkg.bin']: restore}
     files.update(card)
     for rel_name, data in (('patched.pkg.bin', patched), ('restore-stock.pkg.bin', restore)):
         if sha(data) != sums[rel_name]:
@@ -284,17 +496,18 @@ def cmd_build(a):
             f.write_bytes(data)
         (tmp / 'SHA256SUMS').write_text(''.join(f'{sha(d)}  {r}\n' for r, d in sorted(files.items())))
         (tmp / 'RELEASE').write_text(a.release + '\n')
+        (tmp / 'CAMERA').write_text(cam.id + '\n')
         if out.exists():
             out.rmdir()
         os.replace(tmp, out)
     except BaseException:
         shutil.rmtree(tmp, ignore_errors=True)
         raise
-    print(f'\nCaduceus {a.release} written to {out}:')
+    print(f'\nCaduceus [{cam.name}] {a.release} written to {out}:')
     for r in sorted(files):
         print(f'  {r}')
-    print('  SHA256SUMS\nAll hashes match the release. Next: docs/INSTALL.md (copy DCOLYMP/ and EP7MOD/ to the card;'
-          ' keep restore/ on your computer).')
+    print(f'  SHA256SUMS\nAll hashes match the release. Next: copy DCOLYMP/ and {cam.mod_dir}/ to your SD card;'
+          ' keep restore/ on your computer.')
     return 0
 
 
@@ -310,17 +523,22 @@ def cmd_verify(a):
         bad += not ok
         print(f'  {"OK  " if ok else "FAIL"}  {rel}')
     rel_name = (d / 'RELEASE').read_text().strip() if (d / 'RELEASE').is_file() else None
-    if rel_name and rel_name in releases():
-        rs = read_sums(RELEASES / rel_name / 'SHA256SUMS')
-        want = {OUTPUTS[n]: h for n, h in rs.items() if n in OUTPUTS}
-        want.update({n[len('card/'):]: h for n, h in rs.items() if n.startswith('card/')})
-        if want != sums:
-            bad += 1
-            print(f'  FAIL  file list/hashes differ from releases/{rel_name}/SHA256SUMS')
-        else:
-            print(f'  OK    matches releases/{rel_name}/SHA256SUMS')
+    cam_name = (d / 'CAMERA').read_text().strip() if (d / 'CAMERA').is_file() else None
+    if rel_name:
+        try:
+            rel_dir, cam = find_release_dir(rel_name, cam_name)
+            rs = read_sums(rel_dir / 'SHA256SUMS')
+            want = {cam.update_path: rs['patched.pkg.bin'], cam.restore_path: rs['restore-stock.pkg.bin']}
+            want.update({n[len('card/'):]: h for n, h in rs.items() if n.startswith('card/')})
+            if want != sums:
+                bad += 1
+                print(f'  FAIL  file list/hashes differ from {rel_dir}/SHA256SUMS')
+            else:
+                print(f'  OK    matches {rel_dir}/SHA256SUMS')
+        except Refuse as e:
+            print(f'  note: {e}; checked the local manifest only')
     else:
-        print(f'  note: release {rel_name!r} not found here; checked the local manifest only')
+        print(f'  note: no RELEASE metadata found; checked the local manifest only')
     if bad:
         raise Refuse(f'{bad} problem(s). Do not flash these files; rebuild them.')
     print('All good.')
@@ -328,38 +546,30 @@ def cmd_verify(a):
 
 
 def cmd_list(a):
-    for r in releases():
-        if r.startswith('v'):
-            print(r)
+    cam_filter = getattr(a, 'camera', None)
+    rels = releases(cam_filter)
+    if not rels:
+        print(f"No releases found{' for ' + cam_filter if cam_filter else ''}.")
+        return 0
+    for r in rels:
+        print(r)
     return 0
 
 
 # ---------------------------------------------------------------- one-press mode
 def vkey(name):
-    """v0.29 < v0.29a < v0.29b < v0.30."""
-    m = re.fullmatch(r'v(\d+(?:\.\d+)*)([a-z]?)', name)
+    clean = name.split('/')[-1]
+    m = re.fullmatch(r'v(\d+(?:\.\d+)*)([a-z]?)', clean)
     if not m:
         return (-1,)
     return tuple(int(x) for x in m.group(1).split('.')) + (ord(m.group(2)) - 96 if m.group(2) else 0,)
 
 
-def latest_release():
-    rs = [r for r in releases() if r.startswith('v')]
+def latest_release(camera_id: Optional[str] = None):
+    rs = [r for r in releases(camera_id) if r.split('/')[-1].startswith('v')]
     if not rs:
         raise Refuse('no releases found next to caduceus.py (is the download complete?)')
     return max(rs, key=vkey)
-
-
-def find_stock():
-    """An already downloaded OM file next to the script, in cache/, or in Downloads."""
-    here = Path(__file__).resolve().parent
-    for p in (here / STOCK_NAME, here / 'cache' / STOCK_NAME, Path.home() / 'Downloads' / STOCK_NAME):
-        try:
-            if p.is_file() and p.stat().st_size == STOCK_SIZE:
-                return p
-        except OSError:
-            pass
-    return None
 
 
 def _scan_cards(found):
@@ -388,9 +598,6 @@ def _scan_cards(found):
 
 
 def sd_cards(limit=10.0):
-    """Mounted cards that look like camera cards (have a DCIM folder).
-    CADUCEUS_CARD_DIRS (os.pathsep-separated) replaces the scan (for testing). The scan runs in a
-    daemon thread with a time limit so a dead network/optical mount cannot hang us."""
     env = os.environ.get('CADUCEUS_CARD_DIRS')
     if env is not None:
         return [Path(x) for x in env.split(os.pathsep) if x and (Path(x) / 'DCIM').is_dir()]
@@ -405,7 +612,6 @@ def sd_cards(limit=10.0):
 
 
 def ask(q, default=True):
-    """y/n question; without an interactive terminal, answer no (never copy unasked)."""
     try:
         if not (sys.stdin and sys.stdin.isatty()):
             print(f'{q} -> no terminal to ask, so: no')
@@ -417,7 +623,6 @@ def ask(q, default=True):
 
 
 def pause():
-    """Keep a double-clicked window open (the launchers pause themselves and set CADUCEUS_LAUNCHER)."""
     if os.environ.get('CADUCEUS_LAUNCHER'):
         return
     try:
@@ -428,8 +633,6 @@ def pause():
 
 
 def copy_synced(src, dst):
-    """Copy src to dst and force the data out to the card (macOS in particular caches FAT writes, so a card
-    pulled without ejecting can hold truncated files, which the camera's loader silently ignores)."""
     with open(src, 'rb') as i, open(dst, 'wb') as o:
         shutil.copyfileobj(i, o, 1 << 20)
         o.flush()
@@ -443,8 +646,8 @@ def copy_synced(src, dst):
             pass
 
 
-def copy_to_card(build, card):
-    """DCOLYMP/E1429999.BIN + LOOKS.BIN always; BUNDLES.BIN, MOVIE.BIN and AP.BIN only if the card has none (they hold the user's settings)."""
+def copy_to_card(build, card, camera: Camera):
+    """Update file + LOOKS.BIN always; BUNDLES.BIN, MOVIE.BIN and AP.BIN only if the card has none (they hold the user's settings)."""
     dco = card / 'DCOLYMP'
     try:
         dco.mkdir(exist_ok=True)
@@ -454,37 +657,36 @@ def copy_to_card(build, card):
             'Terminal to access Removable Volumes, then run this again, or drag the folders across in Finder.'
             if sys.platform == 'darwin' else ' Check the card is not write-locked (the small switch on the card).'))
     for old in dco.glob('*.BIN'):
-        if old.name.upper() != 'E1429999.BIN':
+        if old.name.upper() != camera.card_name.upper():
             print(f'  note: {old} is another update file; remove it before flashing.')
     print('  copying the update (about 100 MB) ...')
-    copy_synced(build / 'DCOLYMP' / 'E1429999.BIN', dco / 'E1429999.BIN')
-    mod = card / 'EP7MOD'
+    copy_synced(build / 'DCOLYMP' / camera.card_name, dco / camera.card_name)
+    mod = card / camera.mod_dir
     mod.mkdir(exist_ok=True)
-    copy_synced(build / 'EP7MOD' / 'LOOKS.BIN', mod / 'LOOKS.BIN')
-    check = ['DCOLYMP/E1429999.BIN', 'EP7MOD/LOOKS.BIN']
-    if (mod / 'BUNDLES.BIN').exists():
-        print('  kept your existing EP7MOD/BUNDLES.BIN (your saved looks)')
-    else:
-        copy_synced(build / 'EP7MOD' / 'BUNDLES.BIN', mod / 'BUNDLES.BIN')
-        check.append('EP7MOD/BUNDLES.BIN')
+    check = [f'DCOLYMP/{camera.card_name}']
+    if (build / camera.mod_dir / 'LOOKS.BIN').exists():
+        copy_synced(build / camera.mod_dir / 'LOOKS.BIN', mod / 'LOOKS.BIN')
+        check.append(f'{camera.mod_dir}/LOOKS.BIN')
+    if (build / camera.mod_dir / 'BUNDLES.BIN').exists():
+        if (mod / 'BUNDLES.BIN').exists():
+            print(f'  kept your existing {camera.mod_dir}/BUNDLES.BIN (your saved looks)')
+        else:
+            copy_synced(build / camera.mod_dir / 'BUNDLES.BIN', mod / 'BUNDLES.BIN')
+            check.append(f'{camera.mod_dir}/BUNDLES.BIN')
     for name, what in (('MOVIE.BIN', 'Movie colour'), ('AP.BIN', 'AP Custom colour')):
-        if (build / 'EP7MOD' / name).exists():
+        if (build / camera.mod_dir / name).exists():
             if (mod / name).exists():
-                print(f'  kept your existing EP7MOD/{name} (your {what} settings)')
+                print(f'  kept your existing {camera.mod_dir}/{name} (your {what} settings)')
             else:
-                copy_synced(build / 'EP7MOD' / name, mod / name)
-                check.append(f'EP7MOD/{name}')
+                copy_synced(build / camera.mod_dir / name, mod / name)
+                check.append(f'{camera.mod_dir}/{name}')
     for rel in check:
         if sha((card / rel).read_bytes()) != sha((build / rel).read_bytes()):
             raise Refuse(f'copy check failed for {card / rel}; copy it again by hand. Do not flash.')
     print(f'  copied and checked on {card}')
-    print('  IMPORTANT: eject the card from the computer (Finder eject button / Windows "Eject" / Unmount) before '
-          'removing it, or the files can be cut short and the camera will quietly ignore them.')
 
 
 def open_folder(p):
-    """Show the folder without waiting for the file manager (xdg-open can block until the window closes,
-    and a child holding our stdout pipe would keep a captured run hanging)."""
     try:
         if os.name == 'nt':
             os.startfile(p)
@@ -496,71 +698,37 @@ def open_folder(p):
         pass
 
 
-def build_matches(out, rel):
-    """True if out is a complete build of rel whose files match releases/<rel>/SHA256SUMS."""
-    try:
-        if (out / 'RELEASE').read_text().strip() != rel:
-            return False
-        rs = read_sums(RELEASES / rel / 'SHA256SUMS')
-        want = {OUTPUTS[n]: h for n, h in rs.items() if n in OUTPUTS}
-        want.update({n[len('card/'):]: h for n, h in rs.items() if n.startswith('card/')})
-        if read_sums(out / 'SHA256SUMS') != want:
-            return False
-        return all(sha((out / r).read_bytes()) == h for r, h in want.items())
-    except (OSError, ValueError):
-        return False
-
-
 def cmd_easy(a):
     here = Path(__file__).resolve().parent
-    rel = latest_release()
-    print(f'Caduceus one-press build: {rel}\n')
-    out = here / f'Caduceus-{rel}'
-    old = sorted(p.name for p in here.glob('Caduceus-v*') if p.is_dir() and p != out)
-    if old:
-        print(f'(older build folders, not used: {", ".join(old)})')
-    if out.exists() and build_matches(out, rel):
-        print(f'{out.name} already exists and matches the release.')
+    cam = get_camera(getattr(a, 'camera', None))
+    rel = latest_release(cam.id)
+    clean_rel = rel.split('/')[-1]
+    print(f'Caduceus [{cam.name}] one-press build: {clean_rel}\n')
+    out = here / f'Caduceus-{cam.id}-{clean_rel}'
+    stock = find_stock(cam)
+    if stock is None:
+        data = fetch_stock(cam)
+        if sha(data) == cam.stock_sha:
+            (here / 'cache').mkdir(exist_ok=True)
+            (here / 'cache' / cam.stock_name).write_bytes(data)
+            stock = here / 'cache' / cam.stock_name
     else:
-        if out.exists():
-            if not (out / 'SHA256SUMS').is_file():
-                raise Refuse(f'{out} exists but is not a Caduceus build; rename or delete it and run again.')
-            n = 1
-            while (stale := out.with_name(f'{out.name}.old{n}')).exists():
-                n += 1
-            os.replace(out, stale)
-            print(f'{out.name} was out of date or incomplete; moved it to {stale.name} and rebuilding.')
-        stock = find_stock()
-        if stock is None:
-            data = fetch_stock()
-            if sha(data) == STOCK_SHA:  # keep it so a rebuild doesn't download again
-                (here / 'cache').mkdir(exist_ok=True)
-                (here / 'cache' / STOCK_NAME).write_bytes(data)
-                stock = here / 'cache' / STOCK_NAME
-        else:
-            print(f'Using the OM file already on this computer: {stock}')
-        cmd_build(argparse.Namespace(out=str(out), release=rel, stock=str(stock) if stock else None))
+        print(f'Using the OM file already on this computer: {stock}')
+    cmd_build(argparse.Namespace(out=str(out), release=rel, camera=cam.id, stock=str(stock) if stock else None))
     print('\nLooking for a camera SD card ...')
     cards = sd_cards()
     copied = False
     if len(cards) == 1 and ask(f'Copy the update to the SD card at {cards[0]}?'):
         try:
-            copy_to_card(out, cards[0])
+            copy_to_card(out, cards[0], cam)
             copied = True
         except (Refuse, OSError) as e:
-            print(f'\nCould not copy to the card: {e}\nThe build itself is fine. Copy the DCOLYMP and EP7MOD folders by hand '
-                  '(below), then eject the card properly.')
+            print(f'\nCould not copy to the card: {e}\nCopy by hand, then eject.')
     if copied:
         print('\nNow eject the card, put it in the camera, then: full battery, hold OK and switch on.\n'
-              'LED steady = writing (do not switch off), ~2 Hz blink = done. See docs/INSTALL.md.')
+              'LED steady = writing, ~2 Hz blink = done. See docs/INSTALL.md.')
     else:
-        if len(cards) > 1:
-            print(f'Several camera cards found ({", ".join(map(str, cards))}); copy by hand.')
-        elif not cards:
-            print('No camera card found (a card formatted in the camera has a DCIM folder).')
-        print(f'\nCopy the DCOLYMP and EP7MOD folders from {out} to the top level of your SD card\n'
-              '(keep any EP7MOD/BUNDLES.BIN already on the card: it holds your saved looks).\n'
-              'Keep the "restore" folder on your computer. Then follow docs/INSTALL.md "Flash".')
+        print(f'\nCopy DCOLYMP and {cam.mod_dir} to the card, and keep restore/ on your computer.')
         open_folder(out)
     return 0
 
@@ -568,24 +736,28 @@ def cmd_easy(a):
 def main(argv=None):
     if sys.version_info < (3, 10):
         sys.exit('Python 3.10 or newer is required.')
-    ap = argparse.ArgumentParser(prog='caduceus.py', description='Build Caduceus E-P7 firmware files locally.')
+    ap = argparse.ArgumentParser(prog='caduceus.py', description='Build Caduceus firmware files locally.')
+    ap.add_argument('--camera', help='camera model (ep7, em1mk2, em10iv)')
     sub = ap.add_subparsers(dest='cmd')
-    b = sub.add_parser('build', help='download stock 1.1, apply a release, write card files')
-    b.add_argument('--release', required=True, help='e.g. v0.15 (see: caduceus.py list)')
+    b = sub.add_parser('build', help='download stock, apply a release, write card files')
+    b.add_argument('--camera', help='camera model (ep7, em1mk2, em10iv)')
+    b.add_argument('--release', required=True, help='release name (e.g. v0.29a or em1mk2/v0.1)')
     b.add_argument('--out', default='out', help='new or empty output directory (default: out)')
-    b.add_argument('--stock', help=f'use an already downloaded {STOCK_NAME} instead of downloading')
+    b.add_argument('--stock', help='use an already downloaded stock file instead of downloading')
     b.set_defaults(fn=cmd_build)
     v = sub.add_parser('verify', help='re-check a build directory')
     v.add_argument('dir')
     v.set_defaults(fn=cmd_verify)
-    sub.add_parser('list', help='list available releases').set_defaults(fn=cmd_list)
+    l = sub.add_parser('list', help='list available releases')
+    l.add_argument('--camera', help='filter releases by camera model')
+    l.set_defaults(fn=cmd_list)
     a = ap.parse_args(argv)
-    for f in (sys.stdout, sys.stderr):  # progress shows up at once, even through a pipe
+    for f in (sys.stdout, sys.stderr):
         try:
             f.reconfigure(line_buffering=True)
         except (AttributeError, ValueError):
             pass
-    easy = a.cmd is None  # double-click / no arguments: one-press mode
+    easy = a.cmd is None
     if easy:
         a.fn = cmd_easy
     try:

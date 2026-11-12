@@ -16,6 +16,7 @@ import { CAMERAS, type Cam } from './cameras';
 import { OM3_FWS, OM3_REPO, bankToPack, decodeOm3Code, isOm3Code, looksBinToPack, om3Fw, packToBank, setOm3Fw } from './targets/om3';
 import { rrpreset } from './rapidraw';
 import { TARGETS, targetById } from './targets';
+import { EM1_REPO_DOC, em1Dropped, encodeEm1LooksBin, toEm1 } from './targets/em1mk2';
 import { recipeCard } from './targets/recipe';
 import { previewToneLut } from './tone';
 
@@ -194,7 +195,7 @@ function shell() {
         h('button', { onclick: pasteDialog }, 'Paste code'),
         h('button', { onclick: sharePack }, 'Share pack'),
         h('button', { id: 'fw-btn', onclick: () => setupDialog() }, fwLabel()),
-        h('button', { onclick: () => (CAM === 'om3' ? om3InstallDialog() : installDialog()) }, 'Install firmware'),
+        h('button', { onclick: () => (CAM === 'om3' ? om3InstallDialog() : CAM === 'em1mk2' ? em1InstallDialog() : installDialog()) }, 'Install firmware'),
         h('button', { onclick: aboutDialog }, 'About'),
         h('button', { class: 'primary', onclick: exportDialog }, 'Export'))),
     h('main', { class: 'layout' },
@@ -742,7 +743,7 @@ function schedulePreview() {
     const l = cur();
     if (S.compare || !l) { ctx.putImageData(srcData, 0, 0); return; }
     const out = ctx.createImageData(srcData.width, srcData.height);
-    renderLook(srcData, out, CAM === 'om3' ? toOm3(l).look ?? l : l, { advice: S.advice, nr: cam().lookNr, grain: cam().lookNr ? 'off' : S.grain });
+    renderLook(srcData, out, CAM === 'om3' ? toOm3(l).look ?? l : CAM === 'em1mk2' ? toEm1(l) : l, { advice: S.advice, nr: cam().lookNr, grain: cam().lookNr ? 'off' : S.grain });
     ctx.putImageData(out, 0, 0);
   });
 }
@@ -955,7 +956,7 @@ const FW_OPTIONS: [Fw, string, string][] = [
 const STORE_CAM = 'caduceus.camera';
 let CAM: Cam = 'ep7';
 const cam = () => CAMERAS[CAM];
-function fwLabel() { return CAM === 'om3' ? 'Camera: OM-3' : `Camera: E-P7, v0.${firmware()}${firmware() === FW_LATEST ? '+' : ''}`; }
+function fwLabel() { return CAM === 'om3' ? 'Camera: OM-3' : CAM === 'em1mk2' ? 'Camera: E-M1 II' : `Camera: E-P7, v0.${firmware()}${firmware() === FW_LATEST ? '+' : ''}`; }
 function saveSetup(cam: Cam, fw?: Fw) {
   CAM = cam;
   if (fw) setFirmware(fw);
@@ -968,7 +969,7 @@ function saveSetup(cam: Cam, fw?: Fw) {
   renderAll();
 }
 function setupDialog(first = false) {
-  const on = (cam: Cam, fw?: Fw) => (cam === CAM && (cam === 'om3' || fw === firmware()) ? 'primary' : '');
+  const on = (cam: Cam, fw?: Fw) => (cam === CAM && (cam !== 'ep7' || fw === firmware()) ? 'primary' : '');
   const row = (label: string, help: string, cam: Cam, fw?: Fw) => h('div', { class: 'ex-row' },
     h('div', {}, h('b', {}, label), h('p', { class: 'help' }, help)),
     h('button', { class: on(cam, fw), onclick: () => { saveSetup(cam, fw); dlg.close(); } }, 'Use this'));
@@ -979,6 +980,8 @@ function setupDialog(first = false) {
     ...FW_OPTIONS.map(([f, label, help]) => row(label, help, 'ep7', f)),
     h('h3', {}, 'OM SYSTEM OM-3'),
     row('Caduceus for OM-3 v0.19 or later', 'Exports OM3MOD/LOOKS.BIN and NAMES.BIN (choose your firmware version on export). The firmware is a separate project: never use E-P7 firmware on an OM-3.', 'om3'),
+    h('h3', {}, 'Olympus OM-D E-M1 Mark II'),
+    row('Caduceus for E-M1 II v0.3 or later (test builds)', 'Exports EM1MOD/LOOKS.BIN, the same file as the E-P7. Looks are picked in Color Creator; the preview shows what this body applies (saturation, hue, light, highlights / midtones / shadows). Never use E-P7 firmware on an E-M1 II.', 'em1mk2'),
     h('p', { class: 'help' }, 'Other bodies aren\'t supported yet: ', h('a', { href: `${GH}/blob/main/docs/BODIES.md`, target: '_blank', rel: 'noopener' }, 'see where each one stands'), '.'));
   const dlg = modal(first ? 'Welcome to the Caduceus Control Panel' : 'Your camera', body);
 }
@@ -988,8 +991,8 @@ function loadSetup() {
   const q = new URLSearchParams(location.search).get('camera');
   const f = Number(v) as Fw;
   if (v !== null && FW_OPTIONS.some(([x]) => x === f)) setFirmware(f);
-  if (q === 'om3' || q === 'ep7') saveSetup(q);
-  else if (cam === 'om3' || cam === 'ep7') { CAM = cam; $('#fw-btn').textContent = fwLabel(); }
+  if (q === 'om3' || q === 'ep7' || q === 'em1mk2') saveSetup(q);
+  else if (cam === 'om3' || cam === 'ep7' || cam === 'em1mk2') { CAM = cam; $('#fw-btn').textContent = fwLabel(); }
   else setupDialog(true);                              // first visit, or set up before the camera choice existed
 }
 function aboutDialog() {
@@ -1002,9 +1005,43 @@ function aboutDialog() {
     h('h3', {}, 'Your camera'),
     row('Olympus PEN E-P7', 'cakelesscoder', GH),
     row('OM SYSTEM OM-3', 'androidfanman', OM3_REPO),
+    h('div', { class: 'ex-row' },
+      h('div', {}, h('b', {}, 'Olympus OM-D E-M1 Mark II'), h('p', { class: 'help' }, 'Caduceus port, test builds. Status and install notes are here.')),
+      link(`${GH}/blob/main/${EM1_REPO_DOC}`, 'Open notes')),
     h('p', { class: 'help' }, 'Other bodies: ', link(`${GH}/blob/main/docs/BODIES.md`, 'see where each one stands'), '.'),
     h('h3', {}, 'Credits'),
     h('p', {}, 'Inspired by ', link('https://www.reddit.com/user/fischgurke/', 'u/fischgurke'), '\'s PEN-F HSL firmware mod, and built on the PEN-F research in ', link('https://github.com/fishcu/oly_fw_analysis', 'fishcu/oly_fw_analysis'), '. ', link(`${GH}#credits`, 'Full credits'), '.')));
+}
+function em1InstallDialog() {
+  modal('Install Caduceus for E-M1 II', h('div', { class: 'export' },
+    h('p', {}, 'The E-M1 Mark II port is in testing. Read the notes first: they list what works on the camera, the test builds, and how to go back to stock firmware.'),
+    h('p', { class: 'warn' }, 'Only use firmware built for the E-M1 Mark II (E1259999.BIN). Never flash E-P7 or OM-3 firmware on it.')),
+  [h('a', { class: 'btn primary', href: `${GH}/blob/main/${EM1_REPO_DOC}`, target: '_blank', rel: 'noopener' }, 'Port notes')]);
+}
+function em1Body(): HTMLElement {
+  const fname = (S.pack.name || 'pack').replace(/[^\w.-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'pack';
+  let bin: Uint8Array | null = null, probs: string[] = [];
+  try { bin = encodeEm1LooksBin(S.pack); } catch (e) { probs = e instanceof PackError ? e.problems.map((p) => (p.look !== undefined ? `Look ${p.look + 1}: ` : '') + p.message) : [(e as Error).message]; }
+  const dropped = S.pack.looks.map((l, i) => [i, em1Dropped(l)] as const).filter(([, d]) => d.length);
+  const zip = h('button', { class: 'primary', disabled: !bin, onclick: () => {
+    const pack = { name: `${fname}.caduceus.json`, data: new TextEncoder().encode(JSON.stringify({ ...exportable(S.pack), schema: PACK_SCHEMA }, null, 1) + '\n') };
+    download(`${fname}-em1mk2-card.zip`, makeZip([{ name: 'EM1MOD/LOOKS.BIN', data: bin! }, pack]), 'application/zip');
+  } }, 'Download');
+  const one = h('button', { disabled: !bin, onclick: () => download('LOOKS.BIN', bin!) }, 'LOOKS.BIN');
+  return h('div', { class: 'export' },
+    probs.length
+      ? h('div', { class: 'problems-box' }, h('b', {}, `${probs.length} problem(s) to fix first:`), h('ul', { class: 'problems' }, ...probs.slice(0, 12).map((p) => h('li', {}, p))))
+      : h('p', { class: 'ok' }, `✓ ${S.pack.looks.length} looks. Copy EM1MOD/LOOKS.BIN to the card (slot 1 or 2).`),
+    h('p', { class: 'help' }, 'Same file as the E-P7 (needs E-M1 II firmware v0.3 or later). On the camera: half-press once after power-on, then pick looks in the Color Creator editor; the banner shows C1 when the card file is loaded.'),
+    h('p', { class: 'help' }, 'Applied on the E-M1 II: saturation, hue and light per colour, and highlights / midtones / shadows. Not yet: WB shift, effects, vignette, grain, blacks / whites, black & white.'),
+    ...(dropped.length ? [h('p', { class: 'help' }, 'Parts these looks keep in the file but the E-M1 II ignores for now: ',
+      dropped.slice(0, 10).map(([i, d]) => `${S.pack.looks[i].name} (${d.join(', ')})`).join('; '), dropped.length > 10 ? '…' : '')] : []),
+    h('div', { class: 'ex-row' },
+      h('div', {}, h('b', {}, 'Card files'), h('p', { class: 'help' }, 'A zip with EM1MOD/LOOKS.BIN and this pack (to open it again later).')),
+      h('div', { class: 'ex-btns' }, zip)),
+    h('div', { class: 'ex-row' },
+      h('div', {}, h('b', {}, 'Single file'), h('p', { class: 'help' }, 'Goes in EM1MOD/ on the card.')),
+      h('div', { class: 'ex-btns' }, one)));
 }
 function om3InstallDialog() {
   modal('Install Caduceus for OM-3', h('div', { class: 'export' },
@@ -1060,7 +1097,7 @@ const STORE_TARGET = 'caduceus.target';
 // The camera is chosen in setupDialog; this older per-export selector stays off.
 const SHOW_CAMERA_SELECTOR = false;
 function exportDialog() {
-  if (!SHOW_CAMERA_SELECTOR) { modal(CAM === 'om3' ? 'Export for the OM-3' : 'Export', CAM === 'om3' ? om3Body() : h('div', { class: 'export' }, ep7Body())); return; }
+  if (!SHOW_CAMERA_SELECTOR) { modal(CAM === 'om3' ? 'Export for the OM-3' : CAM === 'em1mk2' ? 'Export for the E-M1 II' : 'Export', CAM === 'om3' ? om3Body() : CAM === 'em1mk2' ? em1Body() : h('div', { class: 'export' }, ep7Body())); return; }
   let target = targetById((() => { try { return localStorage.getItem(STORE_TARGET); } catch { return null; } })());
   const sel = h('select', {
     'aria-label': 'Camera',
