@@ -1,8 +1,0 @@
-Caduceus for OM-D E-M1 Mark II: debug log switch (optional)
-
-While this file is in the EM1MOD folder on the SD card (Slot 1 or Slot 2),
-the camera writes a plain-text report, EM1MOD/CADLOG.TXT, at each shutter-button event:
-the firmware build, shared heap P state, which card files loaded, and pipeline diagnostics.
-
-To turn the log off, delete this file from the card. Its contents do not matter.
-
