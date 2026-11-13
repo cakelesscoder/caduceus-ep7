@@ -107,6 +107,42 @@ wheel's vividness also stays 0, that is a separate symptom.
 * HL/SH order confirmed on camera (Highlights dial = bright areas only).
 * Remaining: Provia vs Velvia back to back (same light, x1, Chroma 0) + Natural; then Velvia vs Panel.
 
+## 2i. v0.4 camera result (2026-11-11) -> v0.4b1 / v0.4b2
+* CAMERA (v0.4 = v0.3b5 + debug_log + aspect): the camera restarts at the shutter, no CADLOG.TXT, no Panorama/Wide in
+  the menu.
+* Restart = debug_log, two independent faults, each enough to crash at the first TRIG event (with or without DEBUG.TXT):
+  call/ret frames did not match (do_debug_log `call [d2,d3,a2,a3],36` / `ret [],4`; helpers `[],0` / `ret [],4`),
+  and it stored its flags into its own Section 4 cave (loaded image: FIRMWARE_GUIDE §10 lesson 2). The opcode audit
+  checked neither. Fixed in v0.4b1 (state in P+96..103, mount gate, matched frames); the audit now fails on both.
+* Aspect: no static cause found. Validator 270, menu {270,6→8}, SCP {270,5→7} all patched like E-P7 v4+; all edits
+  in loaded sections; sids 511/512 share the stock list but the E-P7 has the same records and worked. Untested,
+  because the shutter crash came first.
+* v0.4b1 on camera: still restarts. Third fault: the hook jmp landed one byte before the cave, on an 0xFF `break`
+  (displacement from addr+1). v0.4b1/b2 withdrawn; check_loaded now verifies hook targets.
+* v0.4b3 on camera: CARD error every half-press (with DEBUG.TXT); without it live view resets, nothing captured.
+  Hook site 0x6023d10a (join of every path, no HLS_EVENT task gate) is the suspect. Logger pulled from releases.
+* ROOT CAUSE (emulated): interlock rule record 179 value tables (1,3,2,4,9,10 only) → facade +36 rejects 6/7.
+* DONE v0.4c1 on camera: Panorama selectable (strip), 5184x1920 JPEG. Menu option list lacks rows; strip cells blank.
+* DONE v0.4c3 on camera: menu row "65:24"/"21:9"; detail screen 2 empty selectable entries (vanish after scrolling past);
+  SCP missing. Full write-up: docs/OMD-EM1-II/ASPECT.md.
+* DONE v0.4c5 on camera: regular menu works great; SCP shows 65:24 / 21:9 selectable but BLANK (0x1ff/0x200 lists = SCP
+  source; icons appended after OSD resource 69 don't draw).
+* DONE v0.4c6 on camera: SCP still blank; AF selector in 6/7 = 4:3 layout, no cursor, AF works.
+* DONE v0.4c7 on camera: SCP 65:24 and 21:9 (stock 16:9 pointer) both blank; AF same as c6. → cell index miss (emulated).
+* RULE: emulate every change before a camera build (AGENTS.md). Harnesses: tools/omdem1mk2_emu_scp.py, _emu_af.py.
+* DONE v0.4c13 [C]: SCP tile + option row show 65:24 / 21:9; AF selector works (since c8); regular menu works.
+* NEXT (aspect, untested): live-view framing, rec-view, power-cycle with 6/7 saved, RAW+JPEG, Live Control strip,
+  remaining E-P7 AF sites (tracking/AUTO), grid overlay. Then decide whether to bring debug_log back.
+* Trace later: what uses RAM 0xa3b0e400..0xa3bb7140 after OSD bank 69 (why the append drew blank).
+* Then: AF target selector with 65:24/21:9, live-view framing, power-off/on with 6/7 saved.
+* NEXT: real 65:24 / 21:9 icons (OSD component 0x101, E-P7 patches/aspect/osd_icons.py route).
+* (old) flash v0.4c1 (text strip labels) → Menu 1 > Image Aspect and SCP/Live Control should list Panorama + Wide.
+  If the strip cells are blank: v0.4c2 (placeholder icons). Then real XP/21:9 icons + menu label text.
+* (old) v0.3b5r (== camera-tested v0.3b5) to recover; v0.4b5 (v0.3b5 + aspect only).
+* Logger later: E-M1 II HLS tid + task proof, then re-site with the E-P7/OM-3 four-part gate.
+* (old) flash v0.4b3 (no aspect). Shutter must work; with DEBUG.TXT, CADLOG.TXT must appear. Then v0.4b4 (+ aspect):
+  Shooting Menu 1 > Image Aspect and the SCP aspect strip; note blank rows vs no rows.
+
 ## 3. TODO
 
 ### Priority 1: Camera test v0.3b2 (docs/PORT_EM1MK2.md §4 "Camera test for v0.3b1")

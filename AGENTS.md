@@ -31,3 +31,19 @@ Build panel work so it ends up here:
 - **Firmware stays with its port.** Each port keeps its own repo, install guide and bug reports. The panel's About dialog and `docs/BODIES.md` point people to the right one.
 
 Findings from the OM-3 port, including what's unverified, are in `docs/OM3_NOTES.md`. Don't add its features to the E-P7 until they can be tested here.
+
+## Test in the emulator before every camera build
+
+**Every firmware change must be run in the emulator before a build goes to the camera.** Static reading and "the
+tables look right" have repeatedly produced builds that failed on the camera (E-M1 II aspect v0.4c4–c7: icons and AF
+cursor). The owner's camera time is the scarce resource; the emulator is not.
+
+- Emulator: `external/oly_fw_analysis` (fishcu, pinned; `penf_emulator` `Region`/`execute`), set up per WORKLOG
+  2026-11-11. Working harnesses: `tools/omdem1mk2_emu_validator.py`, `tools/omdem1mk2_emu_rules.py` (fixtures for
+  `.bss`, `.data`, CPU id, task table, boot-ROM memcpy/memset, IPC stub).
+- Run the **patched** image (`release edits.json`) and stock side by side through the code path the change targets,
+  and show the result differs the intended way (return values, memory written, the branch taken, the pointer read).
+- Load every component the path reads, including the OSD (0x101) at its runtime addresses, so OSD edits are exercised too.
+- If a path can't be emulated yet, extend the fixtures until it can. Say plainly in the release notes which parts were
+  emulated and which were not. Don't hand over a build that rests on static reading alone without saying so.
+- Diagnostics belong in the emulator first; a camera diagnostic build is the last resort, not the default.

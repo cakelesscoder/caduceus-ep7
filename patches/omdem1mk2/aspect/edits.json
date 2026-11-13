@@ -1,0 +1,1364 @@
+{
+  "camera": "em1mk2",
+  "description": "Aspect ratio mod: X-Pan 65:24 (id 6) and 21:9 (id 7)",
+  "edits": [
+    {
+      "kind": "0x100",
+      "addr": "0x6021b1c4",
+      "expect": "3002e001",
+      "new": "d0021001",
+      "why": "u16wh@0x6021b1b0 id6 -> 720x272"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x6021b1c8",
+      "expect": "4002e001",
+      "new": "d0023001",
+      "why": "u16wh@0x6021b1b0 id7 -> 720x304"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x6021b1f8",
+      "expect": "1003a002",
+      "new": "f0037001",
+      "why": "u16wh@0x6021b1e4 id6 -> 1008x368"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x6021b1fc",
+      "expect": "2603a002",
+      "new": "f003b001",
+      "why": "u16wh@0x6021b1e4 id7 -> 1008x432"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x6021b22c",
+      "expect": "80030003",
+      "new": "00048001",
+      "why": "u16wh@0x6021b218 id6 -> 1024x384"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x6021b230",
+      "expect": "98030003",
+      "new": "0004b001",
+      "why": "u16wh@0x6021b218 id7 -> 1024x432"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x6028004c",
+      "expect": "80030003",
+      "new": "00048001",
+      "why": "u16wh@0x60280038 id6 -> 1024x384"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60280050",
+      "expect": "9003f802",
+      "new": "0004b001",
+      "why": "u16wh@0x60280038 id7 -> 1024x432"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60280074",
+      "expect": "80030003",
+      "new": "00048001",
+      "why": "u16wh@0x60280060 id6 -> 1024x384"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60280078",
+      "expect": "9003f802",
+      "new": "0004b001",
+      "why": "u16wh@0x60280060 id7 -> 1024x432"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x6028009c",
+      "expect": "6004c003",
+      "new": "0005e001",
+      "why": "u16wh@0x60280088 id6 -> 1280x480"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x602800a0",
+      "expect": "8004c003",
+      "new": "00052002",
+      "why": "u16wh@0x60280088 id7 -> 1280x544"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x602800c4",
+      "expect": "3002e001",
+      "new": "8002f000",
+      "why": "u16wh@0x602800b0 id6 -> 640x240"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x602800c8",
+      "expect": "4002e001",
+      "new": "80021001",
+      "why": "u16wh@0x602800b0 id7 -> 640x272"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x602800ec",
+      "expect": "8c007800",
+      "new": "a0004000",
+      "why": "u16wh@0x602800d8 id6 -> 160x64"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x602800f0",
+      "expect": "90007800",
+      "new": "a0004000",
+      "why": "u16wh@0x602800d8 id7 -> 160x64"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x6028013c",
+      "expect": "9006a005",
+      "new": "8007c002",
+      "why": "u16wh@0x60280128 id6 -> 1920x704"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60280140",
+      "expect": "c006a005",
+      "new": "80073003",
+      "why": "u16wh@0x60280128 id7 -> 1920x816"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60280164",
+      "expect": "3002e001",
+      "new": "8002f000",
+      "why": "u16wh@0x60280150 id6 -> 640x240"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60280168",
+      "expect": "4002e001",
+      "new": "80021001",
+      "why": "u16wh@0x60280150 id7 -> 640x272"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x6028018c",
+      "expect": "9006a005",
+      "new": "8007c002",
+      "why": "u16wh@0x60280178 id6 -> 1920x704"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60280190",
+      "expect": "c006a005",
+      "new": "80073003",
+      "why": "u16wh@0x60280178 id7 -> 1920x816"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x602801b4",
+      "expect": "6004c003",
+      "new": "0005e001",
+      "why": "u16wh@0x602801a0 id6 -> 1280x480"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x602801b8",
+      "expect": "8004c003",
+      "new": "00052002",
+      "why": "u16wh@0x602801a0 id7 -> 1280x544"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x602801dc",
+      "expect": "3002e001",
+      "new": "8002f000",
+      "why": "u16wh@0x602801c8 id6 -> 640x240"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x602801e0",
+      "expect": "4002e001",
+      "new": "80021001",
+      "why": "u16wh@0x602801c8 id7 -> 640x272"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60280204",
+      "expect": "e000c000",
+      "new": "40017000",
+      "why": "u16wh@0x602801f0 id6 -> 320x112"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60280208",
+      "expect": "2001f000",
+      "new": "40019000",
+      "why": "u16wh@0x602801f0 id7 -> 320x144"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60280574",
+      "expect": "e01be817",
+      "new": "e01fc00b",
+      "why": "u16wh@0x60280560 id6 -> 8160x3008"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60280578",
+      "expect": "b01ce817",
+      "new": "e01fb00d",
+      "why": "u16wh@0x60280560 id7 -> 8160x3504"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60280598",
+      "expect": "b013e010",
+      "new": "80165008",
+      "why": "u16wh@0x60280584 id6 -> 5760x2128"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x6028059c",
+      "expect": "4014e010",
+      "new": "8016a009",
+      "why": "u16wh@0x60280584 id7 -> 5760x2464"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x6053c064",
+      "expect": "80030003",
+      "new": "00048001",
+      "why": "u16wh@0x6053c050 id6 -> 1024x384"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x6053c068",
+      "expect": "9003f802",
+      "new": "0004b001",
+      "why": "u16wh@0x6053c050 id7 -> 1024x432"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x6054d33c",
+      "expect": "280000003002e001280022005702bd01",
+      "new": "000078008002f000000078007f026701",
+      "why": "rect16@0x6054d2ec id6 -> 640x240"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x6054d34c",
+      "expect": "200000004002e001200022005f02bd01",
+      "new": "0000680080021001000068007f027701",
+      "why": "rect16@0x6054d2ec id7 -> 640x272"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x6054d3ec",
+      "expect": "b40078001801f000140011002b01de00",
+      "new": "a000b80040017000000040003f01af00",
+      "why": "rect16@0x6054d39c id6 -> 320x112"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x6054d3fc",
+      "expect": "b00078002001f000100011002f01de00",
+      "new": "a000a80040019000000030003f01bf00",
+      "why": "rect16@0x6054d39c id7 -> 320x144"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x6027a84c",
+      "expect": "06000000e01be817",
+      "new": "06000000e01fc00b",
+      "why": "u16id0wh@0x6027a824 id6 -> 8160x3008"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x6027a854",
+      "expect": "07000000b01ce817",
+      "new": "07000000e01fb00d",
+      "why": "u16id0wh@0x6027a824 id7 -> 8160x3504"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x6027a8a4",
+      "expect": "06000000b013e010",
+      "new": "0600000080165008",
+      "why": "u16id0wh@0x6027a87c id6 -> 5760x2128"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x6027a8ac",
+      "expect": "070000004014e010",
+      "new": "070000008016a009",
+      "why": "u16id0wh@0x6027a87c id7 -> 5760x2464"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60b38154",
+      "expect": "06000000d00dd00b",
+      "new": "06000000c00fd005",
+      "why": "u16id0wh@0x60b3812c id6 -> 4032x1488"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60b3815c",
+      "expect": "07000000300ed00b",
+      "new": "07000000c00fc006",
+      "why": "u16id0wh@0x60b3812c id7 -> 4032x1728"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60b381a4",
+      "expect": "060000006004c003",
+      "new": "060000000005e001",
+      "why": "u16id0wh@0x60b3817c id6 -> 1280x480"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60b381ac",
+      "expect": "070000008004c003",
+      "new": "0700000000052002",
+      "why": "u16id0wh@0x60b3817c id7 -> 1280x544"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60b381f4",
+      "expect": "0600000040058004",
+      "new": "0600000040065002",
+      "why": "u16id0wh@0x60b381cc id6 -> 1600x592"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60b381fc",
+      "expect": "07000000a005b004",
+      "new": "070000004006b002",
+      "why": "u16id0wh@0x60b381cc id7 -> 1600x688"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60b38244",
+      "expect": "060000009006a005",
+      "new": "060000008007c002",
+      "why": "u16id0wh@0x60b3821c id6 -> 1920x704"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60b3824c",
+      "expect": "07000000c006a005",
+      "new": "0700000080073003",
+      "why": "u16id0wh@0x60b3821c id7 -> 1920x816"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60b382e4",
+      "expect": "06000000c0088007",
+      "new": "06000000000ab003",
+      "why": "u16id0wh@0x60b382bc id6 -> 2560x944"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60b382ec",
+      "expect": "0700000000098007",
+      "new": "07000000000a5004",
+      "why": "u16id0wh@0x60b382bc id7 -> 2560x1104"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60b38384",
+      "expect": "06000000f00a6009",
+      "new": "06000000800ca004",
+      "why": "u16id0wh@0x60b3835c id6 -> 3200x1184"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60b3838c",
+      "expect": "07000000400b6009",
+      "new": "07000000800c6005",
+      "why": "u16id0wh@0x60b3835c id7 -> 3200x1376"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60b38474",
+      "expect": "06000000c011300f",
+      "new": "0600000040148007",
+      "why": "u16id0wh@0x60b3844c id6 -> 5184x1920"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60b3847c",
+      "expect": "070000004012300f",
+      "new": "070000004014b008",
+      "why": "u16id0wh@0x60b3844c id7 -> 5184x2224"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60b38514",
+      "expect": "06000000e000c000",
+      "new": "0600000040017000",
+      "why": "u16id0wh@0x60b384ec id6 -> 320x112"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60b3851c",
+      "expect": "070000002001f000",
+      "new": "0700000040019000",
+      "why": "u16id0wh@0x60b384ec id7 -> 320x144"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60b38564",
+      "expect": "060000003002e001",
+      "new": "060000008002f000",
+      "why": "u16id0wh@0x60b3853c id6 -> 640x240"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60b3856c",
+      "expect": "070000004002e001",
+      "new": "0700000080021001",
+      "why": "u16id0wh@0x60b3853c id7 -> 640x272"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60b385b4",
+      "expect": "0600000080030003",
+      "new": "0600000000048001",
+      "why": "u16id0wh@0x60b3858c id6 -> 1024x384"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60b385bc",
+      "expect": "070000009003f802",
+      "new": "070000000004b001",
+      "why": "u16id0wh@0x60b3858c id7 -> 1024x432"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x6050ad0c",
+      "expect": "c011300f0706",
+      "new": "401480074118",
+      "why": "u16whcode@0x6050acee id6 -> 5184x1920"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x6050ad12",
+      "expect": "4012300f0605",
+      "new": "4014b0081509",
+      "why": "u16whcode@0x6050acee id7 -> 5184x2224"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x6053bd80",
+      "expect": "500f200d0706",
+      "new": "801170064118",
+      "why": "u16whcode@0x6053bd62 id6 -> 4480x1648"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x6053bd86",
+      "expect": "c00f200d0605",
+      "new": "801180071509",
+      "why": "u16whcode@0x6053bd62 id7 -> 4480x1920"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x6053bfcc",
+      "expect": "7023601e0706",
+      "new": "8028f00e4118",
+      "why": "u16whcode@0x6053bfae id6 -> 10368x3824"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x6053bfd2",
+      "expect": "7424601e0605",
+      "new": "802860111509",
+      "why": "u16whcode@0x6053bfae id7 -> 10368x4448"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60bb6de4",
+      "expect": "06000000d00d0000d00b0000",
+      "new": "06000000c00f0000d0050000",
+      "why": "u32idwh@0x60bb6da8 id6 -> 4032x1488"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60bb6df0",
+      "expect": "07000000300e0000d00b0000",
+      "new": "07000000c00f0000c0060000",
+      "why": "u32idwh@0x60bb6da8 id7 -> 4032x1728"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60bb6e5c",
+      "expect": "0600000060040000c0030000",
+      "new": "0600000000050000e0010000",
+      "why": "u32idwh@0x60bb6e20 id6 -> 1280x480"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60bb6e68",
+      "expect": "0700000080040000c0030000",
+      "new": "070000000005000020020000",
+      "why": "u32idwh@0x60bb6e20 id7 -> 1280x544"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60bb6ed4",
+      "expect": "060000004005000080040000",
+      "new": "060000004006000050020000",
+      "why": "u32idwh@0x60bb6e98 id6 -> 1600x592"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60bb6ee0",
+      "expect": "07000000a0050000b0040000",
+      "new": "0700000040060000b0020000",
+      "why": "u32idwh@0x60bb6e98 id7 -> 1600x688"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60bb703c",
+      "expect": "06000000c008000080070000",
+      "new": "06000000000a0000b0030000",
+      "why": "u32idwh@0x60bb7000 id6 -> 2560x944"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60bb7048",
+      "expect": "070000000009000080070000",
+      "new": "07000000000a000050040000",
+      "why": "u32idwh@0x60bb7000 id7 -> 2560x1104"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60bb712c",
+      "expect": "06000000f00a000060090000",
+      "new": "06000000800c0000a0040000",
+      "why": "u32idwh@0x60bb70f0 id6 -> 3200x1184"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60bb7138",
+      "expect": "07000000400b000060090000",
+      "new": "07000000800c000060050000",
+      "why": "u32idwh@0x60bb70f0 id7 -> 3200x1376"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60bb7294",
+      "expect": "06000000c0110000300f0000",
+      "new": "060000004014000080070000",
+      "why": "u32idwh@0x60bb7258 id6 -> 5184x1920"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60bb72a0",
+      "expect": "0700000040120000300f0000",
+      "new": "0700000040140000b0080000",
+      "why": "u32idwh@0x60bb7258 id7 -> 5184x2224"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60bb7384",
+      "expect": "0600000090060000a0050000",
+      "new": "0600000080070000c0020000",
+      "why": "u32idwh@0x60bb7348 id6 -> 1920x704"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60bb7390",
+      "expect": "07000000c0060000a0050000",
+      "new": "070000008007000030030000",
+      "why": "u32idwh@0x60bb7348 id7 -> 1920x816"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60bb73fc",
+      "expect": "06000000e0000000c0000000",
+      "new": "060000004001000070000000",
+      "why": "u32idwh@0x60bb73c0 id6 -> 320x112"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60bb7408",
+      "expect": "0700000020010000f0000000",
+      "new": "070000004001000090000000",
+      "why": "u32idwh@0x60bb73c0 id7 -> 320x144"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60bb7474",
+      "expect": "06000000e01b0000e8170000",
+      "new": "06000000e01f0000c00b0000",
+      "why": "u32idwh@0x60bb7438 id6 -> 8160x3008"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60bb7480",
+      "expect": "07000000b01c0000e8170000",
+      "new": "07000000e01f0000b00d0000",
+      "why": "u32idwh@0x60bb7438 id7 -> 8160x3504"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60bb74ec",
+      "expect": "06000000b0130000e0100000",
+      "new": "060000008016000050080000",
+      "why": "u32idwh@0x60bb74b0 id6 -> 5760x2128"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60bb74f8",
+      "expect": "0700000040140000e0100000",
+      "new": "0700000080160000a0090000",
+      "why": "u32idwh@0x60bb74b0 id7 -> 5760x2464"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60bb7604",
+      "expect": "0600000030020000e0010000",
+      "new": "0600000080020000f0000000",
+      "why": "u32idwh@0x60bb75c8 id6 -> 640x240"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60bb7610",
+      "expect": "0700000040020000e0010000",
+      "new": "070000008002000010010000",
+      "why": "u32idwh@0x60bb75c8 id7 -> 640x272"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60bb767c",
+      "expect": "060000008003000000030000",
+      "new": "060000000004000080010000",
+      "why": "u32idwh@0x60bb7640 id6 -> 1024x384"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60bb7688",
+      "expect": "0700000090030000f8020000",
+      "new": "0700000000040000b0010000",
+      "why": "u32idwh@0x60bb7640 id7 -> 1024x432"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60556daa",
+      "expect": "c01100008c009006e000300280036004400500000000c0080000f00a000000000000d00d0000c00fe01bb0130000",
+      "new": "40140000a00080074001800200040005400600000000000a0000800c000000000000c00f00000012e01f80160000",
+      "why": "Capture size table W@0x60556cc4 id6"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60556dd8",
+      "expect": "401200009000c0062001400290038004a0050000000000090000400b000000000000300e00003010b01c40140000",
+      "new": "40140000a00080074001800200040005400600000000000a0000800c000000000000c00f00000012e01f80160000",
+      "why": "Capture size table W@0x60556cc4 id7"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60556f48",
+      "expect": "300f00007800a005c000e0010003c003800400000000800700006009000000000000d00b0000800de817e0100000",
+      "new": "800700004000c0027000f0008001e001500200000000b0030000a004000000000000d0050000a006c00b50080000",
+      "why": "Capture size table H@0x60556e62 id6"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60556f76",
+      "expect": "300f00007800a005f000e001f802c003b00400000000800700006009000000000000d00b0000800de817e0100000",
+      "new": "b00800004000300390001001b0012002b00200000000500400006005000000000000c0060000b007b00da0090000",
+      "why": "Capture size table H@0x60556e62 id7"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60556c38",
+      "expect": "da404260",
+      "new": "b1404260",
+      "why": "AspectFrame JT id6 -> wide case"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60556c3c",
+      "expect": "da404260",
+      "new": "b1404260",
+      "why": "AspectFrame JT id7 -> wide case"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x605570e6",
+      "expect": "30024002",
+      "new": "80028002",
+      "why": "rec-view 640 W ids 6,7 -> 640"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x605570f8",
+      "expect": "e001e001",
+      "new": "f0001001",
+      "why": "rec-view 640 H ids 6,7 -> 240, 272"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x6026e530",
+      "expect": "07060605",
+      "new": "41181509",
+      "why": "RATIO_U8 ids 6,7 -> (65,24), (21,9)"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x605021a6",
+      "expect": "0700060006000500",
+      "new": "4100180015000900",
+      "why": "RATIO_U16 ids 6,7 -> (65,24), (21,9)"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x607483d0",
+      "expect": "0000000000000000",
+      "new": "2b001b002b001b00",
+      "why": "AFWIN_1 ids 6,7 -> (43,27)"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x607483fc",
+      "expect": "0000000000000000",
+      "new": "5400340054003400",
+      "why": "AFWIN_2 ids 6,7 -> (84,52)"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60257580",
+      "expect": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "new": "01030204090607000100000004002401b0d824610300000004002301b0d824610200000004002501b0d82461040000000400fa06b0d824610900000004002701b0d824610600000005000000f47725600700000005000000fa7725600a0000000400bd0cb0d82461010000000300d801807d2461030000000300d701807d2461020000000300d901807d24610400000003007509807d2461090000000300db01807d24610600000003000c1a807d2461070000000300ae1b807d24612c800242282cf000dc524166002c800242282c1001dc454166002c800242282cf000dc484366002c800242282c1001dc3b4366002c800242242cf000dcb64666002c800242242c1001dca94666002480022ff000dcb9a86b002480022f1001dcaea86b002c80022df000dc78ca67002c80022d1001dc6dca6700000001000300020004000900060007000000401440144014300f600b40144014300f680b800d300f300f8007b0080d00800c800c900c60092007800c800c60090807600860098009a00460050b00000a000af0098007a005000a000a8007a005a00680078007b00350040800400600063006c004600340064006b00460032004c00480045002b0020700000500051005c003d00200050005c003d0026003c003c003e0012002060000040004f003000340020004000400034002a002000300038001b0010500800280027002e001800180028002e0016801a001e0010002f00010010300800780078007a005500480078007a00538040005a005c005c00230031400e01fe01fe01fe017f011e01fe01fe817f0114015e017e817c00bb00d1500801680168016e010b00c80168016e010a80c000fe010e0105008a009",
+      "why": "Section 1 Aspect cave (626 bytes at 0x60257580..0x602577f2)"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x602577f4",
+      "expect": "ffffffffffffffffffffff",
+      "new": "36353a32340032313a3900",
+      "why": "menu label text \"65:24\" / \"21:9\" (kind-5 char* labels)"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x604f07d0",
+      "expect": "fad64e60",
+      "new": "80752560",
+      "why": "VAL_REC list pointer -> VAL_NEW"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x604f07d8",
+      "expect": "0500",
+      "new": "0700",
+      "why": "VAL_REC count 5 -> 7"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x604f1630",
+      "expect": "06db4e60",
+      "new": "80752560",
+      "why": "sid 511 validator list -> VAL_NEW"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x604f1638",
+      "expect": "0500",
+      "new": "0700",
+      "why": "sid 511 validator count 5 -> 7"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x604f1644",
+      "expect": "06db4e60",
+      "new": "80752560",
+      "why": "sid 512 validator list -> VAL_NEW"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x604f164c",
+      "expect": "0500",
+      "new": "0700",
+      "why": "sid 512 validator count 5 -> 7"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60bc8760",
+      "expect": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "new": "01000000dd01000003000000dc01000002000000de01000009000000df0100000400000076090000060000000c1a000007000000ae1b000001000000d801000003000000d701000002000000d901000009000000db0100000400000075090000060000000c1a000007000000ae1b0000",
+      "why": "display-resource icon lists A/B with ids 6/7"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x612e1f0c",
+      "expect": "c81d2e61f01d2e6105000000",
+      "new": "6087bc609887bc6007000000",
+      "why": "display resource 0x1ff: icon lists -> 7 entries"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x612e1fbc",
+      "expect": "c81d2e61f01d2e6105000000",
+      "new": "6087bc609887bc6007000000",
+      "why": "display resource 0x200: icon lists -> 7 entries"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x612e3084",
+      "expect": "b02e2e61d82e2e6105000000",
+      "new": "6087bc609887bc6007000000",
+      "why": "SCP option-row item 0x1ff (table 0x612e3040): icon lists -> 7 entries"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x612e3160",
+      "expect": "b02e2e61d82e2e6105000000",
+      "new": "6087bc609887bc6007000000",
+      "why": "SCP option-row item 0x200 (table 0x612e3040): icon lists -> 7 entries"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60580780",
+      "expect": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "new": "010000000300dd01206a2361030000000300dc01206a2361020000000300de01206a2361090000000300df01206a23610400000003007609206a23610600000003000c1a206a2361070000000300ae1b206a2361",
+      "why": "SCP option screen 57 label list white: stock 5 + 65:24 / 21:9"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x6058018c",
+      "expect": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "new": "010000000300d801206a2361030000000300d701206a2361020000000300d901206a2361090000000300db01206a23610400000003007509206a23610600000003000c1a206a2361070000000300ae1b206a2361",
+      "why": "SCP option screen 57 label list green (white ids for 6/7): stock 5 + 65:24 / 21:9"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x6123e198",
+      "expect": "74a12361b0a1236105000000",
+      "new": "800758608c01586007000000",
+      "why": "option-label record key 16 (aspect): lists -> 7 entries"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x6124ea1e",
+      "expect": "0600",
+      "new": "0800",
+      "why": "MENU_DESC count 6 -> 8"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x6124ea20",
+      "expect": "e4e32461",
+      "new": "88752560",
+      "why": "MENU_DESC list pointer -> MENU_NEW"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x61249554",
+      "expect": "010000000300dd01807d2461030000000300dc01807d2461020000000300de01807d24610400000003007609807d2461090000000300df01807d2461010000000300d801807d2461030000000300d701807d2461",
+      "new": "010000000300dd01807d2461030000000300dc01807d2461020000000300de01807d24610400000003007609807d2461090000000300df01807d24610600000003000c1a807d2461070000000300ae1b807d2461",
+      "why": "SCP List A expanded in-place to 7 entries"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x6124aea6",
+      "expect": "0500",
+      "new": "0700",
+      "why": "SCP_DESC count 5 -> 7"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x6124aeac",
+      "expect": "90952461",
+      "new": "e8752560",
+      "why": "SCP_DESC List B pointer -> SCP_NEWB"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60b2f904",
+      "expect": "6bb78b60",
+      "new": "3c762560",
+      "why": "S7 JT id6 -> case block at 0x6025763c"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60b2f908",
+      "expect": "70b78b60",
+      "new": "49762560",
+      "why": "S7 JT id7 -> case block at 0x60257649"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60b2f930",
+      "expect": "7bb98b60",
+      "new": "56762560",
+      "why": "S8 JT id6 -> case block at 0x60257656"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60b2f934",
+      "expect": "80b98b60",
+      "new": "63762560",
+      "why": "S8 JT id7 -> case block at 0x60257663"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60b2f95c",
+      "expect": "03bd8b60",
+      "new": "70762560",
+      "why": "S9 JT id6 -> case block at 0x60257670"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60b2f960",
+      "expect": "08bd8b60",
+      "new": "7d762560",
+      "why": "S9 JT id7 -> case block at 0x6025767d"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60b4cef4",
+      "expect": "2c1f9160",
+      "new": "8a762560",
+      "why": "S10 JT id6 -> case block at 0x6025768a"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60b4cef8",
+      "expect": "311f9160",
+      "new": "95762560",
+      "why": "S10 JT id7 -> case block at 0x60257695"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60b3bd80",
+      "expect": "01418d60",
+      "new": "a0762560",
+      "why": "SALT JT id6 -> case block at 0x602576a0"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60b3bd84",
+      "expect": "06418d60",
+      "new": "ab762560",
+      "why": "SALT JT id7 -> case block at 0x602576ab"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60f13992",
+      "expect": "fcac08752c61",
+      "new": "fcacc8762560",
+      "why": "PIX_FN row0 w pointer"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60f1399a",
+      "expect": "fcac12752c61",
+      "new": "fcacd6762560",
+      "why": "PIX_FN row0 h pointer"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60f139cf",
+      "expect": "fcdc06752c61",
+      "new": "fcdcc6762560",
+      "why": "PIX_FN rows start pointer"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60f139e2",
+      "expect": "fcddfc742c61",
+      "new": "fcddb8762560",
+      "why": "PIX_FN ids pointer"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60f139f7",
+      "expect": "200c",
+      "new": "2010",
+      "why": "PIX_FN h offset (a0) 12 -> 16"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60f13a06",
+      "expect": "a505",
+      "new": "a507",
+      "why": "PIX_FN aspect count 5 -> 7"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60f13a0c",
+      "expect": "2016",
+      "new": "201e",
+      "why": "PIX_FN row stride (a0) 22 -> 30"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60f13a12",
+      "expect": "f90216",
+      "new": "f9021e",
+      "why": "PIX_FN debug udf00 stride 22 -> 30"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60f13a17",
+      "expect": "fcd206752c61",
+      "new": "fcd2c6762560",
+      "why": "PIX_FN rows start debug pointer"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60f13a2b",
+      "expect": "220c",
+      "new": "2210",
+      "why": "PIX_FN debug h offset (a2) 12 -> 16"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60580700",
+      "expect": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "new": "01000300030003000200030004000300090003000a000300060003000700030001000100030001000200010004000100090001000a000100060001000700010001000a0003000a0002000a0004000a0009000a000a000a0006000a0007000a0001000100030003000200020004000400090009000a0001000600060007000700",
+      "why": "aspect interlock value tables with ids 6/7 (4 x 8 rows)"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x604a0580",
+      "expect": "18054a6006000000",
+      "new": "0007586008000000",
+      "why": "aspect interlock entry 0x604a0580: table 0x604a0518 -> 0x60580700, 6 -> 8 rows"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x604a0590",
+      "expect": "30054a6006000000",
+      "new": "2007586008000000",
+      "why": "aspect interlock entry 0x604a0590: table 0x604a0530 -> 0x60580720, 6 -> 8 rows"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x604a05a0",
+      "expect": "30054a6006000000",
+      "new": "2007586008000000",
+      "why": "aspect interlock entry 0x604a05a0: table 0x604a0530 -> 0x60580720, 6 -> 8 rows"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x604a05b0",
+      "expect": "30054a6006000000",
+      "new": "2007586008000000",
+      "why": "aspect interlock entry 0x604a05b0: table 0x604a0530 -> 0x60580720, 6 -> 8 rows"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x604a05c0",
+      "expect": "30054a6006000000",
+      "new": "2007586008000000",
+      "why": "aspect interlock entry 0x604a05c0: table 0x604a0530 -> 0x60580720, 6 -> 8 rows"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x604a05d0",
+      "expect": "30054a6006000000",
+      "new": "2007586008000000",
+      "why": "aspect interlock entry 0x604a05d0: table 0x604a0530 -> 0x60580720, 6 -> 8 rows"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x604a05e0",
+      "expect": "30054a6006000000",
+      "new": "2007586008000000",
+      "why": "aspect interlock entry 0x604a05e0: table 0x604a0530 -> 0x60580720, 6 -> 8 rows"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x604a05f0",
+      "expect": "30054a6006000000",
+      "new": "2007586008000000",
+      "why": "aspect interlock entry 0x604a05f0: table 0x604a0530 -> 0x60580720, 6 -> 8 rows"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x604a0600",
+      "expect": "48054a6006000000",
+      "new": "4007586008000000",
+      "why": "aspect interlock entry 0x604a0600: table 0x604a0548 -> 0x60580740, 6 -> 8 rows"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x604a0610",
+      "expect": "18054a6006000000",
+      "new": "0007586008000000",
+      "why": "aspect interlock entry 0x604a0610: table 0x604a0518 -> 0x60580700, 6 -> 8 rows"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x604a0620",
+      "expect": "48054a6006000000",
+      "new": "4007586008000000",
+      "why": "aspect interlock entry 0x604a0620: table 0x604a0548 -> 0x60580740, 6 -> 8 rows"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x604a0630",
+      "expect": "18054a6006000000",
+      "new": "0007586008000000",
+      "why": "aspect interlock entry 0x604a0630: table 0x604a0518 -> 0x60580700, 6 -> 8 rows"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x604a0640",
+      "expect": "60054a6006000000",
+      "new": "6007586008000000",
+      "why": "aspect interlock entry 0x604a0640: table 0x604a0560 -> 0x60580760, 6 -> 8 rows"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x61212d38",
+      "expect": "b42b216106000000",
+      "new": "6085bc6008000000",
+      "why": "AF target header 0x61212d34: list -> 0x60bc8560, 6 -> 8"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x61212d44",
+      "expect": "142c216106000000",
+      "new": "e085bc6008000000",
+      "why": "AF target header 0x61212d40: list -> 0x60bc85e0, 6 -> 8"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x61212d50",
+      "expect": "742c216106000000",
+      "new": "6086bc6008000000",
+      "why": "AF target header 0x61212d4c: list -> 0x60bc8660, 6 -> 8"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x61212d5c",
+      "expect": "d42c216106000000",
+      "new": "e086bc6008000000",
+      "why": "AF target header 0x61212d58: list -> 0x60bc86e0, 6 -> 8"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60bc8560",
+      "expect": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "new": "010000000000000024242161790000000300000002000000082621617900000002000000000000002424216179000000040000000100000016252161790000000900000003000000fa262161790000000a0000000200000008262161790000000600000002000000082621617900000007000000020000000826216179000000010000000000000024242161790000000300000002000000082621617900000002000000000000002424216179000000040000000100000016252161790000000900000003000000fa262161790000000a00000000000000242421617900000006000000020000000826216179000000070000000200000008262161790000000100000004000000ec272161790000000300000007000000c22a2161790000000200000005000000de282161790000000400000004000000ec272161790000000900000006000000d0292161790000000a00000007000000c22a2161790000000600000007000000c22a2161790000000700000007000000c22a2161790000000100000004000000ec272161790000000300000007000000c22a2161790000000200000005000000de282161790000000400000004000000ec272161790000000900000006000000d0292161790000000a00000007000000c22a2161790000000600000007000000c22a2161790000000700000007000000c22a216179000000",
+      "why": "AF target aspect lists with ids 6/7 (= 16:9 mask/style, E-P7 aspect_fix policy)"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x605d2e00",
+      "expect": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "new": "ffff00000700000007000000dd010000ffff00000700000007000000de010000ffff00000700000007000000df010000ffff0000070000000700000076090000ffff00000700000007000000dc010000ffff00000700000007000000dc010000ffff000007000000070000000c1a0000ffff00000700000007000000ae1b0000",
+      "why": "SCP value cell record A parts: stock 5 + 476 (17:9 slot filler) + 65:24 / 21:9 strip icons"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x6146cf54",
+      "expect": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "new": "ffff00000700000007000000ef160000ffff00000700000007000000ee160000ffff00000700000007000000ed160000ffff00000700000007000000ec160000ffff00000700000007000000eb160000ffff00000700000007000000ea160000ffff000007000000070000000d1a0000ffff00000700000007000000af1b0000",
+      "why": "SCP tile record B parts: stock 6 + 65:24 / 21:9 tile labels"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x6146cfd4",
+      "expect": "ffffffffffffffffffffffffffffffff",
+      "new": "00000000000000000000000000000000",
+      "why": "SCP tile records u16[8] (zeros, as stock; shared)"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60e6a0ef",
+      "expect": "f41324618506",
+      "new": "802e5d608508",
+      "why": "SCP value cell builder 0x60e6a0ed: list -> 0x605d2e80, 6 -> 8 entries"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60e70c26",
+      "expect": "d04924618506",
+      "new": "802e5d608508",
+      "why": "SCP value cell builder 0x60e70c24: list -> 0x605d2e80, 6 -> 8 entries"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x605d2e80",
+      "expect": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "new": "010000000200000003000000060000000200000003000000040000000500000009000000040000000a0000000700000006000000080000000700000009000000",
+      "why": "SCP value cell index list (stock + 6 -> 8, 7 -> 9)"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x61132a2c",
+      "expect": "020500004417136194171361",
+      "new": "02080000002e5d60d4cf4661",
+      "why": "SCP tile widget record A 0x611329f8: count -> 8, parts / u16 array -> new block"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x6117720c",
+      "expect": "02060000d42c1761342d1761",
+      "new": "0208000054cf4661d4cf4661",
+      "why": "SCP tile widget record B 0x611771d8: count -> 8, parts / u16 array -> new block"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x605d2ec0",
+      "expect": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "new": "5d0804f80904aa06c806aa07c9048a03dc18f78c000408fa0ff800af06c806af07c9048f03dcf8c688000408fa0ff800af06c806af07c9048f03dc2fc988009500085828a006c806a007c9048003dc1f6e8c005838a006c806a007c9048003a009c807dc548f8600dc058f86005834a006c806a007c9048003a009c807dcea9a8600dc9b9a8600811dfac90c1ac822fac9ae1bc825fac90d1ac828fac9af1bc82ba500c907dc6a3e7a00dc693e7a00fcdccc2d5d60de0000fcdcd02d5d60de0000fcdcd42d5d60de0000fcdcd82d5d60de0000",
+      "why": "AF/AE display stubs sv/ag1/ag2/mt/ch1/ch2 + bitmap getter gt (211 B)"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60ea25e2",
+      "expect": "5d0804f80904",
+      "new": "dcde0873ffcb",
+      "why": "AF/AE hook sv: jmp 0x605d2ec0"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60e5f5d7",
+      "expect": "0408fa0ff800",
+      "new": "dcfe3877ffcb",
+      "why": "AF/AE hook ag1: jmp 0x605d2ed5"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60e5f823",
+      "expect": "0408fa0ff800",
+      "new": "dcc73677ffcb",
+      "why": "AF/AE hook ag2: jmp 0x605d2eea"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60e99d28",
+      "expect": "9500085828",
+      "new": "dcd79173ff",
+      "why": "AF/AE hook mt: jmp 0x605d2eff"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60e3be27",
+      "expect": "5838a009c94c",
+      "new": "dcec7079ffcb",
+      "why": "AF/AE hook ch1: jmp 0x605d2f13"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60e3c9d7",
+      "expect": "5834a009c94c",
+      "new": "dc566579ffcb",
+      "why": "AF/AE hook ch2: jmp 0x605d2f2d"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x60d76dc9",
+      "expect": "811da500c906",
+      "new": "dc7ec185ffcb",
+      "why": "bitmap getter hook gt: jmp 0x605d2f47"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x612abd3c",
+      "expect": "f4b72a61",
+      "new": "c0e87860",
+      "why": "detail screen label list -> 8 rows (65:24, 21:9)"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x612abd40",
+      "expect": "48b82a61",
+      "new": "20e97860",
+      "why": "detail screen RAW size list -> 8 rows"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x612abd44",
+      "expect": "acb82a61",
+      "new": "80e97860",
+      "why": "detail screen Large size list -> 8 rows"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x612abd54",
+      "expect": "0cbc2a61",
+      "new": "e0e97860",
+      "why": "detail screen 50M size list -> 8 rows"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x612abd58",
+      "expect": "7cbc2a61",
+      "new": "40ea7860",
+      "why": "detail screen 25M size list -> 8 rows"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x612abcec",
+      "expect": "1cb92a61",
+      "new": "a0ea7860",
+      "why": "detail screen class 13 size list -> 8 rows"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x612abcf4",
+      "expect": "8cb92a61",
+      "new": "00eb7860",
+      "why": "detail screen class 11 size list -> 8 rows"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x612abcfc",
+      "expect": "fcb92a61",
+      "new": "60eb7860",
+      "why": "detail screen class 3 size list -> 8 rows"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x612abd04",
+      "expect": "68ba2a61",
+      "new": "c0eb7860",
+      "why": "detail screen class 8 size list -> 8 rows"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x612abd0c",
+      "expect": "d0ba2a61",
+      "new": "20ec7860",
+      "why": "detail screen class 7 size list -> 8 rows"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x612abd14",
+      "expect": "38bb2a61",
+      "new": "80ec7860",
+      "why": "detail screen class 6 size list -> 8 rows"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x612abd1c",
+      "expect": "9cbb2a61",
+      "new": "e0ec7860",
+      "why": "detail screen class 5 size list -> 8 rows"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x6078e8c0",
+      "expect": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "new": "0100000004002401c0b72a610200000004002501c0b72a610300000004002301c0b72a61040000000400fa06c0b72a610900000004002701c0b72a610a0000000400bd0cc0b72a610600000005000000f47725600700000005000000fa77256001000000050000003cb82a6102000000050000003cb82a6103000000050000003cb82a6104000000050000003cb82a6109000000050000003cb82a6106000000050000003cb82a6107000000050000003cb82a61ffffffff000000000000000001000000050000003cb82a61020000000500000084b82a6103000000050000008eb82a61040000000500000098b82a610900000005000000a2b82a61060000000500000040ed786007000000050000004aed7860ffffffff00000000000000000100000005000000d8bb2a610200000005000000e2bb2a610300000005000000ecbb2a610400000005000000f6bb2a61090000000500000000bc2a61060000000500000054ed786007000000050000005eed7860ffffffff0000000000000000010000000500000048bc2a61020000000500000052bc2a6103000000050000005cbc2a61040000000500000066bc2a61090000000500000070bc2a61060000000500000068ed7860070000000500000072ed7860ffffffff00000000000000000100000005000000e8b82a610200000005000000f2b82a610300000005000000fcb82a61040000000500000006b92a61090000000500000010b92a6106000000050000007ced7860070000000500000086ed7860ffffffff0000000000000000010000000500000058b92a61020000000500000062b92a6103000000050000006cb92a61040000000500000076b92a61090000000500000080b92a61060000000500000090ed7860070000000500000099ed7860ffffffff00000000000000000100000005000000c8b92a610200000005000000d2b92a610300000005000000dcb92a610400000005000000e6b92a610900000005000000f0b92a610600000005000000a3ed78600700000005000000aced7860ffffffff0000000000000000010000000500000038ba2a61020000000500000042ba2a6103000000050000004cba2a61040000000500000055ba2a6109000000050000005fba2a610600000005000000b5ed78600700000005000000beed7860ffffffff00000000000000000100000005000000a4ba2a610200000005000000adba2a610300000005000000b6ba2a610400000005000000bfba2a610900000005000000c7ba2a610600000005000000c7ed78600700000005000000d0ed7860ffffffff000000000000000001000000050000000cbb2a61020000000500000015bb2a6103000000050000001ebb2a61040000000500000027bb2a6109000000050000002fbb2a610600000005000000d9ed78600700000005000000e2ed7860ffffffff0000000000000000010000000500000074bb2a6102000000050000007cbb2a61030000000500000084bb2a6104000000050000008cbb2a61090000000500000094bb2a610600000005000000ebed78600700000005000000f3ed7860ffffffff000000000000000035313834783139323000353138347832323234003831363078333030380038313630783335303400353736307832313238003537363078323436340033323030783131383400333230307831333736003235363078393434003235363078313130340031393230783730340031393230783831360031363030783539320031363030783638380031323830783438300031323830783534340031303234783338340031303234783433320036343078323430003634307832373200",
+      "why": "detail screen lists + size text (1339 B)"
+    },
+    {
+      "kind": "0x100",
+      "addr": "0x612abd22",
+      "expect": "0600",
+      "new": "0800",
+      "why": "detail screen list count 6 -> 8"
+    }
+  ]
+}

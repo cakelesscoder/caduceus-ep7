@@ -503,3 +503,361 @@ Every step, check and decision, newest last. "Verified" = checked by hash or rep
 - 4000 (Velvia) vs 4001 ("neutral"): 4001 matches the earlier i-Enhance signature (mouse H184/S99, orange S82), so it
   was not a neutral mode. This Velvia measured less saturated than the earlier session (orange 65 vs 74, purple 40 vs 55)
   under warmer/dimmer light; cross-session comparison inconclusive. Next: Provia and Velvia (×1, Chroma 0) back to back.
+
+## 2026-11-11 — E-M1 Mark II v0.4 camera test: restart at the shutter → v0.4b1 / v0.4b2
+- Camera (v0.4 = v0.3b5 + debug_log + aspect): taking a picture restarts the camera; no CADLOG.TXT; no Panorama/Wide
+  in the menu.
+- Cause of the restart, from the shipped v0.4 bytes (disassembled): debug_log at the TRIG join 0x6023d10a had
+  (1) frame mismatches: `call do_debug_log,[d2,d3,a2,a3],36` but `ret [],4`, and 34 helper calls `[],0` into `ret [],4`.
+  The first return goes to a wrong address on every TRIG event, with or without DEBUG.TXT, so no log could be written;
+  (2) absolute stores into its own cave (lg_on/lg_slot/lg_n/lg_buf_ptr at 0x6078ecbc..c5), which is FIRMWARE_GUIDE §10
+  lesson 2 (test 7a crashed on the first half-press the same way). The v0.3b5 changelog entry that called it
+  "non-invasive / zero impact" was wrong; the v0.3b5 folder was also rebuilt with this logger (git diff), so it crashes too.
+- Why it passed: omdem1mk2_audit_opcodes.py checked only 0xFB / mul/div / setlb. It now also fails on absolute
+  stores into 0x60020020..0x61920000 and on internal call/ret frame mismatches (it reports 7 stores + 35 mismatches on
+  the v0.4 logger, 0 on sd_loader / color_creator / the new logger), and the release builder runs it.
+- debug_log rewritten (v0.4b1): state in P (P_LGON 96, P_LGSLOT 97, P_LGN 100; p_layout.inc), locals on the stack with
+  (0,sp) kept as the call slot, sd_gate's card-mount test before any fopen, works without P (looks every event,
+  "P: NULL"). Report 1,024 B. LOOKS.BIN header read into (20,sp) (v0.4 read it into (0,sp), which each call overwrote).
+  Stock fopen/fclose/fread/fwrite frames checked against their rets (fwrite 0x6062cf7a and fread 0x6062d084 end
+  `ret [d2,d3,a2,a3],24`). Hook site: 3 branches + fall-through land on 0x6023d10a, none inside the 7 bytes.
+- Aspect (no camera evidence yet, because of the crash): no static fault found. Records match the E-P7 v4+ design: validator sid 270
+  0x604f07cc (list → 0x60257580, 5 → 7), menu {270,6} 0x6124ea1c → 8 entries, SCP {270,5} 0x6124aea4 → 7. All edits
+  in loaded, identity-mapped sections (descriptor table 0x60027450). Sids 511/512 (0x604f1630/44) also use the stock
+  list 0x604edb06; the E-P7 has the same pair (0x604cfbdc/f0) and its entries appeared with only 270 patched.
+  Pixel-readout rewrite 0x60f13985 checked: offsets 2/16, stride 30, 10 rows = the loop bound.
+- check_loaded.py: the new .data-image allowance said "aspect tables camera-proven" (false) and started at 0x60257800.
+  The flash→RAM delta from two known pairs (0x60297fb4→0x61fbd4f4, 0x6026e524→0x61f93a64) is 0x1d25540, so the image
+  starts at 0x60258000; range and comment corrected. No edit lies in 0x60257800..0x60258000.
+- Releases (FIRMWARE_GUIDE §10 lesson 1, one feature group per flash): v0.4b1 = v0.3b5 + fixed debug_log (22 edits,
+  patched c4431de2…); v0.4b2 = v0.4b1 + aspect (154 edits, patched abea3854…). Builder: `--skip aspect`.
+  Build, audit, check_loaded, verify all good; v0.4b1 package bytes re-read == spec. Not camera-tested.
+
+## 2026-11-11 — v0.4b1 on camera: still restarts at the shutter → v0.4b3 / v0.4b4
+- Camera (v0.4b1): the camera still restarts at the shutter.
+- Cause: the debug_log hook at 0x6023d10a was `dc b5 17 55 00` = jmp 0x6078e8bf, one byte before the cave, onto an 0xFF
+  (`break`) fill byte. debug_log/build.py computed the d32 displacement from HOOK_ADDR + 1; AM33 jmp (d32,PC) is relative
+  to the jmp's own address (the cave's exit `dc 1f e8 aa ff` at 0x6078e8f2 → 0x6023d111 shows it; sd_loader's linker-built
+  hook lands on 0x60580200). The same byte was in v0.4. **Correction to the previous entry:** I listed two crash
+  causes as "the" cause without disassembling the hook; this third one alone crashes every press.
+- Fix: disp = CAVE_ADDR - HOOK_ADDR, with an assert. omdem1mk2_check_loaded.py now checks every installed jmp d32 lands
+  on a byte the release wrote and not on 0xFF; it fails the v0.4b1 spec (BAD JMP 0x6023d10a -> 0x6078e8bf) and passes
+  the three camera-proven hooks.
+- Hand trace of the v0.4b3 image: hook → 0x6078e8c0 wrapper → do_debug_log (ret [d2,d3,a2,a3],36) → restore → replayed
+  movhu/exth → jmp 0x6023d111. The emulator (external/oly_fw_analysis) is not checked out here, so this is not executed.
+- Releases: v0.4b1 / v0.4b2 withdrawn (bad hook). v0.4b3 = v0.3b5 + debug_log (22 edits, patched d7c17e39…);
+  v0.4b4 = v0.4b3 + aspect (154 edits, patched bce129fc…). Build, audit, check_loaded, verify all good. Not camera-tested.
+
+## 2026-11-11 — v0.4b3 on camera: no reboot, but the shutter is broken → logger pulled
+- Camera (v0.4b3, card in slot 1 only): with DEBUG.TXT, a CARD error at every half-press and no CADLOG.TXT. Without
+  DEBUG.TXT, no CARD error, but live view resets at the half-press and nothing is captured. So the hook breaks
+  shooting even on its cheap path (no file I/O after the first check).
+- Diagnosis (not proven): the hook site is wrong. 0x6023d10a is where every path of the classifier joins, so it runs for more
+  events than the half-press. The camera-proven E-P7 (0x602c805f) and OM-3 loggers hook one shutter path in the
+  HLS_EVENT task, and they touch the card only after a gate: all sections loaded, caller tid == HLS_EVENT, a card
+  reports MOUNT OK, at most once per event. Ours checked only mount. Card I/O is a synchronous RPC to FILECLBK with no
+  timeout (FIRMWARE_GUIDE), so calling it from the wrong task or at the wrong moment is unsafe.
+- Same CPU/OS family: E-M1 II get_tid = 0x600317be (byte-identical to E-P7 0x600317ac); section bits = 0xa2767afc
+  (E-P7 0xa272e420). The task-creation code (HLS_EVENT string 0x60aa1dd3, tid stored at mgr+172, function at
+  0x607b4235) matches the E-P7's, but the E-M1 II event-manager address (E-P7 0x622cbc14) is not found yet: no direct
+  calls or absolute refs to 0x607b4235. Also open: whether 0x6023d0db (sd_loader, camera-proven) really runs in HLS_EVENT
+  (REA_FIRMWARE_FUNCTIONS_REFERENCE says so without evidence).
+- Releases: v0.3b5r = v0.3b5 rebuilt without logger/aspect, patched 72552d29… == the camera-tested v0.3b5 (the
+  committed v0.3b5 folder was overwritten with a logger build in the working tree). v0.4b5 = v0.3b5 + aspect only
+  (152 edits, patched 2ddda8bc…). v0.4b1..b4 withdrawn (all contain the logger). Builder copies DEBUG.TXT only with the logger.
+- Next for the logger: find the E-M1 II HLS tid, prove the hook's task, then either chain the logger off sd_loader's
+  proven site (0x6023d0db path) with the full four-part gate, or hook the E-M1 II equivalent of the E-P7 appevent tracker.
+
+## 2026-11-11 — Aspect: "nothing shows in Menu 1 > Image Aspect" (owner), static re-check
+- Owner: on earlier builds the menu shows 4:3, 3:4, 1:1, 16:9 (no 3:2, no Panorama/Wide). Not yet known which build
+  was on the camera (only v0.4 of v0.4..v0.4b4 had aspect *without* being withdrawn for the logger; v0.4b1/b3 had no
+  aspect) and whether 3:2 shows on a build without aspect. Pending: v0.3b5r baseline, then v0.4b5.
+- Checked statically (all consistent with the patch working, so no fault found yet):
+  - Validator: count 0x602e6588 = rec+12 / rec+14 (7/1 = 7), value 0x602e65f3 = byte list[i] (+14 == 1). Lookups
+    0x602e6bfb / 0x602e6c25 hash sid (& 127) into RAM table 0x622540f4; the second also matches rec+2. Only one sid-270
+    record exists (0x604f07cc, attr 0x80).
+  - Menu item for "Image Aspect" (string 70) is item 0x6124dd38 {cond 0x6124d8b0, sid 270, type 4}; its page lists 6
+    descriptors from 0x6124ea14 ({0x6f}, {270} = ours, {10}, {0x22}, {0x2ab}, {0x5b2}), same structure as the E-P7.
+  - Settings registry 0x6046eb7c..0x60473c1c (344 × 60 B, sid at +0): no record for 270, 511 or 512, so nothing builds
+    the list at runtime (as on the E-P7).
+- A missing 3:2 on an aspect build would mean our relocated lists are read but parsed differently than assumed; on a
+  build without aspect it would mean a filter we haven't found yet.
+
+## 2026-11-11 — v0.4b5 on camera: no Panorama/Wide anywhere → probe v0.4b6-probe
+- Camera (v0.4b5): Live Control strip and Shooting Menu 1 show the stock 4:3 16:9 3:2 1:1 3:4 only (photo: 3:4 selected,
+  "2912x3888"). The earlier "four options" reports were the window showing 4 rows at a time. Owner asks for ratio
+  numbers as labels ("Panorama"/"Wide" text won't fit in the strip).
+- The size readout 2912x3888 comes from PIX_NEW in the section-1 cave (0x602576b8), so the cave with the new validator
+  list (0x60257580) is loaded, intact and read.
+- Static path (same as E-P7): menu count 0x602dc36d → runtime slot? (0x602dce0a: two RAM slots 0x622512fc + 76·i, sid at
+  +68, filled only for sids with a registry record; 270 has none) → registry callback? (0x602dc343, none) → validator
+  count 0x602e6588 = 7. Validator hash 0x602e6b9a.. builds 128 buckets from 1215 × 20 B records at 0x604ee648; sid 270 =
+  index 429 only. 511/512 are mostly display-resource ids (setting getter 0x602fb84b sees 511 twice).
+- So the visible filter is not found. Probe v0.4b6-probe (= v0.4b5 with validator list 1,3,2,9,6,7, count 6;
+  EM1_ASPECT_VAL env in aspect/build.py; patched 389e5c7e…): if 1:1 disappears, the menu reads our list and 6/7 are
+  dropped elsewhere; if 1:1 stays, the validator is not what filters. Set 4:3 before flashing.
+
+## 2026-11-11 — v0.4b6-probe on camera: 1:1 disappeared → the validator list IS used; 6/7 dropped elsewhere
+- Camera: with the validator list 1,3,2,9,6,7, 1:1 is gone from the menu and the strip; Panorama/Wide still absent.
+  So the menu and strip take their values from our list, and something after that removes 6/7.
+- Ruled out (static): labels (string table 0x101 res 8, runtime-solved: 241 "Panorama", 2661 "Wide", 70 "Image Aspect",
+  292/291/293/1786/295/3261 = 4:3/16:9/3:2/1:1/3:4/17:9, same ids as E-P7); cond words 0x6124d8b0 / 0x61247d80 point
+  to zero words (as E-P7); settings registry (no 270); runtime slots (registry-only); per-setting rule dispatcher
+  0x602de6a7 (tables 0x60475654/60/9c: sids 25, 85, 40, 1561, 1463, 1467 only). Option resolver 0x60e59f78 (= E-P7
+  0x60df250b) maps value → label only, no filter; 295 callers. GUI wrapper 0x608632e8 (count → value-by-index →
+  0x602da63c) has no filter either.
+- Two hypotheses left: (a) the builder walks only the first N option-list entries with a stock N stored elsewhere
+  (6/7 are after the stock entries); (b) a value filter against a table without 6/7 entries.
+- Probe v0.4b7-probe (EM1_ASPECT_NEW_FIRST=1: 6/7 first in the menu list and both strip lists; validator unchanged;
+  patched 496baf2e…): 6/7 appear → (a); still absent → (b); menu shows them but the strip doesn't → the strip skips
+  type-4 (text) entries and needs icons.
+
+## 2026-11-11 — v0.4b7-probe on camera: 6/7 first in every list → still absent → a per-value filter
+- Camera: menu and strip show 4:3 16:9 3:2 1:1 3:4 (all five stock options, none pushed off), no Panorama/Wide. So there is no row cap,
+  and the strip's icon-only drawing isn't the (only) cause: the menu (all text entries) hides them too.
+- Read since: value post-step 0x602dbb85/0x602dbbc5 → 0x602e6403 / 0x602e63dc (index-of 0x602e644c, optional value
+  translation via validator +8 "alt" table: ours is 0); 0x602e6732 = type class (rec+17). No filter.
+- Full stride/width search for 1,3,2,4,9 (u8/u16/u32, stride 4..24): besides our three lists, 12-byte LV/display
+  lists 0x61234870.. (12, refs 0x60e5f4fa..800) and 0x612a8ad0.. (8, refs 0x60ef72e0..3a7), 8-byte value→index maps
+  0x61240cec/0x612413f4/0x612442c8/0x612449d0, 16-byte 0x61212bb4.. (×4) and 0x612475f4 (value→index, in a {ptr,count}
+  table at 0x61247c60). All contain 1,3,2,4,9,10 and no 6/7. Hypothesis: the screens drop values with no row there.
+- Probe v0.4b8-probe: validator 1,3,2,4,9,6,7,10 (count 8; 17:9 is in every stock table and in our menu list, but
+  not in the strip lists). 17:9 appears in the menu → per-value table filter (extend those tables for 6/7); 17:9 hidden
+  too → a code-level value filter. Do not select 17:9. patched 612d25d9….
+- Builder now writes the package as E1259999.BIN (owner's request); v0.3b5r/v0.4b5/b6/b7 folders renamed, sums fixed.
+
+## 2026-11-11 — v0.4b8-probe on camera: 17:9 also hidden → not per-value tables; probe sids 511/512
+- Camera (validator 1,3,2,4,9,6,7,10): the menu shows the stock five only. 17:9 has rows in every aspect table and in our
+  menu list, so "value missing from a table" is ruled out.
+- No code whitelist found: no window of immediate compares {1,2,3,4,9} without 5..8/10, no `cmp 4` + `cmp 9` range
+  test, no 0x21e bitmask.
+- Remaining explanation consistent with all four camera results: the screens also check a second validator. Sids 511/512
+  have their own records (0x604f162c / 0x604f1640, attr 0x80) on a separate stock list 1,3,2,4,9 (0x604edb06). Earlier
+  dismissed because the E-P7 has the same pair, but never shown unused on the E-M1 II.
+- Probe v0.4b9-probe (EM1_ASPECT_511=1: 511/512 → VAL_NEW, count 7; otherwise = v0.4b5; patched b6fc7fee…).
+  Panorama/Wide appear → 511/512 join the aspect patch; still absent → the filter is elsewhere in GUI code.
+
+## 2026-11-11 — v0.4b9-probe on camera: strip grows to 7 slots (2 blank, not selectable) → v0.4b10-probe
+- Camera: menu unchanged (stock five, wraps). The Live Control strip now has 7 slots: the stock five + two empty,
+  non-selectable ones at the end. First change that added slots, so the strip's slot count follows the sid 511/512
+  validators (first proof that the E-M1 II uses them; the E-P7 assumption was wrong for this body).
+- Blank because 511/512 are also display resources (as on the E-P7): records {id, A, B, count} 0x612e1f08 (0x1ff) and
+  0x612e1fb8 (0x200) → value→bitmap lists A 0x612e1dc8 (white 477/476/478/479/2422) and B 0x612e1df0 (green 472/471/
+  473/475/2421), 5 entries, no 6/7.
+- v0.4b10-probe (EM1_ASPECT_511=1): v0.4b9 + 7-entry A/B lists at 0x60bc8560 (section-5 FF tail, 688 B free) with
+  placeholders 6 → 16:9 icon, 7 → 3:2 icon; both records → new lists, count 7. 159 edits, patched 24eadefa….
+- Not ported from the E-P7 and needed before Panorama/Wide are safe to use: the AF target selector fix (E-P7 issue #23:
+  AF_Target_Actuator lookups miss 6/7 → stale mask pointer → crash) and no boot clamp, so a saved 6/7 is used at power-on.
+- Menu: still filtered by something else (it ignores 511/512). Open.
+
+## 2026-11-11 — v0.4b10-probe on camera: strip slots still blank → v0.4b11-probe (strip entries as icons)
+- Camera: still 7 strip slots, the last two empty and not selectable; menu unchanged. So the 0x1ff/0x200 value→bitmap
+  resource lists are not what the strip draws (kept in b11, harmless).
+- Strip lists A/B (0x61249554 / SCP_NEWB) carried 6/7 as type 4 text (241/2661); every stock strip entry is type 3
+  (icon). The E-P7 hit the same (ASPECT.md 1h: SCP 6/7 type 4 → type 3). v0.4b11-probe: 6/7 as type 3, placeholders
+  A 476/478, B 471/473 (16:9 / 3:2 icons). Menu entries stay text. patched b1413ed1…. Same safety notes as b10.
+
+## 2026-11-11 — Emulator set up; settings layer and GUI facade proven to return Panorama/Wide
+- external/oly_fw_analysis fetched at its pinned commit 539fcf1 (submodule). GNU sim source: googlesource +archive of
+  87ffb882 re-downloaded; its gzip bytes differ from the pinned a5e7cd02… (got 07b5a784…), but sim/mn10300/interp.c and
+  mn10300.igen match prepare_mn103_sim.py's pins. Built by hand with build_mn103_emulator.py's steps (strict patch
+  applied); toolchains/mn103-gnu-src/.penf-source.json records the real archive hash and why.
+- New tool tools/omdem1mk2_emu_validator.py: patched image → firmware hash init 0x602e6ba4 → real count 0x602e6588 /
+  value 0x602e65f3. Results (emulated, [V]): stock 270/511/512 = 1,3,2,4,9; v0.4b5 270 = 1,3,2,4,9,6,7 (511/512 stock);
+  v0.4b9 all three = 1,3,2,4,9,6,7.
+- GUI facade wrapper 0x608632e8 (vtable 0x60afb400: +24 count 0x60836769, +28 value 0x60836991, same layout as E-P7)
+  emulated on v0.4b5 for sid 270: indices 0..6 → 1,3,2,4,9,6,7, index 7 → fail. So the filter is in the screen code
+  above the facade, not in settings.
+- Not it: 0x60e5f4c1.. picks one of the 12 lists 0x61234870.. ({value, display ptr, …}: 1,3,2,4,9,10) by mode and
+  looks up the *current* value (current-value cell drawing).
+- Next (larger): find and emulate the option-popup / strip builder (callers of facade +24/+28 that also use the resolver
+  0x60e59f78; 280 candidate pairs), which needs GUI object fixtures.
+- Correction to the b9/b10 entries: the "two empty slots" match the strip's stock unused width (same in the v0.4b5
+  photo); 511/512 were never shown to matter on camera.
+
+## 2026-11-11 (night) — Aspect root cause found in emulation: the interlock rules → v0.4c1 / v0.4c2
+- Generic option-list builder found: 0x60e4a59c (obj+80 = sid; facade +24 count → obj+92; arrays obj+100/+104;
+  loop: facade +28 value → if mode flag (0x607f7107 vt0(sid)) == 1, facade **+36 (sid, value)** → available → obj+100[i]
+  = 0, else 1 = row hidden). 53 GUI sites call facade +36 (menu, SCP 0x60e59xxx, others), so one check gates all surfaces.
+- facade +36 = 0x60836357 → 0x6086333c(sid, v) → (ordinary sids) 0x602da752(sid, 0, v) → rule dispatcher 0x602de6a7 →
+  interlock engine 0x602de667 / 0x602de0a0. Rules: RAM hash 0x62252c28 (32 buckets) built at boot by 0x602de9c9 from the
+  ROM rule table 0x604a8408 (324 × 20 B). Sid 270 = record 179 {270, 2000, list 0x604a0578, n 13}: condition entries
+  (sid 24 = 185..189, sid 44 = 1, 15206/15263, 697, 705, 15210) and {u16 value, u16 result} tables 0x604a0518 (→3),
+  0x604a0530 (→1), 0x604a0548 (→10), 0x604a0560 (identity, 10→1), all listing only 1,3,2,4,9,10; continuation entries
+  0x604a05e0..0x604a0640 use the same tables.
+- Emulated [V] (tools/omdem1mk2_emu_rules.py: firmware validator init + rule init + check, fixtures listed in its doc):
+  stock and v0.4b5 → rule 0 for 1,2,3,4,9, 256 for 5,6,7,8,10; facade worker offers [1,2,3,4,9] = exactly the camera.
+  The E-P7 analysis never reached this layer (its camera test only needed the validator).
+- Fix (aspect build.py §13): four 8-row copies with 6/7 appended (→3/→1/→10/identity 6→6, 7→7) at 0x60580700 (section-2
+  FF tail, same section as the rules), 13 {ptr, n} entries repointed (6 in record 179, 7 continuation). Emulated v0.4c1:
+  offered [1,2,3,4,6,7,9]; 5, 8, 10 still rejected.
+- AF target selector (E-P7 issue #23 equivalent, §14): AF_Target_Actuator reads headers {flag, list, u16 n=6} at
+  0x61212d34 (+12 stride; code 0x60e3ad47..: on a miss it skips the obj+60 mask / style store). Lists copied with 6/7 =
+  the 16:9 row, at 0x60bc8560 (section-5 tail), headers → n 8. Static only.
+- Live-view case blocks (S7/S8/S9/S10/S_alt) checked against the stock cases: same registers / stack slots / resume
+  addresses. Ids 6/7 are stock hidden aspects (7:6, 6:5), so unpatched aspect switches still have working stock cases.
+- Releases: v0.4c1 = v0.3b5 + aspect (text strip entries) 171 edits, patched a340cc96…; v0.4c2 = same + strip entries as
+  placeholder icons (6 → 16:9 icon, 7 → 3:2 icon; EM1_ASPECT_STRIP_ICONS=1) patched 89b3bec0…. Build, audit,
+  check_loaded, verify, emulation all good. Not camera-tested. No boot clamp (a saved 6/7 is used at power-on).
+
+## 2026-11-12 — v0.4c1 on camera: Panorama selectable and shoots
+- Camera (v0.4c1): Shooting Menu 1 row shows "Image Aspect  Panorama"; Panorama selectable; shot taken; LV readout
+  5184x1920 (= 65:24). First camera confirmation of the interlock-rule fix (emulation-first worked).
+- Labels: the text entries (type 4, strings 241/2661) render only in the menu row's current value. The Live Control strip
+  shows no cell for 6/7 (Panorama selected, no cell highlighted) and the Image Aspect option list doesn't show them
+  either (owner). Both draw icons (type 3) only. Next: v0.4c2 (placeholder icons) to confirm, then real XP/21:9 icons in
+  the OSD component (E-P7 route: patches/aspect/osd_icons.py, in-place bitmaps).
+- Open: JPEG pixel size from the card; LV framing in Panorama; Wide (5184x2224); AF target selector with Panorama.
+
+## 2026-11-12 — v0.4c1 details → v0.4c3 (short labels "65:24" / "21:9", icon entries)
+- Camera (v0.4c1): JPEG 5184x1920 confirmed. Panorama was selected via the strip's blank cell; the Image Aspect option
+  list shows only the five stock rows (no blank rows); the menu row shows "Panorama".
+- Owner: use the short ratio names. Strings 241 "Panorama" and 2661 "Wide" are shared (241 = value 14 in two other
+  option lists 0x61236fb0/0x612b6f24, 2661 = value 100 at 0x612a8600), so not edited in place. Instead the menu
+  entries for 6/7 use kind 5 (text from a char*, FIRMWARE_GUIDE "Labels"; E-M1 II resolver 0x60e59f78 has the same
+  kind-5 path: memset 66 + strlen 0x600e17d1 + copy) with "65:24" / "21:9" at 0x602577f4 / 0x602577fa (last 12 bytes of
+  the section-1 cave). English string table check: res 8 has no "21:9"/"65:24" string.
+- Ruled out for the missing menu rows (emulated on v0.4c1): rule kinds 1/2 (0x602da843) allow 1..10; stepping
+  0x602e62f2 walks the validator list. Working theory: the option list draws from the icon (type 3) lists like the strip,
+  and skips undrawable text entries. v0.4c3 makes the strip/record lists' 6/7 entries icons (placeholders 16:9 / 3:2 icons;
+  EM1_ASPECT_STRIP_TEXT=1 restores text). Rows appearing in the option list on v0.4c3 = theory confirmed.
+- v0.4c3: 172 edits, patched 4fcd11f9…; build/audit/check_loaded/verify good; emulated offered values 1,2,3,4,6,7,9.
+
+## 2026-11-12 — v0.4c3 on camera → v0.4c4 (detail screen, SCP icon tables) and v0.4c5 (real icons)
+- Camera (v0.4c3): menu row shows "21:9" / "65:24" (kind-5 text works). OK on the row opens the detail screen
+  (selector box + RAW/L/M/S/50M/25M size table): 6/7 are two empty, selectable entries; selecting one shot 5184x2224;
+  scrolling past them makes them vanish. SCP: 6/7 missing. Owner asked for everything documented:
+  docs/OMD-EM1-II/ASPECT.md (new, the full E-M1 II aspect write-up).
+- Detail screen = screen record 0x612abd20 (draw 0x60efa603): the resolver count is u16 record+2 (6) for the label list
+  +28 and the size lists +32/+36/+52/+56 and the 7 class lists via +44. v0.4c4 §15: all 12 lists as 8 rows with 6/7
+  (kind-5 "65:24"/"21:9", sizes from the pixel table), count 8; section-4 tail 0x6078e8c0..0x6078edfb (debug_log's
+  old cave: relocate if the logger returns).
+- SCP: option source not found (member-function dispatch; only ISO/AF frame have handlers). Display resources
+  0x1ff/0x200 icon tables (value → bitmap) extended with 6/7 by default now (0x60bc8760); b9/b10 tested them only while the
+  interlock rules still hid 6/7.
+- Icons (v0.4c5): patches/omdem1mk2/aspect_icons/build.py on the E-P7 OSD library. E-M1 OSD parses as is (bank 0
+  0xa2c91000, bank 69 0xa3691000; aspect icons same ids/formats). 21:9 = stock glyphs; 65:24 = stock 6 : 2 4 + rendered 5,
+  squeezed 44→38 px. Loader 0x6017841a = E-P7 0x6015ad92 (bound 0xf26140); predicted string base 0xa3c7f540 = solved one;
+  675 KB free after bank 69. Appended after resource 69 (size 0x47d400 → 0x47e600), placeholders 6668/6669/7086/7087
+  (no targeted refs among 214 candidates). Verified from the package: 4 ids decode exactly, 0 other bitmaps changed,
+  restore OSD = stock. E-P7 in-place donors (headphone icons) not usable: the E-M1 II has a headphone jack.
+- Releases: v0.4c4 (189 edits, patched 004d21b7…), v0.4c5 (195 edits incl. 6 OSD, patched 71f0d918…). Build, audit,
+  verify, emulation (offered 1,2,3,4,6,7,9) good. Not camera-tested. EM1_ASPECT_PLACEHOLDER_ICONS=1 = placeholder variant.
+
+## 2026-11-12 — v0.4c5 on camera → v0.4c6 (icons in main-image free space)
+
+- Owner, v0.4c5: picture aspect in the regular menu works great. Super Control Panel: 65:24 and 21:9 are now
+  selectable but show an empty cell. c3 had no SCP entries at all; c4/c5 added the display-resource lists 0x1ff/0x200,
+  so those lists are the SCP's option source [C]. Blank = the appended bitmaps (ids 6668 / 7086) don't draw.
+- Loader 0x6017841a read: bank 0 → 0xa2c91000, the requested other bank → 0xa3691000. I first read this as "bank 69
+  shares a slot with the language banks", which is wrong: 3095 stock table entries point into bank 69, so it's resident;
+  language banks self-point near 0xa3ca.. and bank 68 near 0xa3bb... The appended icons sat in the gap after bank 69
+  (assumed 675 KB free), most likely used at runtime [I]. Not traced.
+- No unused aspect-style donor bitmaps exist (481–485 etc. are ON / mic icons); zero runs inside banks 35–68 are
+  structured data. The base region's 32 KB 0xFF blocks are referenced heavily, so not used.
+- v0.4c6: white streams + descriptors in main-image free 0xFF space (65:24 815 B at 0x605d2a6c, section-3 tail; 21:9
+  678 B at 0x60256cf0, section-1 padding before 0x60256ff0; descriptors 0x605d2d9c / 0x605d2db4); OSD bank-0 table
+  entries 6668 / 7086 repointed (2 OSD edits). The green ids are dropped; selected lists use the white ids. Patched sha
+  929ac797…, 195 edits; check_loaded + audit OK; both ids decode through table → descriptor → stream.
+- v0.4c6p: same with stock 16:9 / 3:2 placeholders (sha c28163f8…), differs only in the three list edits.
+- Also fixed: ARCHITECTURE_AND_MEMORY_MAP.md said the uncached alias is an OR with 0x40000000; it is +0x40000000.
+
+## 2026-11-13 — v0.4c6 on camera → v0.4c7 (AF 4:3 rows; icon diagnostic)
+
+- Owner, v0.4c6: AF target selector in the new modes opens with the 4:3 layout and no green cursor; AF works without
+  a visual indicator; grid modes switch. SCP 65:24 / 21:9 still blank. c6p not flashed.
+- AF: AF_Target_Actuator's layout if-chains (0x60e3be0f, 0x60e3c9d2) cover 9/4/3/2/1/10 and default to the 4:3 table
+  0x612141a0, so 6/7 always got the 4:3 layout while §14 gave them the 16:9 mask. §14 now copies the 4:3 rows
+  (EM1_ASPECT_AF169=1 restores 16:9). Verified in the c7 spec: all four headers, 8 rows, 6/7 = value-1 row.
+- Icons: getter 0x60d76dc9 (= E-P7 0x60d10ba1, no bound), draw 0x60d7aaea (= E-P7 0x60d145bf) found by byte pattern;
+  SCP cell builder 0x60f359d6 reads the 0x1ff/0x200 item records. No unused donor bitmaps (35 zero-reference 50×38
+  bitmaps, all ISO/CWB/4K/ART value icons from computed sequences).
+- v0.4c7 (EM1_ICON_DIAG=1): 65:24 with uncached pointers (0xa05d2d9c / 0xa05d2a6c); 21:9 table entry → stock 16:9
+  descriptor 0xa2d9ce8c to test whether OSD table edits take effect. 193 edits, patched sha 20fee2ff…, audit OK.
+  The tree's default aspect_icons output stays non-diagnostic (uncached, real 21:9).
+
+## 2026-11-13 — v0.4c7 on camera → emulator-first; v0.4c8 (SCP value cell, AF/AE display lookups)
+
+- Owner, v0.4c7: neither fixed. SCP 21:9 (pointed at the stock 16:9 bitmap) blank as well; AF selector unchanged.
+  Owner rule: always test in the emulator first (AGENTS.md "Test in the emulator before every camera build"; memory).
+- Package check: the c7 OSD component holds both table edits (oly_container parse). So the cell never reached a bitmap.
+- SCP: E-P7 §1j map applies. Cell builders 0x60e6a0b9 / 0x60e70bf0 look 270 up in 0x612413f4 / 0x612449d0 (6 entries,
+  → 2..7); widget record 0x611329f8 parts = index − 2. Fix §16 (8-entry list, record → 7 parts). New harness
+  tools/omdem1mk2_emu_scp.py: C/W/G pass on c8; the same harness on c7 reproduces the camera failure (6/7 → index 0).
+- AF: E-P7 aspect_fix policy (16:9 for 6/7). Sites sv 0x60ea25e2, ag1/ag2 0x60e5f5d7/0x60e5f823, mt 0x60e99d28, plus the
+  E-M1 II selector layout chains ch1/ch2 0x60e3be27/0x60e3c9d7; stubs af.s at 0x605d2ec0 (register-only), §14 back to
+  16:9. New harness tools/omdem1mk2_emu_af.py: 768 runs pass (stock unchanged; 6/7 == 16:9; stock 6/7 unwritten/4:3).
+- Regression: emu_rules offered [1,2,3,4,6,7,9]; validator count 7. v0.4c8: 208 edits, patched sha 04c632b0…, audit OK.
+
+## 2026-11-13 — v0.4c8 on camera → v0.4c9 (icons via a bitmap-getter hook, no OSD edits)
+
+- Owner, v0.4c8: AF target selector works. SCP 65:24 / 21:9: two empty, selectable slots (icons still missing).
+- Read: getter 0x60d76dc9 is the only reader of the table pointer 0x61fbc3e0 (set at 0x60f13d22); all 17 bitmap draws
+  call it. Part draw 0x60daef77: 32-slot entry cache at +172 (zeroed at construction), else getter. Kind-3 resolver
+  0x60e59f78 passes the id unchanged. So with the c8 index fix the only common factor left in c5–c8 is the OSD table edit.
+- Fix: af.s `gt` hook at 0x60d76dc9 (6668 → entry 0x605d2dcc, 7086 → 0x605d2dd0, else stock); aspect_icons writes the
+  entry words, no 0x101 edits (EM1_ICON_ROUTE=osd for the old route). omdem1mk2_emu_scp.py G now runs on the stock OSD
+  and checks 395 other ids against stock.
+- Emulator: SCP PASS (6668 / 7086 decode as built, other ids = stock), AF 768 runs PASS, rules [1,2,3,4,6,7,9].
+  Not emulated: the part draw → blitter with a main-image descriptor.
+- v0.4c9 (209 edits, E1259999.BIN 98b191ee…); v0.4c9d (EM1_ICON_DIAG=1, 21:9 entry → stock 16:9, 4222e373…).
+
+## 2026-11-13 — v0.4c9 / c9d on camera → v0.4c10 (SCP option row: second item table)
+
+- Owner: c9 and c9d both blank; the blank spot is the option row (OK on the aspect tile), stock shows icons there.
+  c9d served the stock 16:9 bitmap for 7086 and still nothing → the slot never asks for a bitmap. §6.8's "OSD edits
+  don't work" conclusion withdrawn (unsupported).
+- Enumerated all aspect icon lists. Untouched: 0x612e2eb0/2ed8 (0x1ff/0x200 copies) used by a second item table
+  0x612e3040 (20-B records, read at 0x60f3699b), and label list 0x6123a174 (owner not traced).
+- Row builder 0x60f36b24: per offered value, search A (n) → white id obj+232[k], green id obj+228[k]; no match = empty.
+- Fix: records 0x612e307c / 0x612e3158 → the 7-entry lists 0x60bc8760 / 0x60bc8798, n 7.
+- Harness omdem1mk2_emu_scp.py check R (native record search + per-option search): stock 6/7 → none (= camera),
+  patched 6668 / 7086, stock values identical. PASS. AF 768 runs PASS, rules [1,2,3,4,6,7,9]. v0.4c10: 211 edits, E1259999.BIN 198def1d….
+
+## 2026-11-13 — v0.4c10 on camera → v0.4c11 (SCP tile record, sids 511/512)
+
+- Owner photos on c10: SCP tile "17:9" with 65:24 set; option row 5 icons + empty space; regular-menu strip shows both
+  new icons (so main-image bitmaps via the getter hook draw).
+- Tile: rendered every 6–8-part widget record; record 0x611771d8 (labels 5871..5866, ends with 17:9) is the tile on this
+  layout. c8 index 7 = 17:9's slot. Fix: 6 -> 8, 7 -> 9; both 0xe2 records -> 8 parts; new tile labels (tile.py),
+  ids 6669 / 7087 via the getter hook. Space: section-7 tail (not used before), section-4 tail, section-1 padding,
+  section-5 / -9 tails (all 0xFF, in check_loaded ranges). Base-region 0xFF runs rejected (startup copy/clear markers).
+- Option row: slot values from a list object filled via the facade for sid obj+50 = 511/512; their validators had 5
+  values -> slots 6/7 value 2000 -> empty. EM1_ASPECT_511 default on.
+- Emulator: SCP C/W/R/G PASS (393 other getter ids = stock), AF 768 PASS, rules sid 511/512 count 7, offered
+  [1,2,3,4,6,7,9]. v0.4c11: 223 edits, E1259999.BIN f4ce5e53….
+
+## 2026-11-13 — v0.4c11 on camera → v0.4c12d (option-row diagnostic)
+
+- Owner, c11: SCP tile shows both new labels (fixed). Option row still two empty, selectable slots.
+- Emulated (rules fixtures): facade +24/+28 enumeration for sids 270/511/512: stock 5 values, c11 7 (…, 6, 7); facade
+  +36 availability for 511/512: all 1. With check R, the data path to obj+232/228 is correct for slots 6/7.
+- The row cells' own drawing needs live widget objects (not emulable with the current fixtures) -> one camera
+  diagnostic, v0.4c12d: 6 -> stock id 476; 7086 hook -> stock 16:9 descriptor. Readout table in ASPECT.md §6.11.
+  SCP harness R/G PASS on it. E1259999.BIN ea7f1b19….
+
+## 2026-11-13 — v0.4c12d on camera → v0.4c12 (generic option screen)
+
+- Owner, c12d: both slots blank → cells 6/7 never drawn (not bitmaps, ids or values).
+- Row record obj+104 (data block 35): count 7, case 7 fills all ids; byte 1 = item type = option screen id (57 = 0x39,
+  aspect-only; checks at 0x60f37808 / 0x60f37ac8). Generic screens 0x3a/0x3b/0x3e serve 14/69/41/4/2-value items.
+- Fix: type 0x39 -> 0x3e in records 0x612e307c / 0x612e3158 (EM1_SCP_ROW_TYPE). Screen 57's widget list not found
+  (searched the SCP main layout .data 0x60293d30 and all 50x38 widget geometry).
+- Note: the same type change was already in aspect/build.py from outside this session (identical intent); my
+  duplicate was removed and that version kept.
+- Emulator on c12: SCP C/W/R/G PASS (393 other getter ids = stock), AF 768 PASS, offered [1,2,3,4,6,7,9]. The facade
+  enumeration script was not re-run (scratch file gone; c12 changes no validator data). v0.4c12: 225 edits,
+  E1259999.BIN 123a8933….
+
+## 2026-11-13 — owner correction → c12 withdrawn; v0.4c13 (option-label record key 16)
+
+- Owner: screen 57 already shows the two extra cells (the layout adapts); icons are the problem. c12's screen-type
+  change was based on a wrong inference -> withdrawn, EM1_SCP_ROW_TYPE default back to 0x39.
+- Compared all builds by stage (values / icon number / lookup / image data / layout): c5-c9d were all on the image
+  stage; c10 and c11 fixed real upstream stages; c12d proved the row data isn't what cells 6/7 draw from.
+- Found screen 57's label source: provider 0x60e65473, directory 0x6123ee2c, record key 16 (0x6123e194) with the
+  5-value lists 0x6123a174 / 0x6123a1b0 (the list flagged unextended in §6.9). User 0x60e65214 searches the records.
+- Fix §18: 7-entry lists at 0x60580780 / 0x6058018c, n 7. Harness check L (record -> resolver 0x60e59f78 natively):
+  stock 6/7 none, c13 6668/7086. R's expected screen fixed to 0x39 (it had been changed to 0x3e outside this
+  session). All checks PASS. v0.4c13: 226 edits, E1259999.BIN 90addbc0….
+- Owner, c13 on camera: works — the SCP option row shows the 65:24 / 21:9 icons. Lesson recorded in ASPECT.md §6.13.

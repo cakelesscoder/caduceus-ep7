@@ -102,7 +102,7 @@ The Olympus update package (`E1259999.BIN`) wraps 5 payload blocks within a scra
 ### Memory Mirroring & Uncached Aliases
 The Panasonic MN103 (AM33-2) processor implements a 32-bit flat address space with hardware caching layers:
 - `0x60000000 - 0x61FFFFFF`: **Cached Execution RAM**. Main operating memory where code executes and image processing pipelines run at full clock speed.
-- `0xA0000000 - 0xA1FFFFFF`: **Uncached Hardware / Peripheral Alias**. Bitwise OR of `0x40000000` with the cached address space. Writing to `0xA0xxxxxx` directly bypasses the L1 data cache.
+- `0xA0000000 - 0xA1FFFFFF`: **Uncached Hardware / Peripheral Alias**: the cached address **plus** `0x40000000` (`0x60…` → `0xa0…`; not an OR, since bit 30 is already set in `0x6…`). Writing to `0xA0xxxxxx` directly bypasses the L1 data cache.
 
 ---
 

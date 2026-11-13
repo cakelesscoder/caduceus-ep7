@@ -78,7 +78,9 @@ Camera result on test12e (aspect v3): Panorama/Wide appear in **neither** the ma
 - [V] Both option lists are filtered by the **static setting validator** 0x604cc98c (docs/BUTTONS.md §2): record 442 at
   **0x604cec14** = `{sid 270, attr 0x80, list 0x604cb744, alt 0, bytes 5, elem 1, sub 0, type 1}`, u8 list **1,3,2,4,9**.
   Count 0x602b9f70 / value-by-index 0x602b9fdb sit behind the GUI facade 0x607f9062 (vt+24 0x60826d53 → 0x602af8dc → 0x602b1776;
-  vt+28 0x60826d5f → 0x602af8a3) and the generic menu builder 0x60886900; dial stepping is 0x602b9cda. Sid 270 has no
+  vt+28 0x60826d5f → 0x602af8a3) and the generic menu builder 0x60886900; **Correction (2026-11-12): 0x60886900 is in
+  `CapWif_WifiRemoteTake.cpp` (the Wi-Fi remote's settings enumerator), not the on-camera menu builder; see
+  docs/OMD-EM1-II/ASPECT.md §3 for the E-M1 II's option builder 0x60e4a59c.** dial stepping is 0x602b9cda. Sid 270 has no
   registry record (0x604317ac, 439 × 60 B), so no dynamic-list hook, and it is not one of the two runtime slots (0x62245800).
 - This also explains the hidden **17:9** (§1): 10 is not in the validator list.
 - **Fix (v4):** the 7-byte list `01 03 02 04 09 06 07` at **0x60210f70** (sec-1 FF tail inside the aspect claim; sec 1 loads
