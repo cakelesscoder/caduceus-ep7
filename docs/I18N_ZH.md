@@ -66,9 +66,9 @@ inside composed labels (`5 Shadow ` + `Yellow` -> `5 阴影 黄`). `?` = wants n
 | Film | 胶片 | yes | not shown in v0.32 (Film page shows the look name) |
 | Stock (whole) | 标准 | yes | empty Film slot; 原厂 has no 厂 ? |
 | Custom (whole) | 自定义 | yes | |
-| Extras | 效果 | yes | 附加 / 额外 / 扩展 have no glyph; same word as Effects ? |
-| Extras: 1-N only (whole, N = 5, 9, 10, 11) | 效果: 仅 1-N | yes | |
-| Extras: no All (whole) | 效果: 全部不可用 | yes | ? |
+| Extras | 更多设置 | yes | reviewed (#46, Steven-Yao); 附加 / 扩展 have no glyph |
+| Extras: 1-N only (whole, N = 5, 9, 10, 11) | 更多设置: 仅 1-N | yes | |
+| Extras: no All (whole) | 更多设置: 全部不可用 | yes | |
 | Effects: 1-7 (whole) | 效果: 1-7 | yes | |
 | Colour: 1-8 (whole) | 色彩: 1-8 | yes | |
 | Split: COLOR 1-4 (whole) | 分离色调: COLOR 1-4 | yes | may be wide ? |
@@ -83,14 +83,14 @@ inside composed labels (`5 Shadow ` + `Yellow` -> `5 阴影 黄`). `?` = wants n
 | WB | 白平衡 | yes | |
 | Amber / Blue, Amber/Blue | 黄 / 蓝, 黄/蓝 | yes | 琥珀 missing ? |
 | Green / Magenta, Green/Mag. | 绿 / 品红, 绿/品红 | yes | |
-| Blacks | 暗部 | yes | ? (LR: 黑色色阶) |
-| Whites | 亮部 | yes | ? (LR: 白色色阶); 高光 is taken by the split-tone Highlight fields |
+| Blacks | 黑色色阶 | yes | reviewed (#46) |
+| Whites | 白色色阶 | yes | reviewed (#46) |
 | NR | 降噪 | yes | |
 | Camera (NR / VigFix / Sharp default) | 默认 | yes | "the camera's own setting" |
 | Std | 标准 | yes | |
 | VigFix | 暗角校正 | yes | |
 | Sharp | 锐化 | yes | |
-| Halo | 光环 | yes | ? 光晕 has no glyph |
+| Halo | 光环 | yes | 光晕 preferred (#46) but 晕 has no glyph in the camera font |
 | Shadow (split tone) | 阴影 | yes | |
 | High (split tone highlight) | 高光 | yes | |
 | Yellow / Orange / Or-Red / Red | 黄 / 橙 / 橙红 / 红 | yes | |
