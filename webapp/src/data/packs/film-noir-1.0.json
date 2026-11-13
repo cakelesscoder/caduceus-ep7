@@ -1,0 +1,209 @@
+{
+ "schema": "caduceus-pack/1",
+ "id": "film-noir-1.0",
+ "name": "Film Noir",
+ "version": "1.0",
+ "kind": "mood",
+ "notes": "Black and white: Tri-X, pushed Tri-X, HP5, Acros, Pan F, plus Bleach Bypass for colour slots.",
+ "looks": [
+  {
+   "name": "Tri-X 400",
+   "notes": "Classic gritty reportage mono: punchy contrast, darker skies.",
+   "kind": "mono",
+   "hue": [0,0,0,0,0,0,0,0,0,0,0,0],
+   "light": [0,0,0,0,0,0,0,0,0,0,0,0],
+   "sat": [0,0,0,0,0,0,0,0,0,0,0,0],
+   "grain": "film",
+   "wb": null,
+   "effect": null,
+   "vignette": 0,
+   "art_effect": "off",
+   "tone": {
+    "highlights": 0,
+    "shadows": 0,
+    "midtones": 0,
+    "blacks": 0,
+    "whites": 0
+   },
+   "advice": {
+    "tone": {
+     "highlights": -1,
+     "shadows": -3,
+     "midtones": 0
+    },
+    "contrast": 2,
+    "mono_filter": {
+     "colour": "yellow",
+     "strength": 2
+    }
+   }
+  },
+  {
+   "name": "Tri-X Push",
+   "notes": "Tri-X pushed to EI 1600: hard contrast, blocked shadows, burnt-in greys, the grainy Shinjuku-at-night street style. Advice: contrast +2, shadows -4.",
+   "kind": "mono",
+   "hue": [0,0,0,0,0,0,0,0,0,0,0,0],
+   "light": [0,0,0,0,0,0,0,0,0,0,0,0],
+   "sat": [0,0,0,0,0,0,0,0,0,0,0,0],
+   "grain": "film",
+   "wb": null,
+   "effect": null,
+   "vignette": 0,
+   "art_effect": "off",
+   "tone": {
+    "highlights": 0,
+    "shadows": 0,
+    "midtones": 0,
+    "blacks": 0,
+    "whites": 0
+   },
+   "advice": {
+    "tone": {
+     "highlights": 0,
+     "shadows": -4,
+     "midtones": 0
+    },
+    "contrast": 2,
+    "mono_filter": {
+     "colour": "yellow",
+     "strength": 1
+    }
+   }
+  },
+  {
+   "name": "HP5 Plus",
+   "notes": "Soft, grainy mono with wide latitude and open shadows.",
+   "kind": "mono",
+   "hue": [0,0,0,0,0,0,0,0,0,0,0,0],
+   "light": [0,0,0,0,0,0,0,0,0,0,0,0],
+   "sat": [0,0,0,0,0,0,0,0,0,0,0,0],
+   "grain": "film",
+   "wb": null,
+   "effect": null,
+   "vignette": 0,
+   "art_effect": "off",
+   "tone": {
+    "highlights": 0,
+    "shadows": 0,
+    "midtones": 0,
+    "blacks": 0,
+    "whites": 0
+   },
+   "advice": {
+    "tone": {
+     "highlights": -2,
+     "shadows": 1,
+     "midtones": 0
+    },
+    "mono_filter": {
+     "colour": "none",
+     "strength": 1
+    }
+   }
+  },
+  {
+   "name": "Acros",
+   "notes": "Fine-grain mono: deep blacks, smooth tones, darker reds.",
+   "kind": "mono",
+   "hue": [0,0,0,0,0,0,0,0,0,0,0,0],
+   "light": [0,0,0,0,0,0,0,0,0,0,0,0],
+   "sat": [0,0,0,0,0,0,0,0,0,0,0,0],
+   "grain": "fine",
+   "wb": null,
+   "effect": null,
+   "vignette": 0,
+   "art_effect": "off",
+   "tone": {
+    "highlights": 0,
+    "shadows": 0,
+    "midtones": 0,
+    "blacks": 0,
+    "whites": 0
+   },
+   "advice": {
+    "tone": {
+     "highlights": -1,
+     "shadows": -2,
+     "midtones": 0
+    },
+    "contrast": 1,
+    "mono_filter": {
+     "colour": "green",
+     "strength": 1
+    }
+   }
+  },
+  {
+   "name": "Pan F 50",
+   "notes": "Ilford Pan F Plus 50: very fine grain, high contrast, deep rich blacks, crisp edges. Bright light. Advice: contrast +2, shadows -3.",
+   "kind": "mono",
+   "hue": [0,0,0,0,0,0,0,0,0,0,0,0],
+   "light": [0,0,0,0,0,0,0,0,0,0,0,0],
+   "sat": [0,0,0,0,0,0,0,0,0,0,0,0],
+   "grain": "off",
+   "wb": null,
+   "effect": null,
+   "vignette": 0,
+   "art_effect": "off",
+   "tone": {
+    "highlights": 0,
+    "shadows": 0,
+    "midtones": 0,
+    "blacks": 0,
+    "whites": 0
+   },
+   "advice": {
+    "tone": {
+     "highlights": 0,
+     "shadows": -3,
+     "midtones": 0
+    },
+    "contrast": 2,
+    "mono_filter": {
+     "colour": "none",
+     "strength": 1
+    }
+   }
+  },
+  {
+   "name": "Bleach Byp.",
+   "notes": "Silver-retained cinema look: near-monochrome, harsh contrast. Split: steely blue-cyan shadows.",
+   "kind": "colour",
+   "hue": [0,0,-2,-3,0,0,-3,-7,-5,0,0,0],
+   "light": [-2,-3,-4,-5,-4,-3,-1,-1,-1,-2,-3,-2],
+   "sat": [-5,-5,-5,-5,-5,-5,-5,-5,-5,-5,-5,-5],
+   "grain": "fine",
+   "wb": null,
+   "effect": null,
+   "vignette": 0,
+   "art_effect": "off",
+   "tone": {
+    "highlights": 4,
+    "shadows": -3,
+    "midtones": 0,
+    "blacks": -2,
+    "whites": 1
+   },
+   "advice": {
+    "tone": {
+     "highlights": 4,
+     "shadows": -3,
+     "midtones": 0
+    },
+    "contrast": 2
+   },
+   "split": {
+    "sh_color": 7,
+    "sh": 1,
+    "hl_color": 0,
+    "hl": 0
+   }
+  }
+ ],
+ "slots": {
+  "COLOR1": 5,
+  "MONO1": 0,
+  "MONO2": 1,
+  "MONO3": 4
+ }
+}

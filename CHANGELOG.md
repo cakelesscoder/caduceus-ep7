@@ -3,6 +3,12 @@
 Caduceus firmware patches for the Olympus PEN E-P7 (firmware 1.1). Releases from v0.25 are betas; earlier ones
 were early-development pre-releases. Use at your own risk (see the README).
 
+## Control Panel — 2026-11-13 (redesign and mood packs)
+
+- **New look:** frosted-glass panels over a blurred copy of the sample photo, one gold accent, Inter type, light mode that follows your system.
+- **Mood packs:** small themed collections next to the Standard libraries: Tokyo Nights, Tokyo Days, Autumn, Summer, Winter and Film Noir, each with suggested starter slots. See `docs/PACKS.md`.
+- **Preset packs browser and drag and drop:** browse every pack with thumbnails, click a look to preview it, and drag it onto a COLOR/MONO starter slot or into your list (or use + and Slot…, keyboard and touch work too). **Load whole pack** adds a pack and its slots in one undoable step.
+
 ## Control Panel (with v0.32)
 
 - **Preset look packs:** pick **Standard 1.1** (new default: split tone where the real stock has a shadow/highlight cast, halation only on rem-jet-free film) or **Standard 1.0** (the previous library, unchanged) from **New**, or mix looks from several packs with **+ Add look › From a preset pack…**. Looks get a **Split tone** editor and the preview shows it. Saved packs and share links work as before. See `docs/PACKS.md`.

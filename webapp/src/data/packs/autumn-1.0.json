@@ -1,0 +1,202 @@
+{
+ "schema": "caduceus-pack/1",
+ "id": "autumn-1.0",
+ "name": "Autumn",
+ "version": "1.0",
+ "kind": "mood",
+ "notes": "Warm golds and ambers for foliage and low sun: Gold, Portra, Ektar, ColorPlus and a faded warm print.",
+ "looks": [
+  {
+   "name": "Gold 200",
+   "notes": "Golden consumer negative: sunny yellows, muted cyan skies. Split: yellow-tinted whites.",
+   "kind": "colour",
+   "hue": [0,0,0,0,0,0,0,0,0,0,-2,-2],
+   "light": [2,1,0,0,0,0,0,0,0,0,0,0],
+   "sat": [4,2,0,0,-1,-1,-2,-2,-3,-2,0,2],
+   "grain": "fine",
+   "wb": {
+    "a_b": 1,
+    "g_m": 0
+   },
+   "effect": {
+    "type": "bloom",
+    "strength": 1
+   },
+   "vignette": 0,
+   "art_effect": "off",
+   "tone": {
+    "highlights": -1,
+    "shadows": 0,
+    "midtones": 1,
+    "blacks": 0,
+    "whites": -1
+   },
+   "advice": {
+    "tone": {
+     "highlights": -1,
+     "shadows": 0,
+     "midtones": 1
+    }
+   },
+   "split": {
+    "sh_color": 0,
+    "sh": 0,
+    "hl_color": 0,
+    "hl": 1
+   }
+  },
+  {
+   "name": "Portra 400",
+   "notes": "Warm pastel portrait negative: glowing skin, soft contrast. Split: peachy highlights.",
+   "kind": "colour",
+   "hue": [1,1,0,0,0,0,1,0,0,0,-2,-2],
+   "light": [1,1,1,0,0,0,-1,0,0,0,0,0],
+   "sat": [-1,0,0,-1,-1,-2,-2,-2,-2,-3,-3,-2],
+   "grain": "fine",
+   "wb": null,
+   "effect": {
+    "type": "bloom",
+    "strength": 1
+   },
+   "vignette": 0,
+   "art_effect": "off",
+   "tone": {
+    "highlights": -2,
+    "shadows": 2,
+    "midtones": 1,
+    "blacks": 0,
+    "whites": -2
+   },
+   "advice": {
+    "tone": {
+     "highlights": -2,
+     "shadows": 2,
+     "midtones": 1
+    },
+    "contrast": -1
+   },
+   "split": {
+    "sh_color": 0,
+    "sh": 0,
+    "hl_color": 1,
+    "hl": 1
+   }
+  },
+  {
+   "name": "Ektar Autumn",
+   "notes": "Ektar 100 for foliage: saturated reds and oranges, yellow-green leaves pushed golden, deep blue skies. Split: warm highlights, blue deep shadows.",
+   "kind": "colour",
+   "hue": [0,0,0,1,0,0,0,1,1,0,-1,-2],
+   "light": [0,-1,-1,-1,0,0,-2,-2,-1,0,0,0],
+   "sat": [3,3,3,3,1,0,3,3,1,-1,0,1],
+   "grain": "off",
+   "wb": {
+    "a_b": 1,
+    "g_m": 0
+   },
+   "effect": null,
+   "vignette": 0,
+   "art_effect": "off",
+   "tone": {
+    "highlights": 0,
+    "shadows": -1,
+    "midtones": 0,
+    "blacks": 0,
+    "whites": -1
+   },
+   "advice": {
+    "tone": {
+     "highlights": 0,
+     "shadows": -1,
+     "midtones": 0
+    },
+    "contrast": 2
+   },
+   "split": {
+    "sh_color": 6,
+    "sh": 1,
+    "hl_color": 1,
+    "hl": 1
+   }
+  },
+  {
+   "name": "ColorPlus200",
+   "notes": "Kodak ColorPlus 200: warm, a little less yellow than Gold, moderate saturation, budget-film softness; shade drifts blue-purple. Split: violet shadows.",
+   "kind": "colour",
+   "hue": [0,0,0,0,0,0,0,0,0,0,-1,-1],
+   "light": [1,0,0,0,0,0,0,0,0,0,0,0],
+   "sat": [2,1,1,1,0,-1,-1,-1,-2,-2,-1,1],
+   "grain": "fine",
+   "wb": {
+    "a_b": 1,
+    "g_m": 0
+   },
+   "effect": null,
+   "vignette": 0,
+   "art_effect": "off",
+   "tone": {
+    "highlights": -1,
+    "shadows": -1,
+    "midtones": 1,
+    "blacks": 0,
+    "whites": -1
+   },
+   "advice": {
+    "tone": {
+     "highlights": -1,
+     "shadows": -1,
+     "midtones": 1
+    }
+   },
+   "split": {
+    "sh_color": 5,
+    "sh": 1,
+    "hl_color": 0,
+    "hl": 0
+   }
+  },
+  {
+   "name": "Faded Amber",
+   "notes": "Faded warm print (a grade, not a stock): lifted blacks, low saturation, weak blues and greens, amber whites. Split: orange highlights.",
+   "kind": "colour",
+   "hue": [0,0,0,0,0,0,0,0,0,0,-2,-2],
+   "light": [1,1,0,0,0,0,0,0,0,0,0,0],
+   "sat": [-1,-1,-2,-2,-3,-3,-4,-4,-4,-3,-3,-2],
+   "grain": "fine",
+   "wb": {
+    "a_b": 2,
+    "g_m": 0
+   },
+   "effect": null,
+   "vignette": 0,
+   "art_effect": "off",
+   "tone": {
+    "highlights": -2,
+    "shadows": 2,
+    "midtones": 1,
+    "blacks": 3,
+    "whites": -2
+   },
+   "advice": {
+    "tone": {
+     "highlights": -2,
+     "shadows": 2,
+     "midtones": 1
+    },
+    "contrast": -2
+   },
+   "split": {
+    "sh_color": 0,
+    "sh": 0,
+    "hl_color": 1,
+    "hl": 1
+   }
+  }
+ ],
+ "slots": {
+  "COLOR1": 0,
+  "COLOR2": 1,
+  "COLOR3": 2,
+  "COLOR4": 4
+ }
+}

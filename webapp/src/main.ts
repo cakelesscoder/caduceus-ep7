@@ -5,8 +5,8 @@ import {
   exportable, parseLook, parsePack, toneIsZero, toneLimit, profileOf, type FilmGrain, type Grain, type Halo, type HaloStage, type Look, type Pack, type Sharp, type SlotName, type Tone,
 } from './pack';
 import { History } from './history';
-import { fromLibrary, libraryOrigin, migratePack, replaceRetiredLooks, resetLook, standardPack } from './reset';
-import { PRESETS, defaultPreset, legacyPreset, presetById, presetOf, type PresetPack } from './packs';
+import { fromLibrary, libraryOrigin, migratePack, originRef, replaceRetiredLooks, resetLook, standardPack } from './reset';
+import { PRESETS, defaultPreset, legacyPreset, presetById, presetOf, presetsOfKind, type PresetPack } from './packs';
 import { renderLook } from './preview';
 import { decodeLookCode, decodePackCode, encodeLookCode, encodePackCode, isPackCode } from './sharecode';
 import { makeZip } from './zip';
@@ -43,6 +43,8 @@ const S = {
   advice: true,
   compare: false,
   grain: 'off' as FilmGrain,   // preview only: the COLOR profile's Grain (E-P7)
+  browse: false,               // the editor pane shows the preset pack browser
+  peek: null as { look: Look; from: string } | null,   // a preset look shown in the preview without adding it
 };
 const GRAIN_OPTS: [FilmGrain, string][] = [['off', 'Off'], ['low', 'Low'], ['med', 'Med'], ['high', 'High']];
 const NR_OPTS: [Grain, string][] = [['off', 'Camera'], ['standard', 'Std'], ['fine', 'Low'], ['film', 'Off']];
@@ -142,6 +144,31 @@ function h<K extends keyof HTMLElementTagNameMap>(tag: K, attrs: Attrs = {}, ...
 }
 const $ = <T extends HTMLElement>(sel: string) => document.querySelector(sel) as T;
 
+/** Line icons (24-unit grid, drawn with currentColor). Static markup only. */
+const ICONS: Record<string, string> = {
+  undo: '<path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>',
+  redo: '<path d="m15 14 5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/>',
+  up: '<path d="m18 15-6-6-6 6"/>',
+  down: '<path d="m6 9 6 6 6-6"/>',
+  x: '<path d="M18 6 6 18M6 6l12 12"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  grip: '<g fill="currentColor" stroke="none"><circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/></g>',
+  packs: '<rect x="3" y="4" width="18" height="6" rx="1.5"/><rect x="3" y="14" width="18" height="6" rx="1.5"/>',
+  check: '<path d="M20 6 9 17l-5-5"/>',
+  camera: '<path d="M14.5 4h-5L7.5 7H4a1 1 0 0 0-1 1v11a1 1 0 0 0 1 1h16a1 1 0 0 0 1-1V8a1 1 0 0 0-1-1h-3.5z"/><circle cx="12" cy="13" r="3.5"/>',
+};
+function icon(name: string): HTMLElement {
+  const s = h('span', { class: 'ic', 'aria-hidden': 'true' });
+  s.innerHTML = `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">${ICONS[name]}</svg>`;
+  return s;
+}
+function brandMark(): HTMLElement {
+  const s = h('span', { class: 'mark', 'aria-hidden': 'true' });
+  s.innerHTML = '<svg viewBox="0 0 32 32" width="26" height="26"><circle cx="16" cy="16" r="15" fill="currentColor"/>' +
+    '<path d="M16 5v22M11 10c5 0 10 3 10 6s-10 3-10 6 5 4 10 4M21 10c-5 0-10 3-10 6s10 3 10 6-5 4-10 4" stroke="var(--on-accent)" stroke-width="1.8" fill="none" stroke-linecap="round"/></svg>';
+  return s;
+}
+
 function download(name: string, data: Uint8Array | string, type = 'application/octet-stream') {
   const url = URL.createObjectURL(new Blob([data as BlobPart], { type }));
   const a = h('a', { href: url, download: name });
@@ -181,24 +208,28 @@ const shareBase = () => location.origin + location.pathname;
 function shell() {
   const app = $('#app');
   app.replaceChildren(
+    h('div', { class: 'ambient', id: 'ambient', 'aria-hidden': 'true' }),
     h('header', { class: 'top' },
-      h('div', { class: 'brand' }, h('span', { class: 'mark', 'aria-hidden': 'true' }, '☤'), h('span', { class: 'word' }, 'Caduceus'),
-        h('span', { class: 'sub' }, 'control panel')),
-      h('nav', { class: 'actions' },
-        h('span', { class: 'undo-btns' },
-          h('button', { id: 'undo', class: 'icon', title: 'Undo (Ctrl+Z)', 'aria-label': 'Undo', disabled: true, onclick: () => step('undo') }, '↶'),
-          h('button', { id: 'redo', class: 'icon', title: 'Redo (Ctrl+Shift+Z)', 'aria-label': 'Redo', disabled: true, onclick: () => step('redo') }, '↷')),
-        menu('New', [
-          ...PRESETS.map((p): [string, () => void] => [`Start from ${p.label}${p === defaultPreset() ? ' (default)' : ''}`, () => newPack(p)]),
-          ['Mix looks from packs…', () => libraryPicker()],
-          ['Empty pack', () => newPack(null)],
-        ]),
-        h('button', { onclick: openFile }, 'Open…'),
-        h('button', { onclick: pasteDialog }, 'Paste code'),
-        h('button', { onclick: sharePack }, 'Share pack'),
-        h('button', { id: 'fw-btn', onclick: () => setupDialog() }, fwLabel()),
-        h('button', { onclick: () => (CAM === 'om3' ? om3InstallDialog() : installDialog()) }, 'Install firmware'),
-        h('button', { onclick: aboutDialog }, 'About'),
+      h('div', { class: 'brand' }, brandMark(), h('span', { class: 'word' }, 'Caduceus'),
+        h('span', { class: 'sub' }, 'Control Panel')),
+      h('nav', { class: 'actions', 'aria-label': 'Pack' },
+        h('span', { class: 'tb-group undo-btns' },
+          h('button', { id: 'undo', class: 'icon', title: 'Undo (Ctrl+Z)', 'aria-label': 'Undo', disabled: true, onclick: () => step('undo') }, icon('undo')),
+          h('button', { id: 'redo', class: 'icon', title: 'Redo (Ctrl+Shift+Z)', 'aria-label': 'Redo', disabled: true, onclick: () => step('redo') }, icon('redo'))),
+        h('span', { class: 'tb-group' },
+          menu('New', [
+            ...PRESETS.map((p): [string, () => void] => [`Start from ${p.label}${p === defaultPreset() ? ' (default)' : ''}`, () => newPack(p)]),
+            ['Mix looks from packs…', () => openBrowser()],
+            ['Empty pack', () => newPack(null)],
+          ], 'ghost'),
+          h('button', { class: 'ghost', onclick: openFile }, 'Open…'),
+          h('button', { class: 'ghost', onclick: pasteDialog }, 'Paste code'),
+          h('button', { class: 'ghost', onclick: sharePack }, 'Share pack')),
+        h('span', { class: 'tb-group' },
+          h('button', { class: 'ghost', onclick: () => (CAM === 'om3' ? om3InstallDialog() : installDialog()) }, 'Install firmware'),
+          h('button', { class: 'ghost', onclick: aboutDialog }, 'About'))),
+      h('div', { class: 'top-end' },
+        h('button', { id: 'fw-btn', class: 'cam-chip', title: 'Your camera and firmware', onclick: () => setupDialog() }, ...fwChip()),
         h('button', { class: 'primary', onclick: exportDialog }, 'Export'))),
     h('main', { class: 'layout' },
       h('aside', { class: 'pane list-pane', id: 'list' }),
@@ -213,8 +244,8 @@ function shell() {
   buildPreview();
 }
 
-function menu(label: string, items: [string, () => void][]): HTMLElement {
-  const d = h('details', { class: 'menu' }, h('summary', {}, label),
+function menu(label: string, items: [string, () => void][], cls = ''): HTMLElement {
+  const d = h('details', { class: `menu ${cls}` }, h('summary', {}, label, icon('down')),
     h('div', { class: 'menu-items' }, ...items.map(([t, f]) => h('button', { onclick: () => { d.open = false; f(); } }, t))));
   document.addEventListener('click', (e) => { if (!d.contains(e.target as Node)) d.open = false; });
   return d;
@@ -227,7 +258,11 @@ function renderAll() {
 }
 
 // ---------------------------------------------------------------- look list
-let dragFrom = -1;
+const SLOT_SHORT = (s: SlotName) => (s.startsWith('COLOR') ? 'C' : 'M') + s.slice(-1);
+/** Can look `l` go in starter slot `s`? COLOR slots take colour looks; MONO slots take any look without a tone. */
+const slotOk = (s: SlotName, l: Look) => (s.startsWith('COLOR') ? l.kind !== 'mono' : !hasTone(l));
+const slotsVisible = () => CAM !== 'om3';   // BUNDLES.BIN starter slots are an E-P7 file
+
 function renderList() {
   const el = $('#list');
   const p = S.pack;
@@ -235,46 +270,262 @@ function renderList() {
   const bad = new Set(problems.map((x) => x.look).filter((x) => x !== undefined));
   const n = p.looks.length;
   const mixed = new Set(p.looks.map((l) => presetOf(l)?.id).filter(Boolean)).size > 1;   // tag each look with its pack
+  const inSlots = (i: number) => SLOT_NAMES.filter((s) => p.slots[s] === i);
+  const ol = h('ol', { class: 'looks', 'data-drop': 'list', 'aria-label': 'Looks in this pack' }, ...p.looks.map((l, i) => {
+    const slots = inSlots(i);
+    const li = h('li', {
+      class: `look${i === S.sel ? ' sel' : ''}${bad.has(i) ? ' bad' : ''}`, tabindex: 0, 'data-drop': 'row', 'data-i': i,
+      'aria-current': i === S.sel ? 'true' : undefined,
+      onclick: () => { S.sel = i; S.browse = false; S.peek = null; renderAll(); },
+      onkeydown: (e: KeyboardEvent) => {
+        if (e.target !== li) return;
+        if (e.key === 'ArrowUp' && e.altKey) { move(i, i - 1); e.preventDefault(); }
+        else if (e.key === 'ArrowDown' && e.altKey) { move(i, i + 1); e.preventDefault(); }
+        else if (e.key === 'ArrowUp' && i > 0) { S.sel = i - 1; renderAll(); focusSel(); e.preventDefault(); }
+        else if (e.key === 'ArrowDown' && i < n - 1) { S.sel = i + 1; renderAll(); focusSel(); e.preventDefault(); }
+        else if (e.key === 'Enter' && S.browse) { S.browse = false; S.peek = null; renderAll(); e.preventDefault(); }
+      },
+    },
+    h('span', { class: 'grip', title: 'Drag to reorder, or onto a slot' }, icon('grip')),
+    h('span', { class: 'idx' }, String(i + 1)),
+    h('span', { class: 'nm' }, l.name || '(no name)', mixed && presetOf(l) ? h('span', { class: 'from', title: `From ${presetOf(l)!.label}` }, presetOf(l)!.version) : null),
+    h('span', { class: 'tags' },
+      l.kind === 'mono' ? h('span', { class: 'kind mono', title: 'Monochrome look' }, 'B&W') : null,
+      ...(slotsVisible() ? slots.map((s) => h('span', { class: 'kind slot-tag', title: `In starter slot ${s}` }, SLOT_SHORT(s))) : [])),
+    h('span', { class: 'row-btns no-drag' },
+      h('button', { class: 'icon', title: 'Move up (Alt+↑)', 'aria-label': `Move ${l.name} up`, disabled: i === 0, onclick: (e: Event) => { e.stopPropagation(); move(i, i - 1); } }, icon('up')),
+      h('button', { class: 'icon', title: 'Move down (Alt+↓)', 'aria-label': `Move ${l.name} down`, disabled: i === n - 1, onclick: (e: Event) => { e.stopPropagation(); move(i, i + 1); } }, icon('down')),
+      h('button', { class: 'icon danger', title: 'Remove', 'aria-label': `Remove ${l.name}`, onclick: (e: Event) => { e.stopPropagation(); remove(i); } }, icon('x'))));
+    dragSource(li, () => ({ kind: 'row', i, look: l }), () => l.name);
+    return li;
+  }));
   el.replaceChildren(
     h('label', { class: 'field' }, h('span', { class: 'lbl' }, 'Pack name'),
       h('input', { type: 'text', value: p.name, maxlength: 60, oninput: (e: Event) => draft(() => { p.name = (e.target as HTMLInputElement).value; save(); }), onchange: checkpoint, onkeydown: enterCommits })),
-    h('div', { class: 'list-head' }, h('span', {}, 'Looks'), h('span', { class: n > MAX_LOOKS ? 'count over' : 'count' }, `${n} / ${MAX_LOOKS}`)),
-    h('ol', { class: 'looks' }, ...p.looks.map((l, i) => {
-      const li = h('li', {
-        class: `look${i === S.sel ? ' sel' : ''}${bad.has(i) ? ' bad' : ''}`, draggable: 'true', tabindex: 0,
-        onclick: () => { S.sel = i; renderAll(); },
-        onkeydown: (e: KeyboardEvent) => {
-          if (e.key === 'ArrowUp' && e.altKey) { move(i, i - 1); e.preventDefault(); }
-          else if (e.key === 'ArrowDown' && e.altKey) { move(i, i + 1); e.preventDefault(); }
-          else if (e.key === 'ArrowUp' && i > 0) { S.sel = i - 1; renderAll(); focusSel(); e.preventDefault(); }
-          else if (e.key === 'ArrowDown' && i < n - 1) { S.sel = i + 1; renderAll(); focusSel(); e.preventDefault(); }
-        },
-        ondragstart: (e: DragEvent) => { dragFrom = i; e.dataTransfer?.setData('text/plain', String(i)); li.classList.add('dragging'); },
-        ondragend: () => li.classList.remove('dragging'),
-        ondragover: (e: DragEvent) => { e.preventDefault(); li.classList.add('over'); },
-        ondragleave: () => li.classList.remove('over'),
-        ondrop: (e: DragEvent) => { e.preventDefault(); li.classList.remove('over'); if (dragFrom >= 0) move(dragFrom, i); dragFrom = -1; },
-      },
-      h('span', { class: 'grip', 'aria-hidden': 'true' }, '⋮⋮'),
-      h('span', { class: 'idx' }, String(i + 1)),
-      h('span', { class: 'nm' }, l.name || '(no name)', mixed && presetOf(l) ? h('span', { class: 'from', title: `From ${presetOf(l)!.label}` }, presetOf(l)!.version) : null),
-      l.kind === 'mono' ? h('span', { class: 'kind mono', title: 'Monochrome look' }, 'B&W') : h('span'),
-      h('span', { class: 'row-btns' },
-        h('button', { class: 'icon', title: 'Move up (Alt+↑)', 'aria-label': 'Move up', disabled: i === 0, onclick: (e: Event) => { e.stopPropagation(); move(i, i - 1); } }, '↑'),
-        h('button', { class: 'icon', title: 'Move down (Alt+↓)', 'aria-label': 'Move down', disabled: i === n - 1, onclick: (e: Event) => { e.stopPropagation(); move(i, i + 1); } }, '↓'),
-        h('button', { class: 'icon danger', title: 'Remove', 'aria-label': 'Remove', onclick: (e: Event) => { e.stopPropagation(); remove(i); } }, '×')));
-      return li;
-    })),
-    ...(n === 0 ? [h('p', { class: 'empty' }, 'No looks yet. Add one below.')] : []),
+    ...(slotsVisible() ? [slotStrip()] : []),
+    h('div', { class: 'list-head' }, h('span', { class: 'lbl' }, 'Looks'), h('span', { class: n > MAX_LOOKS ? 'count over' : 'count' }, `${n} / ${MAX_LOOKS}`)),
+    ol,
+    ...(n === 0 ? [h('p', { class: 'empty', 'data-drop': 'list' }, 'No looks yet. Add one below, or drag one in from a preset pack.')] : []),
     h('div', { class: 'add-row' },
-      menu('+ Add look', [
+      menu('Add look', [
         ['Blank colour look', () => addLook(blankLook('colour', uniqueName('New Look')))],
         ['Blank mono look', () => addLook(blankLook('mono', uniqueName('New Mono')))],
-        ['From a preset pack…', () => libraryPicker()],
+        ['From a preset pack…', () => openBrowser()],
         ['Duplicate selected', () => { const l = cur(); if (l) addLook({ ...cloneLook(l), name: uniqueName(l.name) }); }],
         ['Paste a look code…', pasteDialog],
-      ])));
+      ]),
+      h('button', { class: `browse-btn${S.browse ? ' on' : ''}`, 'aria-pressed': String(S.browse), onclick: () => (S.browse ? closeBrowser() : openBrowser()) },
+        icon('packs'), 'Preset packs')));
 }
+
+/** The 8 starter slots of BUNDLES.BIN: drop targets, and a menu each (the keyboard and touch way to fill them). */
+function slotStrip(): HTMLElement {
+  const p = S.pack;
+  const tile = (s: SlotName) => {
+    const k = p.slots[s], l = k === undefined ? undefined : p.looks[k];
+    const sel = h('select', {
+      'aria-label': `${s} starter look`, title: l ? `${s}: ${l.name}` : `${s}: stock`,
+      onchange: (e: Event) => {
+        const v = (e.target as HTMLSelectElement).value;
+        if (v === '') delete p.slots[s]; else p.slots[s] = Number(v);
+        save(); renderList();
+      },
+    }, h('option', { value: '' }, 'Stock'),
+    ...p.looks.map((o, i) => (slotOk(s, o) || p.slots[s] === i ? h('option', { value: i, selected: k === i }, o.name) : null)));
+    return h('div', { class: `slot-tile${l ? ' filled' : ''}`, 'data-drop': 'slot', 'data-slot': s },
+      h('span', { class: 'slot-k' }, s.slice(-1)), sel, icon('down'));
+  };
+  return h('section', { class: 'slot-strip', 'aria-label': 'Starter slots' },
+    h('div', { class: 'list-head' }, h('span', { class: 'lbl' }, 'Starter slots'),
+      h('span', { class: 'count', title: 'Written to EP7MOD/BUNDLES.BIN when you include it on export' }, 'BUNDLES.BIN')),
+    h('div', { class: 'slot-cols' },
+      h('div', { class: 'slot-col' }, h('span', { class: 'slot-h' }, 'Colour'), ...SLOT_NAMES.filter((s) => s.startsWith('COLOR')).map(tile)),
+      h('div', { class: 'slot-col' }, h('span', { class: 'slot-h' }, 'Mono'), ...SLOT_NAMES.filter((s) => s.startsWith('MONO')).map(tile))));
+}
+
+// ---------------------------------------------------------------- drag and drop
+// One pointer-based system for mouse, pen and touch (HTML5 drag and drop does not work on most touch screens).
+// Sources: looks in the pack list (reorder, or onto a slot) and looks in the preset browser (into the list or onto a
+// slot). Targets carry data-drop: "row" (insert before/after), "list" (append) or "slot". Every drop has a click or
+// keyboard equivalent: Alt+arrows / move buttons, the slot menus, and the browser's Add button and slot menu.
+type DragSrc = { kind: 'row'; i: number; look: Look } | { kind: 'preset'; pack: PresetPack; look: Look };
+interface Drag { src: DragSrc; label: string; x0: number; y0: number; x: number; y: number; on: boolean; ghost?: HTMLElement; over?: HTMLElement; after?: boolean; timer?: number; touch: boolean }
+let drag: Drag | null = null;
+let swallowClick = false;
+const blockTouch = (e: TouchEvent) => { if (drag?.on) e.preventDefault(); };
+document.addEventListener('touchmove', blockTouch, { passive: false });
+document.addEventListener('click', (e) => { if (swallowClick) { e.stopPropagation(); e.preventDefault(); swallowClick = false; } }, true);
+
+function dragSource(el: HTMLElement, src: () => DragSrc, label: () => string) {
+  el.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0 || drag || (e.target as Element).closest('select, input, textarea, .no-drag')) return;
+    const touch = e.pointerType !== 'mouse';
+    const fromGrip = !!(e.target as Element).closest('.grip');
+    drag = { src: src(), label: label(), x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY, on: false, touch };
+    // Touch: the grip starts a drag at once (it has touch-action: none); anywhere else needs a long press, so the
+    // page still scrolls under a finger.
+    if (touch && !fromGrip) drag.timer = window.setTimeout(() => { if (drag && !drag.on) startDrag(); }, 380);
+    if (touch && fromGrip) startDrag();
+    document.addEventListener('pointermove', onDragMove);
+    document.addEventListener('pointerup', onDragEnd);
+    document.addEventListener('pointercancel', onDragCancel);
+  });
+}
+function startDrag() {
+  if (!drag) return;
+  drag.on = true;
+  clearTimeout(drag.timer);
+  window.getSelection()?.removeAllRanges();
+  drag.ghost = h('div', { class: 'drag-ghost', 'aria-hidden': 'true' }, icon('grip'), drag.label,
+    drag.src.look.kind === 'mono' ? h('span', { class: 'kind mono' }, 'B&W') : null);
+  document.body.append(drag.ghost);
+  document.body.classList.add('dragging');
+  for (const t of document.querySelectorAll<HTMLElement>('[data-drop="slot"]'))
+    t.classList.toggle('cannot', !slotOk(t.dataset.slot as SlotName, drag.src.look));
+  if (drag.src.kind === 'row') document.querySelectorAll('#list li.look')[drag.src.i]?.classList.add('lifted');
+  try { navigator.vibrate?.(8); } catch { /* not supported */ }
+  placeGhost();
+  requestAnimationFrame(autoScroll);
+}
+function placeGhost() {
+  if (!drag?.ghost) return;
+  // above the finger on touch (so it stays visible), beside the cursor with a mouse
+  drag.ghost.style.transform = drag.touch ? `translate(${drag.x - drag.ghost.offsetWidth / 2}px, ${drag.y - 64}px)` : `translate(${drag.x + 14}px, ${drag.y - 16}px)`;
+}
+const dropTarget = (x: number, y: number) => document.elementFromPoint(x, y)?.closest<HTMLElement>('[data-drop]') ?? undefined;
+function onDragMove(e: PointerEvent) {
+  if (!drag) return;
+  drag.x = e.clientX; drag.y = e.clientY;
+  if (!drag.on) {
+    const d = Math.hypot(drag.x - drag.x0, drag.y - drag.y0);
+    if (drag.touch) { if (d > 10) cancelDrag(); return; }     // finger moved before the long press: a scroll
+    if (d < 5) return;
+    startDrag();
+  }
+  placeGhost();
+  const t = dropTarget(drag.x, drag.y);
+  if (t !== drag.over) { drag.over?.classList.remove('drop-over', 'ins-before', 'ins-after'); drag.over = t; t?.classList.add('drop-over'); }
+  if (t?.dataset.drop === 'row') {
+    const r = t.getBoundingClientRect();
+    drag.after = drag.y > r.top + r.height / 2;
+    t.classList.toggle('ins-after', drag.after); t.classList.toggle('ins-before', !drag.after);
+  }
+}
+function autoScroll() {
+  if (!drag?.on) return;
+  const edge = 56, list = document.querySelector<HTMLElement>('#list .looks');
+  if (list && list.scrollHeight > list.clientHeight) {
+    const r = list.getBoundingClientRect();
+    if (drag.x >= r.left && drag.x <= r.right) {
+      if (drag.y < r.top + 28 && drag.y > r.top - 40) list.scrollTop -= 8;
+      else if (drag.y > r.bottom - 28 && drag.y < r.bottom + 40) list.scrollTop += 8;
+    }
+  }
+  if (drag.y < edge) window.scrollBy(0, -12); else if (drag.y > innerHeight - edge) window.scrollBy(0, 12);
+  requestAnimationFrame(autoScroll);
+}
+function cancelDrag() {
+  if (!drag) return;
+  clearTimeout(drag.timer);
+  drag.ghost?.remove();
+  drag.over?.classList.remove('drop-over', 'ins-before', 'ins-after');
+  document.body.classList.remove('dragging');
+  document.querySelectorAll('.cannot, .lifted').forEach((x) => x.classList.remove('cannot', 'lifted'));
+  document.removeEventListener('pointermove', onDragMove);
+  document.removeEventListener('pointerup', onDragEnd);
+  document.removeEventListener('pointercancel', onDragCancel);
+  drag = null;
+}
+function onDragCancel() { cancelDrag(); }
+function onDragEnd(e: PointerEvent) {
+  const d = drag;
+  if (!d) return;
+  const on = d.on, t = on ? dropTarget(e.clientX, e.clientY) : undefined, after = d.after;
+  cancelDrag();
+  if (!on) return;
+  swallowClick = true;
+  setTimeout(() => { swallowClick = false; }, 0);
+  if (t) dropOn(d.src, t, !!after);
+}
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && drag?.on) { cancelDrag(); e.preventDefault(); } });
+
+function dropOn(src: DragSrc, t: HTMLElement, after: boolean) {
+  const n = S.pack.looks.length;
+  if (t.dataset.drop === 'slot') {
+    const s = t.dataset.slot as SlotName;
+    if (src.kind === 'row') setSlot(s, src.i);
+    else presetToSlot(src.pack, src.look, s);
+    return;
+  }
+  const at = t.dataset.drop === 'row' ? Number(t.dataset.i) + (after ? 1 : 0) : n;
+  if (src.kind === 'row') { const to = at > src.i ? at - 1 : at; if (to !== src.i) move(src.i, Math.min(to, n - 1)); }
+  else addPresetLook(src.pack, src.look, at);
+}
+
+/** Put look `i` of the pack in starter slot `s` (one undo step). */
+function setSlot(s: SlotName, i: number) {
+  const l = S.pack.looks[i];
+  if (!l) return;
+  if (!slotOk(s, l)) { toast(s.startsWith('COLOR') ? `"${l.name}" is a mono look: it can only go in a MONO slot.` : `"${l.name}" has a tone, so it can only go in a COLOR slot.`, 'err'); return; }
+  S.pack.slots[s] = i;
+  save(); renderAll();
+  toast(`${s}: ${l.name}`);
+}
+/** Where this preset look already is in the pack (added from that pack, edited or not), or -1. */
+const copyIndex = (p: PresetPack, l: Look) => S.pack.looks.findIndex((x) => { const o = originRef(x); return o?.pack === p.id && o.name === l.name; });
+const presetCopy = (p: PresetPack, l: Look): Look => ({ ...fromLibrary(l, p.id), name: uniqueName(l.name) });
+
+/** Insert a copy of a preset look at `at` (end of the list by default). */
+function addPresetLook(p: PresetPack, l: Look, at = S.pack.looks.length): boolean {
+  if (S.pack.looks.length >= MAX_LOOKS) { toast(`A pack holds at most ${MAX_LOOKS} looks. Remove one first.`, 'err'); return false; }
+  const c = presetCopy(p, l);
+  capNames([c]);
+  at = Math.max(0, Math.min(at, S.pack.looks.length));
+  S.pack.looks.splice(at, 0, c);
+  remapSlots((k) => (k >= at ? k + 1 : k));
+  S.sel = at;
+  save(); renderAll();
+  toast(`Added "${c.name}" from ${p.label}`);
+  return true;
+}
+/** A preset look into a starter slot: uses the copy already in the pack, or adds one at the end. */
+function presetToSlot(p: PresetPack, l: Look, s: SlotName) {
+  if (!slotOk(s, l)) { toast(s.startsWith('COLOR') ? `"${l.name}" is a mono look: it can only go in a MONO slot.` : `"${l.name}" has a tone, so it can only go in a COLOR slot.`, 'err'); return; }
+  let i = copyIndex(p, l);
+  if (i < 0) {
+    if (S.pack.looks.length >= MAX_LOOKS) { toast(`A pack holds at most ${MAX_LOOKS} looks. Remove one first.`, 'err'); return; }
+    S.pack.looks.push(presetCopy(p, l));
+    i = S.pack.looks.length - 1;
+  }
+  S.pack.slots[s] = i;
+  S.sel = i;
+  save(); renderAll();
+  toast(`${s}: ${S.pack.looks[i].name}`);
+}
+/** Load a whole preset pack: add its looks that are not in the pack yet and apply its suggested slots (one undo step).
+ *  When they don't fit in 32, offer to start from that pack instead. */
+function loadWholePack(p: PresetPack) {
+  const missing = p.pack.looks.filter((l) => copyIndex(p, l) < 0);
+  if (S.pack.looks.length + missing.length > MAX_LOOKS) {
+    if (!confirm(`${p.label} adds ${missing.length} looks, more than fit (${MAX_LOOKS} at most). Replace your pack with ${p.label} instead? Undo brings yours back.`)) return;
+    S.pack = standardPack(p.pack);
+    S.sel = 0;
+    save(); renderAll();
+    toast(`Pack set to ${p.label}`);
+    return;
+  }
+  for (const l of missing) { const c = presetCopy(p, l); capNames([c]); S.pack.looks.push(c); }
+  let slots = 0;
+  for (const [s, k] of Object.entries(p.pack.slots) as [SlotName, number][]) {
+    const l = p.pack.looks[k];
+    const i = l ? copyIndex(p, l) : -1;
+    if (i >= 0 && slotOk(s, S.pack.looks[i])) { S.pack.slots[s] = i; slots++; }
+  }
+  if (missing.length) S.sel = S.pack.looks.length - missing.length;
+  save(); renderAll();
+  toast(`${p.label}: ${missing.length} look${missing.length === 1 ? '' : 's'} added${slots ? `, ${slots} slot${slots === 1 ? '' : 's'} set` : ''}. Undo reverts it.`);
+}
+
 function enterCommits(e: KeyboardEvent) { if (e.key === 'Enter') checkpoint(); }
 function focusSel() { ($('#list li.sel') as HTMLElement | null)?.focus(); }
 
@@ -354,31 +605,100 @@ function resetSelected() {
   toast(libraryOrigin(l, lib) ? `"${S.pack.looks[i].name}" restored to its ${presetOf(l)!.label} values` : `"${l.name}" reset to neutral`);
 }
 
-/** Add looks from any preset pack (mix and match): pick a pack, then click looks to add them. */
+// ---------------------------------------------------------------- preset pack browser
+// Shown in the editor pane. Mix looks from any preset pack: drag them in, or use Add / the slot menu; a click shows a
+// look in the preview without adding it.
 let pickerPack = '';
-function libraryPicker() {
-  let p = presetById(pickerPack) ?? defaultPreset();
-  const body = h('div', {});
-  const draw = () => {
-    const src = (l: Look) => presetOf(l);
-    // "in pack" = this pack's look is already there (from this pack, unedited or not)
-    const have = new Set(S.pack.looks.filter((l) => src(l)?.id === p.id).map((l) => libraryOrigin(l, p.pack)?.name));
-    const names = new Set(S.pack.looks.map((l) => l.name.toLowerCase()));
-    body.replaceChildren(
-      seg('Preset pack', PRESETS.map((q) => [q.id, q.label]), p.id, (v) => { p = presetById(v)!; pickerPack = p.id; draw(); }),
-      h('p', { class: 'help' }, p.notes || ' ', ' Click a look to add it to your pack; looks from several packs can be mixed. A name already in use gets a number.'),
-      h('div', { class: 'pick-list' }, ...p.pack.looks.map((l) => h('button', {
-        class: 'pick', onclick: () => { if (addLook({ ...fromLibrary(l, p.id), name: uniqueName(l.name) })) draw(); },
-      }, h('b', {}, l.name), have.has(l.name) ? h('span', { class: 'tag' }, 'in pack')
-        : names.has(l.name.toLowerCase()) ? h('span', { class: 'tag' }, 'name in use') : null, h('small', {}, l.notes)))));
+function openBrowser() { S.browse = true; renderAll(); document.querySelector<HTMLElement>('#editor')?.scrollIntoView({ block: 'nearest' }); }
+function closeBrowser() { S.browse = false; S.peek = null; renderAll(); }
+
+const thumbCache = new Map<string, HTMLCanvasElement>();
+let thumbSrc: { key: string; data: ImageData } | null = null;
+let userPhotoN = 0;
+function lookThumb(p: PresetPack, l: Look): HTMLCanvasElement {
+  const key = `${S.image}${S.image === 'user' ? userPhotoN : ''}:${CAM}:${p.id}:${l.name}`;
+  let c = thumbCache.get(key);
+  if (c) return c;
+  c = h('canvas', { class: 'pc-thumb', width: 96, height: 64, 'aria-hidden': 'true' });
+  if (srcData) {
+    const sk = `${S.image}${userPhotoN}`;
+    if (thumbSrc?.key !== sk) {
+      const t = document.createElement('canvas'), k = Math.max(96 / srcData.width, 64 / srcData.height);
+      t.width = 96; t.height = 64;
+      const ctx = t.getContext('2d', { willReadFrequently: true })!, w = srcData.width * k, hh = srcData.height * k;
+      const full = document.createElement('canvas'); full.width = srcData.width; full.height = srcData.height;
+      full.getContext('2d')!.putImageData(srcData, 0, 0);
+      ctx.drawImage(full, (96 - w) / 2, (64 - hh) / 2, w, hh);
+      thumbSrc = { key: sk, data: ctx.getImageData(0, 0, 96, 64) };
+    }
+    const ctx = c.getContext('2d')!, out = ctx.createImageData(96, 64);
+    renderLook(thumbSrc.data, out, CAM === 'om3' ? toOm3(l).look ?? l : l, { advice: true, nr: cam().lookNr, grain: 'off' });
+    ctx.putImageData(out, 0, 0);
+    thumbCache.set(key, c);
+  }
+  return c;
+}
+
+function renderBrowser(el: HTMLElement) {
+  const p = presetById(pickerPack) ?? defaultPreset();
+  const names = new Set(S.pack.looks.map((l) => l.name.toLowerCase()));
+  const full = S.pack.looks.length >= MAX_LOOKS;
+  const nSlots = Object.keys(p.pack.slots).length;
+  const card = (l: Look) => {
+    const at = copyIndex(p, l);
+    const peeked = S.peek?.look === l;
+    const slotSel = slotsVisible() ? h('select', {
+      class: 'pc-slot', 'aria-label': `Put ${l.name} in a starter slot`,
+      onchange: (e: Event) => { const v = (e.target as HTMLSelectElement).value as SlotName; if (v) presetToSlot(p, l, v); },
+    }, h('option', { value: '' }, 'Slot…'), ...SLOT_NAMES.filter((s) => slotOk(s, l)).map((s) => h('option', { value: s }, s))) : null;
+    const li = h('li', { class: `pcard${peeked ? ' peek' : ''}` },
+      h('button', {
+        class: 'pc-main', 'aria-pressed': String(peeked), title: 'Show in the preview (drag to add)',
+        onclick: () => { S.peek = peeked ? null : { look: l, from: p.label }; renderEditor(); schedulePreview(); },
+      },
+      lookThumb(p, l),
+      h('span', { class: 'pc-text' },
+        h('span', { class: 'pc-name' }, l.name,
+          l.kind === 'mono' ? h('span', { class: 'kind mono' }, 'B&W') : null,
+          at >= 0 ? h('span', { class: 'tag' }, `in pack · ${at + 1}`) : names.has(l.name.toLowerCase()) ? h('span', { class: 'tag' }, 'name in use') : null),
+        h('span', { class: 'pc-notes' }, l.notes))),
+      h('span', { class: 'pc-acts no-drag' },
+        h('button', { class: 'icon', title: full ? `Your pack is full (${MAX_LOOKS})` : 'Add to your pack', 'aria-label': `Add ${l.name} to your pack`, disabled: full, onclick: () => addPresetLook(p, l) }, icon('plus')),
+        slotSel));
+    dragSource(li, () => ({ kind: 'preset', pack: p, look: l }), () => l.name);
+    return li;
   };
-  draw();
-  modal('Add from a preset pack', body);
+  el.replaceChildren(
+    h('div', { class: 'pane-head' },
+      h('h2', { class: 'pane-title' }, 'Preset packs'),
+      h('button', { class: 'ghost', onclick: closeBrowser }, 'Back to editor')),
+    h('div', { class: 'pb-packs', role: 'radiogroup', 'aria-label': 'Preset pack' },
+      ...([['library', 'Libraries'], ['mood', 'Moods']] as const).flatMap(([kind, title]) => {
+        const list = presetsOfKind(kind);
+        return list.length ? [h('span', { class: 'pb-group' }, title), h('div', { class: `pb-row ${kind}` }, ...list.map((q) => h('button', {
+          class: `pb-pack${q.id === p.id ? ' on' : ''}`, role: 'radio', 'aria-checked': String(q.id === p.id), title: q.notes,
+          onclick: () => { pickerPack = q.id; S.peek = null; renderEditor(); schedulePreview(); },
+        }, h('span', { class: 'pb-name' }, kind === 'library' ? q.label : q.name), h('span', { class: 'pb-meta' }, `${q.pack.looks.length}`))))] : [];
+      })),
+    h('div', { class: 'pb-info' },
+      h('div', {},
+        h('b', {}, p.label),
+        h('p', { class: 'help' }, p.notes || ' ')),
+      h('button', { class: 'primary-soft', title: 'Adds the looks you don\'t have yet and fills the starter slots this pack suggests', onclick: () => loadWholePack(p) },
+        'Load whole pack'),
+      h('span', { class: 'help pb-sum' }, `${p.pack.looks.length} looks${slotsVisible() && nSlots ? ` · ${nSlots} suggested slots` : ''}`)),
+    h('p', { class: 'help pb-how' }, slotsVisible()
+      ? 'Drag a look onto a starter slot or into your list (on touch: hold, then drag). Or use + and Slot…. Click a look to preview it.'
+      : 'Drag a look into your list (on touch: hold, then drag), or use +. Click a look to preview it.'),
+    h('ul', { class: 'pb-looks' }, ...p.pack.looks.map(card)));
 }
 
 // ---------------------------------------------------------------- editor
 function renderEditor() {
   const el = $('#editor');
+  el.classList.toggle('browser', S.browse);
+  document.querySelector('.layout')?.classList.toggle('browsing', S.browse);
+  if (S.browse) { renderBrowser(el); return; }
   const l = cur();
   if (!l) { el.replaceChildren(h('p', { class: 'empty' }, 'Add a look to start editing.')); return; }
   const i = S.sel;
@@ -516,11 +836,20 @@ function slider(min: number, max: number, value: number, on: (v: number) => void
   const out = h('output', {}, fmt(shown));
   const inp = h('input', {
     type: 'range', min, max, step: 1, value: shown, 'aria-label': aria,
-    oninput: (e: Event) => { const v = Number((e.target as HTMLInputElement).value); out.textContent = fmt(v); draft(() => on(v)); },
+    oninput: (e: Event) => { const v = Number((e.target as HTMLInputElement).value); out.textContent = fmt(v); fillRange(inp, out); draft(() => on(v)); },
     onchange: checkpoint,
-    ondblclick: () => { inp.value = '0'; out.textContent = fmt(0); on(0); },
+    ondblclick: () => { inp.value = '0'; out.textContent = fmt(0); fillRange(inp, out); on(0); },
   });
+  fillRange(inp, out);
   return { inp, out };
+}
+/** Paints a range's filled part from its zero point (or its minimum) to the thumb, and marks a non-zero value. */
+function fillRange(inp: HTMLInputElement, out?: HTMLElement) {
+  const min = Number(inp.min), max = Number(inp.max), v = Number(inp.value), span = max - min || 1;
+  const z = (Math.max(min, Math.min(max, 0)) - min) / span, p = (v - min) / span;
+  inp.style.setProperty('--lo', `${Math.min(z, p) * 100}%`);
+  inp.style.setProperty('--hi', `${Math.max(z, p) * 100}%`);
+  out?.classList.toggle('nz', v !== Math.max(min, Math.min(max, 0)));
 }
 
 function sectorPanel(l: Look, changed: () => void): HTMLElement {
@@ -653,6 +982,7 @@ function effectPanel(l: Look, changed: () => void): HTMLElement {
     setLookHalo(l, (stageSel as HTMLSelectElement).value as HaloStage, (tintSel as HTMLSelectElement).value as (typeof HALO_TINTS)[number]);
     (inp as HTMLInputElement).value = String(v0());
     out.textContent = fmt(v0());
+    fillRange(inp, out);
     show();
     changed();
   };
@@ -731,7 +1061,7 @@ function buildPreview() {
     onpointerleave: () => { if (S.compare) { S.compare = false; schedulePreview(); } },
   }, 'Hold: original');
   $('#preview').replaceChildren(
-    h('div', { class: 'pv-wrap' }, canvas, h('span', { class: 'badge' }, 'Approximate preview'), cmp),
+    h('div', { class: 'pv-wrap' }, canvas, h('span', { class: 'badge', id: 'pv-badge' }, 'Approximate preview'), cmp),
     thumbs,
     h('div', { class: 'pv-opts' },
       h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: S.advice, onchange: (e: Event) => { S.advice = (e.target as HTMLInputElement).checked; schedulePreview(); } }),
@@ -747,13 +1077,15 @@ function buildPreview() {
 async function pickImage(id: string) {
   S.image = id;
   document.querySelectorAll('.thumb').forEach((t) => t.classList.toggle('on', (t as HTMLElement).dataset.id === id));
-  if (id === 'user') { srcData = userPhoto; schedulePreview(); return; }
+  const amb = document.getElementById('ambient');
+  if (amb && id !== 'user') amb.style.backgroundImage = `url("./samples/${id}.jpg")`;
+  if (id === 'user') { srcData = userPhoto; schedulePreview(); if (S.browse) renderEditor(); return; }
   try {
     const img = new Image();
     img.src = `./samples/${id}.jpg`;
     await img.decode();
     srcData = toImageData(img, img.naturalWidth, img.naturalHeight);
-    if (S.image === id) schedulePreview();
+    if (S.image === id) { schedulePreview(); if (S.browse) renderEditor(); }
   } catch { toast('Could not load the sample image', 'err'); }
 }
 
@@ -774,6 +1106,7 @@ async function onPhoto(e: Event) {
   try {
     const bmp = await createImageBitmap(f, { imageOrientation: 'from-image' } as ImageBitmapOptions);
     userPhoto = toImageData(bmp, bmp.width, bmp.height);
+    userPhotoN++;
     bmp.close();
     pickImage('user');
   } catch { toast('That file could not be read as an image', 'err'); }
@@ -786,10 +1119,12 @@ function schedulePreview() {
     previewQueued = false;
     const pg = document.getElementById('pv-grain');
     if (pg) pg.hidden = cam().lookNr;
+    const badge = document.getElementById('pv-badge');
+    if (badge) { badge.textContent = S.peek ? `Preview · ${S.peek.look.name} (${S.peek.from})` : 'Approximate preview'; badge.classList.toggle('peek', !!S.peek); }
     if (!srcData || !canvas) return;
     if (canvas.width !== srcData.width || canvas.height !== srcData.height) { canvas.width = srcData.width; canvas.height = srcData.height; }
     const ctx = canvas.getContext('2d')!;
-    const l = cur();
+    const l = S.peek?.look ?? cur();
     if (S.compare || !l) { ctx.putImageData(srcData, 0, 0); return; }
     const out = ctx.createImageData(srcData.width, srcData.height);
     renderLook(srcData, out, CAM === 'om3' ? toOm3(l).look ?? l : l, { advice: S.advice, nr: cam().lookNr, grain: cam().lookNr ? 'off' : S.grain });
@@ -959,7 +1294,7 @@ function installDialog() {
   const step = (title: string, ...body: (Node | string | null)[]) => h('li', { class: 'step' }, h('b', {}, title), h('div', { class: 'step-body' }, ...body));
   const exportBtn = h('button', { onclick: () => { dlg.close(); exportDialog(); } }, 'Open Export');
   const body = h('div', { class: 'install' },
-    h('p', { class: 'warn' }, '⚠️ Unofficial, experimental firmware. Flashing can brick your camera; you do this at your own risk. Without the EP7MOD folder the camera is almost stock, and the restore file returns it fully to stock.'),
+    h('p', { class: 'warn' }, h('b', {}, 'Unofficial, experimental firmware. '), 'Flashing can brick your camera; you do this at your own risk. Without the EP7MOD folder the camera is almost stock, and the restore file returns it fully to stock.'),
     h('ol', { class: 'steps' },
       step('Check your camera',
         h('p', {}, 'Olympus PEN ', h('b', {}, 'E-P7'), ' on firmware ', h('b', {}, '1.1'), ' (Setup › Firmware), a charged battery and an SD card formatted in the camera.')),
@@ -1008,6 +1343,8 @@ const FW_OPTIONS: [Fw, string, string][] = [
 const STORE_CAM = 'caduceus.camera';
 let CAM: Cam = 'ep7';
 const cam = () => CAMERAS[CAM];
+/** The camera chip: "Camera: " is dropped on narrow screens. */
+const fwChip = () => { const [a, b] = fwLabel().split(': '); return [h('span', { class: 'cam-pre' }, `${a}: `), b]; };
 function fwLabel() { return CAM === 'om3' ? 'Camera: OM-3' : `Camera: E-P7, v0.${firmware()}${firmware() === FW_LATEST ? '+' : ''}`; }
 function saveSetup(cam: Cam, fw?: Fw) {
   CAM = cam;
@@ -1017,7 +1354,7 @@ function saveSetup(cam: Cam, fw?: Fw) {
     if (fw) localStorage.setItem(STORE_FW, String(fw));
   } catch { /* private mode */ }
   const b = document.querySelector('#fw-btn');
-  if (b) b.textContent = fwLabel();
+  if (b) b.replaceChildren(...fwChip());
   renderAll();
 }
 function setupDialog(first = false) {
@@ -1042,7 +1379,7 @@ function loadSetup() {
   const f = Number(v) as Fw;
   if (v !== null && FW_OPTIONS.some(([x]) => x === f)) setFirmware(f);
   if (q === 'om3' || q === 'ep7') saveSetup(q);
-  else if (cam === 'om3' || cam === 'ep7') { CAM = cam; $('#fw-btn').textContent = fwLabel(); }
+  else if (cam === 'om3' || cam === 'ep7') { CAM = cam; $('#fw-btn').replaceChildren(...fwChip()); }
   else setupDialog(true);                              // first visit, or set up before the camera choice existed
 }
 function aboutDialog() {
@@ -1061,7 +1398,7 @@ function aboutDialog() {
 }
 function om3InstallDialog() {
   modal('Install Caduceus for OM-3', h('div', { class: 'export' },
-    h('p', { class: 'warn' }, '⚠️ Unofficial, experimental firmware. Flashing can brick your camera; you do this at your own risk. Never use E-P7 firmware on an OM-3.'),
+    h('p', { class: 'warn' }, h('b', {}, 'Unofficial, experimental firmware. '), 'Flashing can brick your camera; you do this at your own risk. Never use E-P7 firmware on an OM-3.'),
     h('p', {}, 'The OM-3 firmware is its own community project by androidfanman, in the Caduceus family. Follow its guide to install it, then export your looks here with the camera set to OM-3.')),
   [h('a', { class: 'btn', href: `${OM3_REPO}/blob/main/docs/INSTALL.md`, target: '_blank', rel: 'noopener' }, 'Install guide'),
     h('a', { class: 'btn primary', href: `${OM3_REPO}/releases/latest`, target: '_blank', rel: 'noopener' }, 'Latest release')]);

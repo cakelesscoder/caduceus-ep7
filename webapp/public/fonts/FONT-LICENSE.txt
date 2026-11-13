@@ -45,3 +45,10 @@ otherwise to promote the sale, use or other dealings in this Font Software
 without prior written authorization from the Gnome Foundation or Bitstream
 Inc., respectively. For further information, contact: fonts at gnome dot
 org.
+
+----------------------------------------------------------------------------------------------------
+inter-var.woff2: the Control Panel's interface font, Inter 4 (variable: weight and optical size), subset to Latin
+and the symbols the panel uses. https://rsms.me/inter/
+
+Copyright (c) 2016 The Inter Project Authors (https://github.com/rsms/inter).
+Licensed under the SIL Open Font License, Version 1.1 (https://openfontlicense.org/).

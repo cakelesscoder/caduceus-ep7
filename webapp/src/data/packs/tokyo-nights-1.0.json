@@ -1,0 +1,231 @@
+{
+ "schema": "caduceus-pack/1",
+ "id": "tokyo-nights-1.0",
+ "name": "Tokyo Nights",
+ "version": "1.0",
+ "kind": "mood",
+ "notes": "Neon, tungsten and wet streets: CineStill halation, high-speed Fuji negatives, Portra 800 and pushed Tri-X.",
+ "looks": [
+  {
+   "name": "800T Neon",
+   "notes": "CineStill 800T under neon: tungsten-balanced, teal shade, red halation round signs and lamps, richer magentas and blues. Split: cyan shadows, warm highlights.",
+   "kind": "colour",
+   "hue": [0,0,-1,0,0,0,0,-2,-2,0,2,0],
+   "light": [0,0,2,2,0,0,-1,0,0,0,0,0],
+   "sat": [-1,0,2,3,2,1,2,2,2,-1,-2,-2],
+   "grain": "film",
+   "wb": {
+    "a_b": -2,
+    "g_m": 0
+   },
+   "effect": {
+    "type": "bloom",
+    "strength": 4,
+    "tint": "red"
+   },
+   "vignette": 0,
+   "art_effect": "off",
+   "tone": {
+    "highlights": -1,
+    "shadows": 1,
+    "midtones": 0,
+    "blacks": -1,
+    "whites": -1
+   },
+   "advice": {
+    "tone": {
+     "highlights": -1,
+     "shadows": 1,
+     "midtones": 0
+    }
+   },
+   "split": {
+    "sh_color": 8,
+    "sh": 2,
+    "hl_color": 1,
+    "hl": 1
+   }
+  },
+  {
+   "name": "Natura 1600",
+   "notes": "Fuji Natura 1600, the Japan-only night film: natural, slightly muted colour, soft contrast, blacks not quite deep. Split: night skies drift blue.",
+   "kind": "colour",
+   "hue": [0,0,0,0,0,0,0,0,0,0,0,0],
+   "light": [0,0,0,0,0,0,0,0,0,0,0,0],
+   "sat": [-1,-1,-1,-1,-1,-1,0,0,-1,-1,-1,-1],
+   "grain": "film",
+   "wb": null,
+   "effect": null,
+   "vignette": 0,
+   "art_effect": "off",
+   "tone": {
+    "highlights": -1,
+    "shadows": 1,
+    "midtones": 0,
+    "blacks": 1,
+    "whites": -1
+   },
+   "advice": {
+    "tone": {
+     "highlights": -1,
+     "shadows": 1,
+     "midtones": 0
+    },
+    "contrast": -1
+   },
+   "split": {
+    "sh_color": 6,
+    "sh": 1,
+    "hl_color": 0,
+    "hl": 0
+   }
+  },
+  {
+   "name": "Portra 800",
+   "notes": "Portra 800 under street lamps: warm natural skin, colour that holds up in low light, soft contrast, plain glow (antihalation layer: no red halo). Split: warm highlights.",
+   "kind": "colour",
+   "hue": [1,1,0,0,0,0,0,0,0,0,-1,-1],
+   "light": [1,1,1,0,0,0,-1,0,0,0,0,0],
+   "sat": [0,1,1,1,0,0,0,0,0,-1,-2,-1],
+   "grain": "film",
+   "wb": null,
+   "effect": {
+    "type": "bloom",
+    "strength": 1
+   },
+   "vignette": 0,
+   "art_effect": "off",
+   "tone": {
+    "highlights": -2,
+    "shadows": 2,
+    "midtones": 0,
+    "blacks": 0,
+    "whites": -1
+   },
+   "advice": {
+    "tone": {
+     "highlights": -2,
+     "shadows": 2,
+     "midtones": 0
+    },
+    "contrast": -1
+   },
+   "split": {
+    "sh_color": 0,
+    "sh": 0,
+    "hl_color": 1,
+    "hl": 1
+   }
+  },
+  {
+   "name": "Superia Nite",
+   "notes": "Fuji Superia shot at night: underexposed shade goes green, highlights lean magenta, teal-leaning greens. Split: green shadows, magenta highlights.",
+   "kind": "colour",
+   "hue": [0,0,0,0,2,2,-2,-1,3,3,3,0],
+   "light": [-1,-1,-1,-1,0,0,0,0,-1,-2,-2,-2],
+   "sat": [0,0,1,1,0,-1,0,0,0,-1,-1,-1],
+   "grain": "film",
+   "wb": null,
+   "effect": null,
+   "vignette": 0,
+   "art_effect": "off",
+   "tone": {
+    "highlights": 1,
+    "shadows": -2,
+    "midtones": 0,
+    "blacks": 0,
+    "whites": -1
+   },
+   "advice": {
+    "tone": {
+     "highlights": 1,
+     "shadows": -2,
+     "midtones": 0
+    },
+    "contrast": 1
+   },
+   "split": {
+    "sh_color": 10,
+    "sh": 1,
+    "hl_color": 4,
+    "hl": 1
+   }
+  },
+  {
+   "name": "400H Night",
+   "notes": "Pro 400H after dark: its fourth colour layer keeps fluorescent light clean; cool pastel colour, minty greens, a little more blue for signage. Split: green-cyan shade.",
+   "kind": "colour",
+   "hue": [0,0,0,0,0,0,0,0,0,2,3,3],
+   "light": [0,0,0,0,0,0,0,0,0,1,1,0],
+   "sat": [-2,-2,-1,-1,-1,-1,1,1,1,0,-1,-2],
+   "grain": "fine",
+   "wb": null,
+   "effect": {
+    "type": "bloom",
+    "strength": 1
+   },
+   "vignette": 0,
+   "art_effect": "off",
+   "tone": {
+    "highlights": -1,
+    "shadows": 2,
+    "midtones": 1,
+    "blacks": 0,
+    "whites": -1
+   },
+   "advice": {
+    "tone": {
+     "highlights": -1,
+     "shadows": 2,
+     "midtones": 1
+    },
+    "contrast": -1
+   },
+   "split": {
+    "sh_color": 9,
+    "sh": 1,
+    "hl_color": 0,
+    "hl": 0
+   }
+  },
+  {
+   "name": "Tri-X Push",
+   "notes": "Tri-X pushed to EI 1600: hard contrast, blocked shadows, burnt-in greys, the grainy Shinjuku-at-night street style. Advice: contrast +2, shadows -4.",
+   "kind": "mono",
+   "hue": [0,0,0,0,0,0,0,0,0,0,0,0],
+   "light": [0,0,0,0,0,0,0,0,0,0,0,0],
+   "sat": [0,0,0,0,0,0,0,0,0,0,0,0],
+   "grain": "film",
+   "wb": null,
+   "effect": null,
+   "vignette": 0,
+   "art_effect": "off",
+   "tone": {
+    "highlights": 0,
+    "shadows": 0,
+    "midtones": 0,
+    "blacks": 0,
+    "whites": 0
+   },
+   "advice": {
+    "tone": {
+     "highlights": 0,
+     "shadows": -4,
+     "midtones": 0
+    },
+    "contrast": 2,
+    "mono_filter": {
+     "colour": "yellow",
+     "strength": 1
+    }
+   }
+  }
+ ],
+ "slots": {
+  "COLOR1": 0,
+  "COLOR2": 1,
+  "COLOR3": 2,
+  "COLOR4": 3,
+  "MONO1": 5
+ }
+}

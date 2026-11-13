@@ -1,0 +1,191 @@
+{
+ "schema": "caduceus-pack/1",
+ "id": "winter-1.0",
+ "name": "Winter",
+ "version": "1.0",
+ "kind": "mood",
+ "notes": "Cool, quiet, crisp: Portra 160 cooled, Pro 400H, Ektachrome for snow, Eterna and Acros.",
+ "looks": [
+  {
+   "name": "Portra Cool",
+   "notes": "Portra 160 in snow and overcast light: natural skin, quiet colour, one WB step cooler for winter shade (a grading choice). Split: blue-cyan shade.",
+   "kind": "colour",
+   "hue": [1,1,0,0,0,0,0,0,0,1,-1,-1],
+   "light": [1,1,1,0,0,0,0,0,0,0,0,0],
+   "sat": [-2,1,-1,-1,-2,-3,-1,-2,-2,-2,-3,-2],
+   "grain": "off",
+   "wb": {
+    "a_b": -1,
+    "g_m": 0
+   },
+   "effect": null,
+   "vignette": 0,
+   "art_effect": "off",
+   "tone": {
+    "highlights": -1,
+    "shadows": 1,
+    "midtones": 0,
+    "blacks": 0,
+    "whites": -1
+   },
+   "advice": {
+    "tone": {
+     "highlights": -1,
+     "shadows": 1,
+     "midtones": 0
+    },
+    "contrast": -1
+   },
+   "split": {
+    "sh_color": 7,
+    "sh": 1,
+    "hl_color": 0,
+    "hl": 0
+   }
+  },
+  {
+   "name": "Pro 400H",
+   "notes": "Airy pastel negative: minty greens, light cyan skies. Split: green-cyan shade.",
+   "kind": "colour",
+   "hue": [0,0,0,0,0,0,0,0,0,2,3,3],
+   "light": [0,0,0,0,0,0,1,1,1,1,1,0],
+   "sat": [-2,-2,-2,-2,-2,-2,0,1,1,0,-1,-2],
+   "grain": "fine",
+   "wb": null,
+   "effect": {
+    "type": "bloom",
+    "strength": 1
+   },
+   "vignette": 0,
+   "art_effect": "off",
+   "tone": {
+    "highlights": -2,
+    "shadows": 3,
+    "midtones": 2,
+    "blacks": 1,
+    "whites": -2
+   },
+   "advice": {
+    "tone": {
+     "highlights": -2,
+     "shadows": 3,
+     "midtones": 2
+    },
+    "contrast": -1
+   },
+   "split": {
+    "sh_color": 9,
+    "sh": 1,
+    "hl_color": 0,
+    "hl": 0
+   }
+  },
+  {
+   "name": "E100 Snow",
+   "notes": "Ektachrome E100 for snow: clean neutral whites with highlights held, blue shade, crisp but slightly calmer blues than Ektachrome. Split: blue shade.",
+   "kind": "colour",
+   "hue": [0,0,0,0,0,0,1,0,1,0,0,0],
+   "light": [0,0,0,0,0,0,-1,-1,0,0,0,0],
+   "sat": [0,-1,-1,0,1,2,3,3,2,0,0,0],
+   "grain": "off",
+   "wb": null,
+   "effect": null,
+   "vignette": 0,
+   "art_effect": "off",
+   "tone": {
+    "highlights": -1,
+    "shadows": -2,
+    "midtones": 0,
+    "blacks": -1,
+    "whites": 0
+   },
+   "advice": {
+    "tone": {
+     "highlights": -1,
+     "shadows": -2,
+     "midtones": 0
+    },
+    "contrast": 1
+   },
+   "split": {
+    "sh_color": 6,
+    "sh": 1,
+    "hl_color": 0,
+    "hl": 0
+   }
+  },
+  {
+   "name": "Eterna",
+   "notes": "Cinema negative: flat, open shadows, quiet teal-leaning colour. Split: cyan shadows, warm highlights.",
+   "kind": "colour",
+   "hue": [0,3,2,0,0,0,-2,-6,-4,0,-1,-2],
+   "light": [-1,-1,-2,-3,-3,-2,-2,-1,-1,-1,-1,-1],
+   "sat": [-2,-2,-3,-2,-2,-3,-4,-5,-2,-3,-3,-3],
+   "grain": "off",
+   "wb": null,
+   "effect": null,
+   "vignette": 0,
+   "art_effect": "off",
+   "tone": {
+    "highlights": -2,
+    "shadows": 4,
+    "midtones": 0,
+    "blacks": 1,
+    "whites": -1
+   },
+   "advice": {
+    "tone": {
+     "highlights": -2,
+     "shadows": 4,
+     "midtones": 0
+    },
+    "contrast": -2
+   },
+   "split": {
+    "sh_color": 8,
+    "sh": 1,
+    "hl_color": 1,
+    "hl": 1
+   }
+  },
+  {
+   "name": "Acros",
+   "notes": "Fine-grain mono: deep blacks, smooth tones, darker reds.",
+   "kind": "mono",
+   "hue": [0,0,0,0,0,0,0,0,0,0,0,0],
+   "light": [0,0,0,0,0,0,0,0,0,0,0,0],
+   "sat": [0,0,0,0,0,0,0,0,0,0,0,0],
+   "grain": "fine",
+   "wb": null,
+   "effect": null,
+   "vignette": 0,
+   "art_effect": "off",
+   "tone": {
+    "highlights": 0,
+    "shadows": 0,
+    "midtones": 0,
+    "blacks": 0,
+    "whites": 0
+   },
+   "advice": {
+    "tone": {
+     "highlights": -1,
+     "shadows": -2,
+     "midtones": 0
+    },
+    "contrast": 1,
+    "mono_filter": {
+     "colour": "green",
+     "strength": 1
+    }
+   }
+  }
+ ],
+ "slots": {
+  "COLOR1": 0,
+  "COLOR2": 1,
+  "COLOR3": 2,
+  "COLOR4": 3,
+  "MONO1": 4
+ }
+}

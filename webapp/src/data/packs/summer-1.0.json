@@ -1,0 +1,195 @@
+{
+ "schema": "caduceus-pack/1",
+ "id": "summer-1.0",
+ "name": "Summer",
+ "version": "1.0",
+ "kind": "mood",
+ "notes": "Bright sun and colour: Ektar, a gentler Velvia, UltraMax, sunny cross-processing and a sun-bleached negative.",
+ "looks": [
+  {
+   "name": "Ektar 100",
+   "notes": "Ultra-vivid fine-grain negative: saturated reds and blues. Split: warm highlights, blue deep shadows.",
+   "kind": "colour",
+   "hue": [0,0,0,1,0,0,0,1,1,0,0,0],
+   "light": [0,0,-1,-1,0,0,-2,-2,-1,0,0,0],
+   "sat": [1,2,3,3,2,1,4,4,2,0,1,1],
+   "grain": "off",
+   "wb": null,
+   "effect": null,
+   "vignette": 0,
+   "art_effect": "off",
+   "tone": {
+    "highlights": 0,
+    "shadows": -1,
+    "midtones": 0,
+    "blacks": 0,
+    "whites": -1
+   },
+   "advice": {
+    "tone": {
+     "highlights": 0,
+     "shadows": -1,
+     "midtones": 0
+    },
+    "contrast": 2
+   },
+   "split": {
+    "sh_color": 6,
+    "sh": 1,
+    "hl_color": 1,
+    "hl": 1
+   }
+  },
+  {
+   "name": "Velvia Lite",
+   "notes": "Velvia toned down for people in summer light: rich skies and greens without the crushed shadows or blown saturation. Split: magenta-leaning shade.",
+   "kind": "colour",
+   "hue": [0,0,0,-1,-1,-1,1,2,2,-2,0,0],
+   "light": [0,0,0,0,0,0,-1,-1,-1,0,-1,-1],
+   "sat": [2,2,2,3,2,2,3,3,2,2,2,2],
+   "grain": "off",
+   "wb": null,
+   "effect": null,
+   "vignette": 0,
+   "art_effect": "off",
+   "tone": {
+    "highlights": 0,
+    "shadows": -2,
+    "midtones": 0,
+    "blacks": -1,
+    "whites": 0
+   },
+   "advice": {
+    "tone": {
+     "highlights": 0,
+     "shadows": -2,
+     "midtones": 0
+    },
+    "contrast": 1
+   },
+   "split": {
+    "sh_color": 4,
+    "sh": 1,
+    "hl_color": 0,
+    "hl": 0
+   }
+  },
+  {
+   "name": "UltraMax 400",
+   "notes": "Kodak consumer negative: warm, punchy reds/yellows, olive greens, visible grain. Split: yellow highlights, blue-violet shadows.",
+   "kind": "colour",
+   "hue": [0,0,0,0,0,0,-1,-1,0,0,-2,-2],
+   "light": [1,0,0,-1,0,0,-1,-1,0,0,-1,0],
+   "sat": [3,2,2,2,0,-1,0,0,-1,-1,1,2],
+   "grain": "film",
+   "wb": null,
+   "effect": null,
+   "vignette": 0,
+   "art_effect": "off",
+   "tone": {
+    "highlights": 0,
+    "shadows": -1,
+    "midtones": 0,
+    "blacks": 0,
+    "whites": -1
+   },
+   "advice": {
+    "tone": {
+     "highlights": 0,
+     "shadows": -1,
+     "midtones": 0
+    },
+    "contrast": 1
+   },
+   "split": {
+    "sh_color": 5,
+    "sh": 1,
+    "hl_color": 0,
+    "hl": 1
+   }
+  },
+  {
+   "name": "X-Pro Sunny",
+   "notes": "Gentler cross-processing (E-6 in C-41): high contrast, yellow-green highlights, cyan skies, warm skin, less extreme than Cross Proc. Split: yellow-green highlights.",
+   "kind": "colour",
+   "hue": [-2,0,0,-1,-2,-1,-2,-3,-2,-3,-3,-3],
+   "light": [2,1,0,-1,-1,0,0,0,0,0,0,1],
+   "sat": [2,1,1,2,1,0,2,2,2,1,2,3],
+   "grain": "film",
+   "wb": {
+    "a_b": 1,
+    "g_m": 0
+   },
+   "effect": null,
+   "vignette": 0,
+   "art_effect": "off",
+   "tone": {
+    "highlights": 1,
+    "shadows": -2,
+    "midtones": 0,
+    "blacks": -1,
+    "whites": 1
+   },
+   "advice": {
+    "tone": {
+     "highlights": 1,
+     "shadows": -2,
+     "midtones": 0
+    },
+    "contrast": 1
+   },
+   "split": {
+    "sh_color": 0,
+    "sh": 0,
+    "hl_color": 11,
+    "hl": 1
+   }
+  },
+  {
+   "name": "Sun Bleach",
+   "notes": "Negative overexposed in hard sun: bleached pastels, lifted shadows, soft rolled-off whites, pale skies, warm cast. Split: yellow highlights.",
+   "kind": "colour",
+   "hue": [0,0,0,0,0,0,0,-1,-1,0,0,0],
+   "light": [1,1,1,0,0,0,1,1,1,1,1,1],
+   "sat": [-1,-2,-2,-2,-2,-2,-3,-3,-2,-2,-2,-1],
+   "grain": "fine",
+   "wb": {
+    "a_b": 1,
+    "g_m": 0
+   },
+   "effect": {
+    "type": "bloom",
+    "strength": 1
+   },
+   "vignette": 0,
+   "art_effect": "off",
+   "tone": {
+    "highlights": -3,
+    "shadows": 3,
+    "midtones": 2,
+    "blacks": 2,
+    "whites": -2
+   },
+   "advice": {
+    "tone": {
+     "highlights": -3,
+     "shadows": 3,
+     "midtones": 2
+    },
+    "contrast": -2
+   },
+   "split": {
+    "sh_color": 0,
+    "sh": 0,
+    "hl_color": 0,
+    "hl": 1
+   }
+  }
+ ],
+ "slots": {
+  "COLOR1": 0,
+  "COLOR2": 1,
+  "COLOR3": 2,
+  "COLOR4": 4
+ }
+}
