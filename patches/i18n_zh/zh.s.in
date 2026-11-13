@@ -1,0 +1,242 @@
+/* E-P7 1.1 Simplified Chinese guide labels (issue #46) (ep7-firmware, our own code). docs/I18N_ZH.md.
+ *
+ * i18n_gd takes the guide part word 0x6025aa98 (CALLS, a0 = view) and runs the chain it held first (ep7_guide_in:
+ * xp_guide -> ap_gd -> ex_guide -> ed_guide -> stock). Afterwards, only when
+ *   - the view's label (view+44, 74 B: u16 kind, -, u16 id, u16 style, text[33] at +52) is kind 5 (our text), and
+ *   - the loaded string table is Simplified Chinese: string 134 starts L"固件" (0x56fa 0x4ef6); table pointer
+ *     (0x61fc1530)[(0x61fb2818)], as stock's getter 0x60d10bf2,
+ * the label text is translated from the table z_tab: records (u16 elen, u16 zlen, u16 flags, u16 en[elen], u16 zh[zlen]), then u16 0.
+ *   flags 1 (whole): the whole label equals en -> zh. Tried first, in table order.
+ *   flags 0 (token): left to right; at a token start (label start, or after ' ' / '/') the first entry whose en matches
+ *                    and ends at 0 / ' ' / '/' / ':' is replaced by zh; any other unit is copied. The build sorts tokens
+ *                    longest first. On the Film page (valid card table, editor marker, axis 3) only whole entries apply,
+ *                    so look names stay as the user wrote them.
+ * The result (<= 32 units + 0, rest of the 33 zeroed) goes back to view+52. Otherwise the label stays as the chain left it.
+ * Exit: d0 = the chain's d0; d2/d3/a2/a3 kept (movm). Stores: our stack frame and the view's label text (a1 = view+52..).
+ * No absolute stores, no mul/div/setlb.
+ */
+ .am33_2
+ .text
+ .global _start
+_start:
+i18n_gd:
+ movm [d2,d3,a2,a3],(sp)
+ add -92,sp                       /* (0) calls slot, (4..71) text buffer, (72) d0, (76) film, (80) src, (84) dst, (88) end */
+ mov a0,a3
+ calls ep7_guide_in
+ mov d0,(72,sp)
+ movhu (44,a3),d0
+ cmp 5,d0
+ bne z_out
+ movbu (0x61fb2818),d0            /* stock 0x60d10c09: language bank */
+ asl2 d0
+ mov 0x61fc1530,a0
+ add d0,a0
+ mov (a0),a0                      /* string pointer table */
+ cmp 0,a0
+ beq z_out
+ mov (536,a0),a0                  /* string 134 */
+ cmp 0,a0
+ beq z_out
+ movhu (a0),d0
+ cmp 0x56fa,d0
+ bne z_out
+ movhu (2,a0),d0
+ cmp 0x4ef6,d0
+ bne z_out
+ clr d1                           /* film page? (as XPV in extras_pages) */
+ movhu ({state}),d3
+ add -1,d3
+ cmp {lim},d3
+ bcc 1f
+ btst 3,d3
+ bne 1f
+ mov d3,a2
+ add {pool},a2
+ mov (a2),d3
+ cmp {bmagic},d3
+ bne 1f
+ mov ({emark},a2),d3
+ cmp {emagic},d3
+ bne 1f
+ movbu ({axis},a2),d3
+ cmp 3,d3
+ bne 1f
+ mov 1,d1
+1:
+ mov d1,(76,sp)
+ mov sp,a1
+ add 4,a1
+ mov a1,(84,sp)                   /* dst */
+ mov a3,a0
+ add 52,a0
+ mov a0,(80,sp)                   /* src */
+ mov a0,d0
+ add 64,d0
+ mov d0,(88,sp)                   /* src end: 32 units */
+
+ mov z_tab,a2                     /* ---- whole-label entries */
+w_next:
+ movhu (a2),d3
+ cmp 0,d3
+ beq w_done
+ movhu (4,a2),d0
+ btst 1,d0
+ beq w_skip
+ mov a2,a0
+ add 6,a0
+ mov (80,sp),a1
+2:
+ movhu (a0),d0
+ movhu (a1),d1
+ cmp d0,d1
+ bne w_skip
+ add 2,a0
+ add 2,a1
+ add -1,d3
+ bne 2b
+ movhu (a1),d1
+ cmp 0,d1
+ bne w_skip
+ movhu (2,a2),d3                  /* match: zh follows en (a0) */
+ mov (84,sp),a1
+3:
+ movhu (a0),d0
+ movhu d0,(a1)
+ add 2,a0
+ add 2,a1
+ add -1,d3
+ bne 3b
+ bra z_fin
+w_skip:
+ call z_adv,[],0
+ bra w_next
+w_done:
+ mov (76,sp),d0
+ cmp 0,d0
+ bne z_out                        /* Film page: whole entries only */
+
+ mov 32,d2                        /* ---- tokens; d2 = units left in dst */
+t_loop:
+ mov (80,sp),a0
+ mov a0,d0
+ mov (88,sp),d1
+ cmp d1,d0
+ bcc t_end
+ movhu (a0),d1
+ cmp 0,d1
+ beq t_end
+ mov a3,d1
+ add 52,d1
+ cmp d1,d0
+ beq t_try
+ movhu (-2,a0),d1
+ cmp 32,d1
+ beq t_try
+ cmp 47,d1
+ bne t_copy
+t_try:
+ mov z_tab,a2
+t_ent:
+ movhu (a2),d3
+ cmp 0,d3
+ beq t_copy
+ movhu (4,a2),d0
+ btst 1,d0
+ bne t_skip
+ mov (80,sp),a0
+ mov a2,a1
+ add 6,a1
+4:
+ movhu (a0),d0
+ movhu (a1),d1
+ cmp d0,d1
+ bne t_skip
+ add 2,a0
+ add 2,a1
+ add -1,d3
+ bne 4b
+ movhu (a0),d0                    /* token end */
+ cmp 0,d0
+ beq t_hit
+ cmp 32,d0
+ beq t_hit
+ cmp 47,d0
+ beq t_hit
+ cmp 58,d0
+ bne t_skip
+t_hit:
+ mov a0,(80,sp)
+ movhu (2,a2),d3
+ mov (84,sp),a0
+5:
+ cmp 0,d2
+ beq t_end
+ movhu (a1),d0
+ movhu d0,(a0)
+ add 2,a0
+ add 2,a1
+ add -1,d2
+ add -1,d3
+ bne 5b
+ mov a0,(84,sp)
+ bra t_loop
+t_skip:
+ call z_adv,[],0
+ bra t_ent
+t_copy:
+ mov (80,sp),a0
+ movhu (a0),d0
+ add 2,a0
+ mov a0,(80,sp)
+ cmp 0,d2
+ beq t_end
+ mov (84,sp),a1
+ movhu d0,(a1)
+ add 2,a1
+ mov a1,(84,sp)
+ add -1,d2
+ bra t_loop
+t_end:
+ mov (84,sp),a1
+z_fin:                            /* a1 = end of the text in the buffer */
+ clr d0
+ movhu d0,(a1)
+ mov sp,a0
+ add 4,a0
+ mov a3,a1
+ add 52,a1
+ mov 33,d3
+ clr d1
+6:
+ movhu (a0),d0
+ cmp 0,d1
+ beq 7f
+ clr d0
+7:
+ cmp 0,d0
+ bne 8f
+ mov 1,d1
+8:
+ movhu d0,(a1)
+ add 2,a0
+ add 2,a1
+ add -1,d3
+ bne 6b
+z_out:
+ mov (72,sp),d0
+ ret [d2,d3,a2,a3],108             /* frame 92 + the 16 B movm saved */
+
+z_adv:                            /* a2 -> next entry: += 6 + 2 * (elen + zlen). Clobbers d0, d1. */
+ movhu (a2),d0
+ movhu (2,a2),d1
+ add d1,d0
+ add d0,d0
+ add 6,d0
+ add d0,a2
+ ret [],0
+
+ .balign 4
+z_tab:
+{table}
+z_end:

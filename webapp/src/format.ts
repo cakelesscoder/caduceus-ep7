@@ -13,6 +13,7 @@ import {
   ARTS, EFFECTS, FILM_GRAINS, GRAINS, GRAIN_BYTE, grainFromByte, defaultProfile, profileOf, MAX_LOOKS, NAME_MAX, NOTE_MAX, PACK_SCHEMA, SLOT_NAMES, TINTS, TONE_BW_MAX, TONE_KEYS,
   HALOS, blankLook, toneIsZero, toneLimit, zeroTone, type Look, type Pack, type ProfileSettings,
 } from './pack';
+import { hasSplit, splitOk } from './split';
 
 // ---- CRC-32 (zlib)
 const CRC_TABLE = (() => {
@@ -30,10 +31,10 @@ export function crc32(...parts: Uint8Array[]): number {
   return (c ^ 0xffffffff) >>> 0;
 }
 
-// ---- firmware the card files are made for (Control Panel selector). 31 = v0.31 or later (Halo +52), 28 = v0.28..v0.30
-// (Sharp +51), 27 = v0.27, 25 = v0.25 / v0.26.
-export type Fw = 31 | 28 | 27 | 25 | 24 | 23;
-export const FW_LATEST: Fw = 31;
+// ---- firmware the card files are made for (Control Panel selector). 32 = v0.32 or later (split toning +62/+63), 31 = v0.31
+// (Halo +52), 28 = v0.28..v0.30 (Sharp +51), 27 = v0.27, 25 = v0.25 / v0.26.
+export type Fw = 32 | 31 | 28 | 27 | 25 | 24 | 23;
+export const FW_LATEST: Fw = 32;
 let FW: Fw = FW_LATEST;
 export const setFirmware = (f: Fw) => { FW = f; };
 export const firmware = () => FW;
@@ -50,6 +51,14 @@ const LOOKS_VERSION = 3, HDR_LEN = 64, REC_LEN = 64;
 const TONE_FLAG = 32;
 const TONE_OFF = { blacks: 33, whites: 34, highlights: 35, midtones: 36, shadows: 37 } as const;
 const B_BLACKS = 47, B_WHITES = 48, B_SHADING = 49, B_GRAIN = 50, B_NR = 24, B_SHARP = 51, B_HALO = 52;
+// v0.32 split toning (COLOR slots): +62 Shadows, +63 Highlights, each low nibble colour 0..11, high nibble strength s4 -5..5
+const B_SPLIT_SH = 62, B_SPLIT_HL = 63;
+// v0.32 LOOKS.BIN: the same two bytes in the record's name tail, +61 Shadows / +62 Highlights (names end by +60: at most
+// 12 characters). A Film pick copies them to slot +62/+63 (0 clears). Older firmware rejects a record with them non-zero.
+const R_SPLIT_SH = 61, R_SPLIT_HL = 62;
+const packSplit = (c: number, v: number) => c | ((v & 15) << 4);
+const splitByteOk = (b: number) => (b & 15) < 12 && (((b >> 4) + 5) & 15) < 11;
+const unpackSplit = (b: number): [number, number] => [b & 15, (b >> 4) > 7 ? (b >> 4) - 16 : b >> 4];
 const MASK_KEEP_CORRECTION = 4;                         // v0.25 record slot mask bit 2
 const BUNDLE_USED = 45, CLASS_OFF = 45, MASK_OFF = 46, TINT_OFF = 47, NAME_OFF = 48;
 const B_TINT = 45, B_ART = 46, B_COLOUR = 32, B_SAT = 33, B_FLAGS = 31;
@@ -64,7 +73,7 @@ const FIELDS: [number, number, number, number][] = [   // off, len, lo, hi
   [27, 1, -WB_MAX, WB_MAX], [28, 1, 0, 3], [29, 1, 0, 5], [30, 1, -VIG_MAX, VIG_MAX], [31, 1, 0, 3], [32, 1, 0, 1],
   [33, 12, -SAT_MAX, SAT_MAX], [45, 1, 0, 4], [46, 1, 0, 5],
   [B_BLACKS, 1, -TONE_BW_MAX, TONE_BW_MAX], [B_WHITES, 1, -TONE_BW_MAX, TONE_BW_MAX], [B_SHADING, 1, 0, 1], [B_GRAIN, 1, 0, 3],
-  [B_SHARP, 1, 0, 1], [B_HALO, 1, 0, 4]];
+  [B_SHARP, 1, 0, 1], [B_HALO, 1, 0, 4], [B_SPLIT_SH, 2, -128, 127]];
 export const RANGE_LO = new Int8Array(64), RANGE_HI = new Int8Array(64);   // unclaimed bytes: 0..0
 for (const [off, n, lo, hi] of FIELDS) for (let k = off; k < off + n; k++) { RANGE_LO[k] = lo; RANGE_HI[k] = hi; }
 const s8 = (b: number) => (b >= 128 ? b - 256 : b);
@@ -173,7 +182,11 @@ export function lookRecord(l: Look): Uint8Array {
   }
   if (!mono && l.lens_correction && FW >= 25) r[MASK_OFF] |= MASK_KEEP_CORRECTION;
   const nm = new TextEncoder().encode(l.name);
-  r.set(nm.subarray(0, 15), NAME_OFF);
+  r.set(nm.subarray(0, NAME_MAX), NAME_OFF);
+  if (FW >= 32 && !mono && l.split && hasSplit(l) && splitOk(l.split)) {   // v0.32: a Film pick sets the profile's split
+    r[R_SPLIT_SH] = packSplit(l.split.sh_color, l.split.sh);
+    r[R_SPLIT_HL] = packSplit(l.split.hl_color, l.split.hl);
+  }
   return r;
 }
 
@@ -207,8 +220,13 @@ export function encodeLooksBin(pack: Pack): Uint8Array {
   return out;
 }
 
-function nameOk(nm: Uint8Array): boolean {     // camera rule (_name_ok): 1..15 printable non-'@' then NUL to byte 15
+function nameOk(nm: Uint8Array, split = false): boolean {   // camera rule (_name_ok): 1..15 printable non-'@' then NUL to byte 15
   if (nm.length !== 16 || nm[0] === 0 || nm[15] !== 0) return false;
+  // v0.32 (ls_sc): with the name ended by byte 12, bytes 13/14 (record +61/+62) may carry split toning instead
+  if (split && nm[12] === 0 && (nm[13] || nm[14])) {
+    if (!splitByteOk(nm[13]) || !splitByteOk(nm[14])) return false;
+    nm = Uint8Array.from(nm); nm[13] = nm[14] = 0;
+  }
   let seen = false;
   for (const c of nm) {
     if (c === 0) seen = true;
@@ -223,8 +241,9 @@ LOOK_LO[33] = LOOK_LO[34] = -5; LOOK_HI[33] = LOOK_HI[34] = 5;
 for (const o of [35, 36, 37]) { LOOK_LO[o] = -7; LOOK_HI[o] = 7; }
 for (let o = 38; o < 44; o++) { LOOK_LO[o] = -128; LOOK_HI[o] = 127; }   // v0.24: sat[12] as nibbles
 
-/** Mirror of the camera's pk_check (tools/ep7_looks_bin.py check_file): [] = accepted. */
-export function checkLooksBin(d: Uint8Array): string[] {
+/** Mirror of the camera's pk_check (tools/ep7_looks_bin.py check_file): [] = accepted. `split`: record +61/+62 may
+ *  carry split toning (v0.32 firmware; older firmware rejects such a file). */
+export function checkLooksBin(d: Uint8Array, split = FW >= 32): string[] {
   const p: string[] = [];
   const size = d.length;
   if (size < HDR_LEN + REC_LEN || size > HDR_LEN + REC_LEN * MAX_LOOKS || size % REC_LEN) return [`size ${size}`];
@@ -242,7 +261,7 @@ export function checkLooksBin(d: Uint8Array): string[] {
     const cls = r[CLASS_OFF], mask = r[MASK_OFF];
     if (!((cls === 0 && ((mask & ~MASK_KEEP_CORRECTION) === 1 || (mask & ~MASK_KEEP_CORRECTION) === 3)) || (cls === 1 && mask === 2)) || r[TINT_OFF] > 4)
       p.push(`look ${j} class/mask/tint ${cls}/${mask}/${r[TINT_OFF]}`);
-    if (!nameOk(r.subarray(NAME_OFF, NAME_OFF + 16))) p.push(`look ${j} name`);
+    if (!nameOk(r.subarray(NAME_OFF, NAME_OFF + 16), split)) p.push(`look ${j} name`);
   }
   return p;
 }
@@ -251,7 +270,7 @@ export function checkLooksBin(d: Uint8Array): string[] {
  *  "no filter" advice; looks without a tone block get tone 0. Throws with a readable message. */
 export function decodeLooksBin(d: Uint8Array, name = 'Imported LOOKS.BIN'): Pack {
   if (d.length >= 6 && (d[4] | (d[5] << 8)) !== LOOKS_VERSION) throw new Error(`LOOKS.BIN version ${d[4] | (d[5] << 8)}: only version 3 is a camera file`);
-  const probs = checkLooksBin(d);
+  const probs = checkLooksBin(d, true);
   if (probs.length) throw new Error(`LOOKS.BIN rejected (${probs.slice(0, 3).join('; ')})`);
   const n = (d.length - HDR_LEN) / REC_LEN;
   const looks: Look[] = [];
@@ -273,6 +292,10 @@ export function decodeLooksBin(d: Uint8Array, name = 'Imported LOOKS.BIN'): Pack
     l.tone = zeroTone();
     if (tone) for (const k of TONE_KEYS) l.tone[k] = s8(r[TONE_OFF[k]]);
     if (tone && r[44] === 1) for (let k = 0; k < 12; k++) { const v = (r[38 + (k >> 1)] >> (4 * (k & 1))) & 15; l.sat[k] = v > 7 ? v - 16 : v; }
+    if (!mono && r[NAME_OFF + 12] === 0 && (r[R_SPLIT_SH] || r[R_SPLIT_HL])) {   // v0.32 split toning in the name tail
+      const [sh_color, sh] = unpackSplit(r[R_SPLIT_SH]), [hl_color, hl] = unpackSplit(r[R_SPLIT_HL]);
+      if (sh || hl) l.split = { sh_color, sh, hl_color, hl };
+    }
     looks.push(l);
   }
   return { schema: PACK_SCHEMA, name, looks, slots: {} };
@@ -296,6 +319,10 @@ export function placeLook(l: Look, slot: string, prof: ProfileSettings = default
     b[B_ART] = ARTS.indexOf(l.art_effect);
     if (FW >= 25 && !l.lens_correction) b[B_SHADING] = 1;   // v0.25: lens vignette correction off, as a Film pick does
     if (hasTone(l)) { b[B_BLACKS] = u8(l.tone.blacks); b[B_WHITES] = u8(l.tone.whites); }
+    if (FW >= 32 && l.split && hasSplit(l) && splitOk(l.split)) {   // the shared `split` field, packed for the E-P7 slot
+      b[B_SPLIT_SH] = packSplit(l.split.sh_color, l.split.sh);
+      b[B_SPLIT_HL] = packSplit(l.split.hl_color, l.split.hl);
+    }
     profileBytes(b, prof);
   } else if (l.kind === 'colour') {
     if (hasTone(l)) throw new Error(`${slot}: a look with a tone cannot go in a MONO slot`);
@@ -368,6 +395,8 @@ export function checkBundlesBin(d: Uint8Array): string[] {
   if (FW < 27) for (let k = 0; k < 8; k++) if (d[B_HDR_LEN + 64 * k + B_GRAIN]) { p.push(`slot ${k}: Grain needs v0.27 or later`); break; }
   if (FW < 28) for (let k = 0; k < 8; k++) if (d[B_HDR_LEN + 64 * k + B_SHARP]) { p.push(`slot ${k}: Sharp needs v0.28 or later`); break; }
   if (FW < 31) for (let k = 0; k < 8; k++) if (d[B_HDR_LEN + 64 * k + B_HALO]) { p.push(`slot ${k}: Halo needs v0.31 or later`); break; }
+  if (FW < 32) for (let k = 0; k < 8; k++) if (d[B_HDR_LEN + 64 * k + B_SPLIT_SH] || d[B_HDR_LEN + 64 * k + B_SPLIT_HL]) { p.push(`slot ${k}: split toning needs v0.32 or later`); break; }
+  for (let k = 4; k < 8; k++) if (d[B_HDR_LEN + 64 * k + B_SPLIT_SH] || d[B_HDR_LEN + 64 * k + B_SPLIT_HL]) { p.push(`slot ${k}: split toning is COLOR-only`); break; }
   for (let k = 4; k < 8; k++) if (d[B_HDR_LEN + 64 * k + B_BLACKS] || d[B_HDR_LEN + 64 * k + B_WHITES]) { p.push(`slot ${k}: Blacks/Whites are COLOR-only`); break; }
   if (d.length === B_FILE_N) {
     if (!NMAGIC.every((c, i) => d[B_FILE + 128 + i] === c)) p.push('name marker');

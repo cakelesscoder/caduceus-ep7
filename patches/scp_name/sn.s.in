@@ -1,0 +1,83 @@
+/* E-P7 1.1 Colour Profile page guide label (issue #41) (ep7-firmware, our own code).
+ *
+ * The full Colour Profile page (Profile view, vtable 0x61189ba8, update 0x60e26ab0; COLOR page writer 0x60e27289) writes its
+ * own guide label: 74-B label (u16 kind, -, u16 id, u16 style, text[33]) at a3 (view+186 or view+260), kind 4, id 2755 "All
+ * colors[INFO]" (ALL off) / 2756 "Single color[INFO]" (ALL on), style 2, at 0x60e2757d..0x60e27588. It never runs the
+ * Colour view's guide part (0x61fc27d0 part 3, init word 0x6025aa98), so the page/look text stayed stock.
+ *
+ * sn_gd takes the place of those 12 bytes (jmp + 7 nop). It replays them, then, only with a valid card table P, runs the
+ * guide part chain (the word 0x6025aa98: ap_gd -> ex_guide -> ed_guide -> stock 0x60decbfc) on a zeroed 140-B fake view on
+ * this stack. The fake's state word view+128 (GUI data 175 +88) is 1, the colour-profile mode, so the stock part takes its
+ * facade path (sector values through the facade, global ALL state) and never reads object pointers from the view. The
+ * stock part and every layer write only the fake (label at fake+44, flags at fake+43..+132). When the chain left a kind-5
+ * label there, its 74 B are copied over the page's label; otherwise the stock label stays.
+ * Exit: d0 = 2 as stock leaves it, d1/d2/d3/a1/a2/a3/sp/mdr as at entry; a0 is reloaded by the next instruction
+ * (0x60e27589 mov (8,sp),a0) and the flags are dead (that call follows). No card table: only the replay runs.
+ * Stores: the stack (fake view, saves) and the page's label (a3). No absolute stores, no mul/div/setlb.
+ */
+ .am33_2
+ .text
+ .global _start
+_start:
+sn_gd:
+ movhu d0,(4,a3)                  /* stock 0x60e2757d..0x60e27588: id, kind 4, style 2 */
+ mov 4,d0
+ movhu d0,(a3)
+ mov 2,d0
+ movhu d0,(6,a3)
+ movm [d2,d3,a2,a3],(sp)
+ add -156,sp                      /* (0) calls' return word, (4..143) fake view, (144) d1, (148) a1, (152) mdr */
+ mov d1,(144,sp)
+ mov a1,(148,sp)
+ mov mdr,d0
+ mov d0,(152,sp)
+ movhu ({state}),d3               /* P = pool + h - 1, as tbl_idx; no table: stock label */
+ add -1,d3
+ cmp {lim},d3
+ bcc 9f
+ btst 3,d3
+ bne 9f
+ mov d3,a2
+ add {pool},a2
+ mov (a2),d3
+ cmp {bmagic},d3
+ bne 9f
+ mov sp,a0
+ add 4,a0
+ mov 35,d3
+ clr d0
+1:
+ mov d0,(a0)                      /* fake view = 0 */
+ add 4,a0
+ add -1,d3
+ bne 1b
+ mov 1,d0
+ mov d0,(132,sp)                  /* fake+128 = 1: colour-profile mode */
+ mov sp,a0
+ add 4,a0
+ mov (ep7_gd_word),a1             /* the guide part chain, as the Colour view calls it (flash init word) */
+ calls (a1)                       /* a0 = fake view; keeps d2/d3/a2/a3 */
+ movhu (48,sp),d0                 /* fake+44: label kind */
+ cmp 5,d0
+ bne 9f                           /* the chain kept a string-id label: stock text */
+ mov sp,a0
+ add 48,a0
+ mov a3,a1
+ mov 37,d3
+2:
+ movhu (a0),d0                    /* 74 B label -> the page's label */
+ movhu d0,(a1)
+ add 2,a0
+ add 2,a1
+ add -1,d3
+ bne 2b
+9:
+ mov (152,sp),d0
+ mov d0,mdr
+ mov (148,sp),a1
+ mov (144,sp),d1
+ add 156,sp
+ movm (sp),[d2,d3,a2,a3]
+ mov 2,d0
+ jmp ep7_back
+sn_end:

@@ -6,7 +6,7 @@ import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import libraryJson from '../src/data/library.json';
+import libraryJson from '../src/data/packs/standard-1.0.json';
 import { blankLook, parsePack, type Look } from '../src/pack';
 import { fromLibrary } from '../src/reset';
 import { COLORS, PER, defaultBank, emptyBank, parseBank, monoGrain, profilesBin, readProfiles, slowGrain, toOm3, validateBank, type Bank } from '../src/om3';

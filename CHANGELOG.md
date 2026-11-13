@@ -3,6 +3,19 @@
 Caduceus firmware patches for the Olympus PEN E-P7 (firmware 1.1). Releases from v0.25 are betas; earlier ones
 were early-development pre-releases. Use at your own risk (see the README).
 
+## Control Panel (with v0.32)
+
+- **Preset look packs:** pick **Standard 1.1** (new default: split tone where the real stock has a shadow/highlight cast, halation only on rem-jet-free film) or **Standard 1.0** (the previous library, unchanged) from **New**, or mix looks from several packs with **+ Add look › From a preset pack…**. Looks get a **Split tone** editor and the preview shows it. Saved packs and share links work as before. See `docs/PACKS.md`.
+
+## v0.32 — 2026-11-13 (beta)
+
+- **Split toning on COLOR1–4:** each COLOR profile can tint its shadows and its highlights separately, with one of the colour wheel's 12 colours and a strength from −5 to +5 each (for example teal shadows with orange highlights). It uses the same formula and numbers as Caduceus for OM-3, so a look tints the same way on both cameras and in the Control Panel preview. It shows in live view and in photos. Movie, AP colour, MONO and stock profiles are unchanged. Set it in the Control Panel (choose **v0.32 or later** on the Export page): it goes into `BUNDLES.BIN` and into `LOOKS.BIN`, so picking a film on the camera's Film page sets that film's split tone, and a film without one clears it. **Own** and **Stock** bring back the split the profile had before. Look names are now at most 12 characters (the panel shortens longer ones), because `LOOKS.BIN` keeps the split where the end of the name was. Older firmware rejects a `BUNDLES.BIN` or `LOOKS.BIN` that has split toning, so pick your firmware on the Export page.
+- **Extras split into two pages:** press INFO past Light for **Effects** (1 Grain, 2 Glow/Clarity, 3 Halo, 4 Art, 5 Sharp, 6 NR, 7 VigFix), then INFO again for **Colour & Light** (1 WB amber/blue, 2 WB green/magenta, 3 Blacks, 4 Whites, 5 Shadow tone colour, 6 Shadow tone strength, 7 Highlight tone colour, 8 Highlight tone strength). Split toning can now be set on the camera: pick a colour (Off or one of 12) and the strength jumps to +3, then adjust −5..+5 (negative gives the opposite tint). Every setting keeps its place in the card files, so bundles, looks and share codes still work. Movie and AP keep their "stills only" locks, and split reads `Split: COLOR 1-4` there.
+- **Simplified Chinese labels ([#46](https://github.com/cakelesscoder/caduceus-ep7/issues/46)):** with the camera's language set to 简体中文, Caduceus's own editor labels (page names, Extras sectors, the Colour Profile page label) show in Chinese, using the camera's own Chinese font. In every other language they're unchanged. Mono preset names and a few menu rows stay English. Translations welcome in #46 (`docs/I18N_ZH.md`).
+- **Framing lines in live view:** with **Displayed Grid** set to the diagonal grid, the 16:9 view (and movie) shows frame lines for Panorama 65:24 (solid) and Wide 21:9 (dashed). In the Panorama (XPan) aspect, any grid setting now shows a rule-of-thirds grid inside the panorama frame; before, no grid showed. Set Displayed Grid to Off to hide them. The Wide (21:9) still aspect still has no grid.
+- **Colour Profile page label ([#41](https://github.com/cakelesscoder/caduceus-ep7/issues/41)):** the full Colour Profile page now shows the same page and look name in its guide line as the wheel opened from the Super Control Panel.
+- Firmware screen shows `Caduceus: 0.32`.
+
 ## v0.31d — 2026-11-12 (beta)
 
 - **Look name in the photo's EXIF:** JPEGs taken on a COLOR1–4 look carry its name in ImageDescription (`Gold 200`) and UserComment (`Caduceus Gold 200`), the same layout as Caduceus for OM-3, so photos can be sorted by look in any EXIF tool. A `*` after the name (`Gold 200*`) means the look was changed on the camera after it was picked, the same as the `*` on the Film page. MONO and stock shots keep the camera's blank fields.

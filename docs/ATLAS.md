@@ -9,7 +9,7 @@ addresses. It consolidates `docs/*.md`, `patches/*/`, `tools/*.py`, `generated/*
 - **Addresses** are E-P7 1.1 main CPU addresses (decoded offset + 0x60020020) unless marked RAM/OSD. **None carry to
   another body** ([FIRMWARE_GUIDE.md](FIRMWARE_GUIDE.md) §12).
 - **Tags** as in FIRMWARE_GUIDE: **V** code/bytes/emulator, **C** camera-proven (a stronger V), **I** inference.
-- **Machine-readable:** [atlas.json](atlas.json) (766 symbols, incl. 137 static tasks).
+- **Machine-readable:** [atlas.json](atlas.json) (910 symbols, incl. 137 static tasks).
   `tools/atlas_annotate.py START STOP` runs `tools/dis.sh` and names every atlas address in the listing.
 - **New in this atlas (checked against the bytes here):** the static task descriptor and name tables (§2.1), the
   mailbox-id table, and the corrected COLOR editor record bases (§4, §15).
@@ -56,8 +56,10 @@ FIRMUP_SRV). Boot tail resets volatile settings (0x60192961). The HIGHLEVEL app 
 | `0x600201fe` | data_copy | func | V |  | .data init: flash 0x60230800-0x6025eb50 -> RAM 0x61f98540 (RAM = flash + 0x1d67d40) | docs/ASPECT.md |
 | `0x6002046d` | hw_fill_zero | func | I | (start, end) | Boot fill-to-zero (hardware-assisted [I]); also clears 0x62038100-0x6203c934 | docs/SD_V2_CRASH.md, docs/VIDEO_ROTATION.md |
 | `0x60027068` | section_desc_table | table | V | 9 x {u32 start, u32 logical src, u32 dst} | Section descriptors ids 1..9 | docs/FIRMWARE_GUIDE.md §2, docs/HSL_PORT.md |
+| `0x60027068` | section_table | table | V | 9 x {start, flash source, destination} | Entry 5 = {0x6075a800, 0x40dda800, 0x6075a800}: sec 5 is copied 1:1 (flash = image addr - 0x60020020 + 0x406a0020) | docs/PLUGINS.md §10 |
 | `0x60044afb` | section_load_fsm | func | V |  | Boot load state machine; order 1,7,2,3,4,5,6,8,9 | docs/SD_UPDATE.md, docs/HSL_PORT.md |
 | `0x60045786` | section_end_get | func | V | d0 = id (1..9) -> d0 end; else 0 | Jump table 0x60046780 of `mov imm32,d0` stubs | docs/FIRMWARE_GUIDE.md §2 |
+| `0x60045786` | section_end | func | V | d0 id 1..9 -> d0 end (jump table 0x60046780 of mov imm32 stubs) | Sec 5 end 0x60b9e000 (stub 0x600457b4); sec 8 empty (0x613bd000) | docs/PLUGINS.md §10 |
 | `0x600457e7` | section_load | func | V | id | Copies end-start bytes via 0x6005bc79 -> 0x600c4e80; sets bit (id-1) in 0xa272e420. 9 callers, all in 0x60044f2d-0x600451d0 | docs/FIRMWARE_GUIDE.md §2, docs/REVIEW_v04.md |
 | `0x6004586c` | section_init_run | func | V | n | Runs section n initializer list via 0x6004591f -> 0x6018e19e | docs/SD_UPDATE.md |
 | `0x600458af` | section_wait | func | V | n | wait(n): narrows bus monitor to [start(sec n+1), end(sec9)]; wait(9) disables it (0x6005915f) | docs/BOOTLOOP_T3.md |
@@ -69,6 +71,7 @@ FIRMUP_SRV). Boot tail resets volatile settings (0x60192961). The HIGHLEVEL app 
 | `0x600670bc` | to_cached | func | V | a0/d0 addr | Address alias conversion (pair with 0x60067102) | docs/SD_V2_CRASH.md |
 | `0x60067102` | to_uncached | func | V | addr -> addr\|0x40000000 | e.g. 0x6057b200 -> 0xa057b200; sections copied via uncached alias | docs/SD_UPDATE.md |
 | `0x6018e19e` | init_list_dispatch | func | V |  | Initializer lists: `mov count,d2; mov ptr,a2` pairs. Sec-2 list 0x6055e580 (48 B), sec-7 0x61378c54 (20 B) | docs/HSL_PORT.md, docs/SD_UPDATE.md |
+| `0x6018e1b3` | sec4_ctor_list_runner | code | V | d2 = byte count, a2 = list (0x60747f1c), calls each word | Section-4 ctor list has count 0, so 0x60747f1c is only a label; the sec-4 FF tail 0x60747f20..0x60748000 has no other live ref | docs/SPLIT_TONE_G1.md §1.3 |
 | `0x60190df7` | USRSTART2 | func | V | task 43 entry | Boot task: wait(2) 0x60190e18 (runs sec-2 initializers), wait(3)/(4) 0x60191347/5d, wait(5) 0x60191aab, wait(6) 0x60191afb; 0x60191b02 -> 0x60767d20 (HIGHLEVEL framework) | docs/BOOTLOOP_T3.md, docs/SD_BUNDLES_V2.md |
 | `0x60191b74` | USRSTART5 | func | V | task 42 entry | Straight-line startup; starts FIRMUP_SRV at 0x601922f0 | docs/SD_UPDATE.md |
 | `0x60192961` | boot_tail_resets | func | V |  | Per-boot resets of volatile settings (uses 0x602b972b, gate 0x62257b04). Site 0x601929a4 (trace call) used by the old aspect clamp | docs/ASPECT.md, docs/FIRMWARE_GUIDE.md §3 |
@@ -381,6 +384,7 @@ Key sids: 111 effective picture mode (key 0x9481; GUI enum, Vivid 0), 1645/1646 
 | `0x62248528` | validator_hash | table | V | 128 buckets | RAM | docs/BUTTONS.md |
 | `0x62257b04` | reset_gate | data | V | u8 | Stock skips boot resets when == 1 (0x602cc6cf, 0x602af9e1) | docs/ASPECT.md |
 | `0x624ea400` | mode_bank_ram | data | V | 0x40000 B: {u16 id, u16 cksum, u32 gen}, packed values | User settings working copy. Storage of each key: docs/settings_catalogue.json | docs/RE_SETTINGS.md §3 |
+| `0x62509d7c` | sid3009_language | data | V | u8, MODE bank (key 0x85e1) | Menu language value; 5 = Simplified Chinese, 6 = Traditional Chinese, 1 = English | docs/I18N_ZH.md |
 | `0x98e00008` | bk_regs | data | V | u32 x 14 | Battery-backed registers for the BKRAM bank (0x60066e14 write, 0x60066e29 read) | docs/RE_SETTINGS.md §4 |
 | `0xa26ff940` | prm_banks | data | V | 7 x 28 B bank objects | Pointers: 0xa2711a88 CONST records, 0xa2711a8c CPRAM ROM, 0xa2711a90 FLASH, 0xa2711a94 BKRAM, 0xa2711a98 EEROM, 0xa2711a9c MODE, 0xa2711aa0 DEVICE, 0xa2711aa4 FLASHD1, 0xa2711aa8 FLASHD2 | docs/RE_SETTINGS.md §3 |
 | `0xa26ffa88` | prop_registry | table | V | 8 B per key>>4 | RAM property registry | docs/PROFILE_INDEX_WB.md |
@@ -409,7 +413,28 @@ Events: 0x9004/0x9006 step, 0x9008/0x900a sector, 0x900c commit, 0x900e MENU, 0x
 | Address | Name | Kind | Tag | Signature / layout | Notes | Source |
 |---|---|---|---|---|---|---|
 | `0x600daed9` | strlen | func | V | a0 |  | docs/FILM_LIBRARY.md |
+| `0x601df03c` | ap_P | func | V | `call ..,[d2],8` -> d0 1, a0 = the unswapped P (also while P2/P3 is in the state word) | Ours (ap_custom). Reads the state word 0x622cbcc2; with movie +960 VM and +964 back-pointer it follows +968 to P | docs/SPLIT_TONE_G1.md / docs/SPLIT_TONE.md |
+| `0x601e2e28` | u_apply | func | V | a0 = L, a2 = P, d3 = k; T = L+2456 (entry 64 + name 16) | Ours (film_menu_v2 fm_ui): staging T -> slot k bytes 0..49 only (v0.25 bound 0x601e2e46; +50..63 untouched, so split +62/+63 survives the copy), flags byte last, name P+544+16k, dirty; then jmp lt_post 0x601e233c -> sl_pick | patches/looks_split |
+| `0x601e37b4` | fm_post | func | V | a2 = P, d3 = k, a3 = parent | Ours (lv_art_refresh): after a Film pick, LV art refresh then ed_poke | patches/looks_split |
+| `0x601e39aa` | sl_pick | func | V | a2 = P, d3 = k, a3 = parent | Ours (v0.25 shade): Film-pick tail, library look sets slot +49 (Shading). Its tail jmp 0x601e3a16 -> ls_pick from v0.32 (was fm_post 0x601e37b4) | patches/looks_split |
+| `0x601e3a16` | sl_pick_tail_jmp | site | V | 5 B jmp rel32 (dc ..) | Ours: v0.32 -> ls_pick (slot +62/+63 from the LOOKS.BIN stash or the Own snapshot), which ends jmp fm_post 0x601e37b4 | patches/looks_split |
 | `0x604cda94` | lens_btn_lists | table | V |  | L-Fn validator lists 0x604cda94/a8/bc (28/28/29 codes) | docs/LENS_BUTTONS.md |
+| `0x607b6430` | kh_ret0 | func | V | clr d0; rets | sdk sub-command stub (entered by calls (a1) at 0x607adda1) | docs/PLUGINS.md §9 |
+| `0x607b6433` | kh | func | V | jmp target from 0x60ce011a, on ca_key_generic's frame | kh_chk -> 1: ret [d2,a2,a3],40; else rebuild registers, call 0x60cc9a05, jmp 0x60ce0121 | docs/PLUGINS.md §9 |
+| `0x607b6454` | kh_chk | func | V | call entry [d2,d3,a2,a3],24 -> d0 1 handled | ap_P, P+852 EP7K, hook word B+24 inside B's cached code bytes -> calls hook(d0 event, d1 B, a0 CA, a1 record) | docs/PLUGINS.md §9 |
+| `0x607b6497` | ka_sel | func | V | calls entry: d0 action 41..67, a0 CA, a1 record | movm [d2,d3,a2,a3] + add -52 -> jmp 0x60ceb5b6; other d0 -> -1 | docs/PLUGINS.md §9 |
+| `0x607b64ad` | ka_get | func | V | calls entry: d0 key, d1 index -> d0 | prop_get 0x6005e971 with a0 = 0 and its 4 B slot | docs/PLUGINS.md §9 |
+| `0x607b64c0` | kh_api | table | V | u16 1, u16 6, fw_text, prop_get, text_set, ka_sel, ka_get, features (bit 0 key hook) | Plugin API v1.1; pl_chk passes it to init (mov at 0x601e1ace) | docs/PLUGINS.md §9 |
+| `0x607b8430` | ov_upd | func | I | overlay_probe: view +0 wrapper | Runs 0x60dec790, then sets the .bss overlay flag (0x622ab792 = 1). Same frame/return as the body | docs/EXTRAS_OVERLAY.md |
+| `0x607b8450` | ov_post | func | I | overlay_probe: window +164 | Post-paint. Flag 0 -> stock retf. Flag 1 and editor on the Extras page (P valid, EP7E, axis 4) -> draws four text rows via ge_draw_text into the window gc, clears the flag | docs/EXTRAS_OVERLAY.md |
+| `0x607b88bc` | dg_fw | func | V | call entry [d2,d3,a2,a3],88: a0 widget, a1 value | Firmware Body value "L/OK" (K from the keyhook Fn stage byte 0x6203bcb2, PLUGINS §11/§12); empty value -> fw_val | docs/PLUGINS.md §10 |
+| `0x607b898b` | dg_paint | func | V | jmp from 0x60d005ef | Stock +164 call, then O2, PT log and dg_draw (current window only) while the profile view is alive (0x622ab792 bit 0) | docs/PLUGINS.md §10 |
+| `0x607b8a58` | dg_draw | func | V | call from dg_pnt [d2,d3,a2,a3],108; a1 = gc = *(painter+8), d3 window | Four probe rows on the Extras page: style colour 1/2/4/6; always selects the window default text style (+488 -> 0x60d0fce0), gc+0x34 = 2, draws, releases the font (0x60d10708), restores gc+0x4c / +0x34 (PLUGINS §13); none -> O4 | docs/PLUGINS.md §11 |
+| `0x607b8d09` | dg_key0 | func | V | jmp from 0x60ce011a | Log K0 (event, record+196 state, record+4), kh_chk; handled -> log D0, ret [d2,a2,a3],40; else kh_miss | docs/PLUGINS.md §13 |
+| `0x607b8d3a` | dg_key1 | func | V | jmp from 0x60cebc9a | As dg_key0 with kh_chk2 / kh2_miss, ret [d2,d3,a2],48 | docs/PLUGINS.md §13 |
+| `0x607b8d6b` | dg_twin | func | V | jmp from 0x60ce0190 | Log KT, rebuild the copy-loop registers, replay call 0x60cc9a05,[d2],4, jmp 0x60ce0197 | docs/PLUGINS.md §13 |
+| `0x607d55ef` | ls_pick | func | V | jmp from 0x601e3a16; a2 = P, d3 = k | Ours: call ls_pk, jmp fm_post | patches/looks_split |
+| `0x607d55f9` | ls_pk | func | V | [d2,d3,a2,a3],20 | Ours: real P (ap_P) + L + EP7W tag: library pos -> stash to slot +62/+63 (0 clears); Own / Stock -> snapshot L+2132+80k +62/+63; else nothing | patches/looks_split |
 | `0x607f9062` | facade_get | func | V | -> OlyApiSettingControllerController | GUI settings facade singleton | docs/FIRMWARE_GUIDE.md §3 |
 | `0x607f9549` | facade_GetValue | func | C | (id, &out) | -> 0x60826c82 -> 0x602af887 | docs/LOOK_EDITOR.md |
 | `0x607f95dc` | facade_Count | func | V | id | -> 0x60826d53 -> 0x602af8dc | docs/LOOK_MENUS.md |
@@ -420,21 +445,64 @@ Events: 0x9004/0x9006 step, 0x9008/0x900a sector, 0x900c commit, 0x900e MENU, 0x
 | `0x60827440` | settings_mgr_set | func | V |  | Settings manager entry; listeners 0x608280ac.. | docs/FIRMWARE_GUIDE.md §3 |
 | `0x60886900` | oishare_prop_list | func | V |  | OI.Share remote property list (entry 0x608868e5 <- 0x6097c7d4) | docs/LOOK_MENUS.md |
 | `0x60932fa6` | c3d_wheel_polygon | func | C | view vtable +4972 (case 1) | Cursor from sid 1648, ID table 0x60b40c4c, values via 0x602afa81. Hook 0x609330f9 | docs/LOOK_MENUS.md |
+| `0x60a9a918` | sdk_subcmd_api_word | data | V | {name*, fn} word: "api" -> 0x607b4b25 | v0.32 keyhook: -> kh_ret0. Also 0x60a9a920 starttimer (0x607dab9f), 0x60a9a928 stoptimer (0x607dac2e) | docs/PLUGINS.md §9 |
 | `0x60acb0dc` | facade_vtable | table | V | +0 Set, +8 Get, +20/+36 avail, +24 count, +28 val by idx, +152 default | Data-hookable words (0x60acb0e4, 0x60acb0f4/f8, 0x60acb174) | docs/FIRMWARE_GUIDE.md §3, docs/LOOK_MENUS.md |
 | `0x60cc872f` | btn_dispatch | func | C |  | key -> sid -> value -> action, no per-key check | docs/BUTTONS.md |
+| `0x60cc87ac` | action_class | func | V | d0 action -> class | Table 0x60f384f8 (92 x {action, class, name}). Class 0 includes 75 LV_CTRL and 76 LV_CTRL_PROFILE | docs/PLUGINS.md §7 |
+| `0x60cc9a05` | ca_event_map | func | V | call entry [d2],4; reads the caller's (4,sp) = event -> d0 | Pure: reads only the stack and image tables; ends retf (MDR). Result goes to btn_dispatch | docs/PLUGINS.md §9 |
+| `0x60ccf9f3` | ca_get_setting | func | V | d0 sid -> value (3200 on failure) | getSetting through interface 0x607f9062 (vtbl +8, a1 = &out). btn_dispatch reads sid 47 here | docs/PLUGINS.md §7 |
+| `0x60cd4830` | start_profile_select | func | V | call entry, frame [d2,d3,a2,a3],92; d0 out, a0/a1 handler context | SubAppMdlShootingCmn::startProfileSelect: CANEXEC(76) 0x60cce3dc, then CA state 0x5704 / request 183. Only caller 0x60cd2fff (startMoveToShootingReady, START_PROFILE_NEXT_PROC). The only 76 immediate in CA code 0x60cc0000-0x60d00000 | docs/PLUGINS.md §7 |
+| `0x60ce0108` | ca_key_generic | func | V | calls entry; call entry 0x60ce010d | Generic key handler (Fn press/release in most shooting states): btn_dispatch, then action class 0x60cc87ac: 2 -> 0x60ce026a, 1 -> 0x60ceb5b6, 0 -> nothing | docs/PLUGINS.md §7 |
+| `0x60ce011a` | ca_key_generic_kmap_call | site | V | call 0x60cc9a05,[d2],4 (7 B) | First call after the 6-word record copy. Fixed registers there: a0 = sp+28, a1 = a2+24, d0 = (24,sp), d1 = 0; a3 = CA module, a2 = event record. No branch into +1..+7. v0.32 keyhook: jmp kh + 2 nop | docs/PLUGINS.md §9 |
+| `0x60ce017e` | ca_key_generic_twin | func | V | frame [d2,d3,a2,a3],44; a0 CA, a1 record; same 24-B copy loop | Unhooked twin of 0x60ce0108 (CA state 0x5704). kmap call 0x60ce0190 (7 B), resume 0x60ce0197; nothing branches into +1..+6. v0.32 diag: jmp dg_twin | docs/PLUGINS.md §13 |
+| `0x60ce05ab` | ca_key_release | func | V | calls entry, frame 48 | One of the Fn release (0x0100002f) handlers; release never reaches ca_key_generic 0x60ce0108 | docs/PLUGINS.md §9 |
+| `0x60ce2d84` | ca_multi_function_press | func | V | class-2 action 18 EVF_FN (Multi Function) handler | Request 174, CA state 0x590d (Fn held). The popup opens on the release | docs/PLUGINS.md §12 |
+| `0x60ce2da0` | ca_multi_function_release | func | V | state 0x590d handler for Fn release 0x0100002f | Sub-function action = 0x60cc8929 (sid 437 -> table 0x60f38d8c: 6 -> 49 colour/mono profile, 3 -> 50 aspect); 49 -> call 0x60ceb5b6 -> state 0x5800 | docs/PLUGINS.md §12 |
+| `0x60ceb5b6` | ca_select_mode | func | V | call entry [d2,d3,a2,a3],68; d0 action, a0 CA module, a1 event record | Class-1 action handler (stock popup + dials), CANEXEC 0x60cce3dc inside; entered from ca_key_generic for class 1. Action 50 = SELECT_MODE_MULTI_ASPECT | docs/PLUGINS.md §9 |
+| `0x60ceb952` | sel_exit | func | V | select state exit | Reads and clears 0x61fb0dd8; Fn (in list 0x60f39e08, a press) -> 0x60cebd8b -> 0x60cebdeb: record+176 = key, +184 = 1 (re-posted key event) | docs/PLUGINS.md §12 |
+| `0x60cebce9` | sel_other_key_exit | site | V | 0x60cebc89 jump-table case 26 | 0x60cd2330(key), request 158, ddc = key, dd8 = key when its function != the open mode: exit and replay | docs/PLUGINS.md §12 |
+| `0x60cebd3d` | sel_fn_same_mode_close | site | V | 0x60cebc89 jump-table case 18 | Multi Function key in its own popup: request 158, ddc = key, no dd8 (close, no replay) | docs/PLUGINS.md §12 |
+| `0x60cf30b5` | ca_handler_calls | site | V | calls (a2): a0 = (CA+164), a1 = event record | The handler return value is ignored (the matcher returns a3 = matched) | docs/PLUGINS.md §9 |
+| `0x60cf5b2c` | ca_dispatch | func | V | a0 CA module, a1 event record, d0 event code | Prefilter 0x60cf6473, then sub-state table, state table (0x60cf6824: state id -> image list), default table 0x60f6ad58 (124). Records {u32 event, 1, 1, fn}, matched by 0x60cf304c, fn by `calls`. All tables are in the loaded image | docs/PLUGINS.md §7 |
+| `0x60cf6824` | ca_state_table | func | V | d0 state id (0x50xx..0x5exx) -> table, count | Jump table 0x60f6b9fc by id>>8; per-group lists {u32 id, u32 table, u32 n} in the image (group 0x51 at 0x60f59668) | docs/PLUGINS.md §7 |
 | `0x60cfd311` | gui_WinMain | func | V |  | "[GUI App]:WinMain called" / messageloop | docs/RE_DRAW_PLUGIN.md §2.4 |
+| `0x60cfe263` | win_empty_method | func | V | retf [],0 | +164 word of about 400 window vtables (0x60f94628 .. 0x611104b8); re-pointing one vtable covers one class only | docs/PLUGINS.md §10 |
+| `0x60cfe263` | ge_window_postpaint | func | V | retf [],0 | The empty vtable +164 method, shared by both window classes (words 0x60f94820, 0x60fac3f0). overlay_probe re-points these to ov_post | docs/EXTRAS_OVERLAY.md |
 | `0x60cfec91` | gui_db_get | func | V | (id, size, buf) | 244 callers; set 0x60cfeca9(id, size, buf, flag) | docs/RE_UI.md §5.1 |
+| `0x60d00506` | ge_paint_window | func | V | a0 window, a1 gc or 0 (then window+72); frame [d2,d3,a2,a3],32 | One caller 0x60d3907e. Early out if u16 window+1372 == 0. Calls vtable +708, +680, then +164 (0x60d005ef) and +160, then paint end 0x60d0658a / 0x60d06468 | docs/PLUGINS.md §10 |
+| `0x60d00506` | ge_window_paint | func | V | a0 window, a1 painter; ret [d2,d3,a2,a3],32 | Window paint: draws the child widgets (0x60d0f3aa / 0x60d06530 / 0x60d0642a), then vtbl +164 (0xa4) then +160 (0xa0), then ge_paint_end (present). *(window+72) and a1 are the painter; gc = *(painter+8) (0x60d060e3, PLUGINS §11) | docs/EXTRAS_OVERLAY.md |
+| `0x60d005ef` | ge_paint_post164_site | site | V | mov (164,a2),a2; calls (a2) (6 B); a0 window, a1 = (4,sp) gc | The only +164 call. a0/a1/a2 reloaded at 0x60d005f5; nothing branches into +1..+5. v0.32 diag: jmp dg_paint + nop | docs/PLUGINS.md §10 |
+| `0x60d00f90` | win_default_text_style | func | V | window vtable +488; a0 window -> d0 u16 window+108 | Both window classes. Ctor sets 0. Used by the generic GE text draw 0x60d06bb7 before 0x60d0fce0 | docs/PLUGINS.md §11 |
+| `0x60d060e3` | painter_gc | func | V | a0 painter -> a0 gc = *(painter+8); [],0 | The +164 argument and *(window+72) are the painter; the drawer needs this gc (PLUGINS §11) | docs/PLUGINS.md §11 |
+| `0x60d0642a` | ge_paint_begin | func | V | a0 gc, a1 window+1200, d0 window+1392; [d2,d3,a2,a3],20 | DC clip from window+1200 (0x60d0f8e3), gc+12 = window+1200, update region (36 B) -> gc+168 | docs/PLUGINS.md §11 |
+| `0x60d06468` | ge_paint_end_single | func | V | a0 gc; [d2,d3,a2,a3],48 | ge_present(gc+8), then each gc+168 rect -> 0x60d0ed81 (sync front -> back through DC +8) | docs/PLUGINS.md §11 |
 | `0x60d06468` | ge_paint_end_single | func | V |  | ge_present, then dirty-rect copy loop (0x60d0ed81). Called at 0x60d0061b | docs/RE_DRAW_PLUGIN.md §2.4 |
 | `0x60d0658a` | ge_paint_end_multi | func | V |  | Per flagged layer: 0x60d0fd95 + ge_present; then drawOsdEnd. Called at 0x60d00612 | docs/RE_DRAW_PLUGIN.md §2.4 |
+| `0x60d0695c` | ge_draw_label_generic | func | V | GE text draw (caller 0x60d0691b) | Colour = window +504, text style = window +488 -> 0x60d0fce0 (skips if a0 0), 0x60d0fd83(2), 0x60d0758f | docs/PLUGINS.md §11 |
+| `0x60d0758f` | ge_draw_text_res | func | V | d0 resource string id, d1 style*, a0 gc, a1 rect; [d2,a2,a3],16 | String id -> 0x60d10bf2, then ge_draw_text | docs/PLUGINS.md §11 |
+| `0x60d075a7` | ge_draw_text | func | V | d0 style*, d1 wchar*, a0 gc, a1 rect{x0,y0,x1,y1 s16}; frame [d2,d3,a2,a3],252 | High-level string drawer: per-glyph through DC +28 / drawFont. Returns early if string 0 or gc+0x4c 0. Style 24 B (PLUGINS §11): +0 text colour (applied with 0x60d0fc05, overrides any gc colour; saved/restored), +4 / +8 colours (gc+0x28c/+0x290), +12 h-align, +13 v-align, +14 x off, +16 right inset, +18 y off, +20 bottom inset. Callers 0x60d0758f/0x60d455bf/0x60d4728a/0x60d473db | docs/EXTRAS_OVERLAY.md |
+| `0x60d0ed79` | ge_present | func | V | [],4 | -> 0x60d125af: if 0x61fb2939 set, gpiUpdateDisplay(0) (whole-buffer flip), 0x61fb2938 ^= 1, clear 0x61fb2939 | docs/PLUGINS.md §11 |
 | `0x60d0ed79` | ge_present | func | V | `call 0x60d125af,[],4; ret [],4` | Callers 0x60d06475 (single-layer paint end 0x60d06468), 0x60d065d4 (multi-layer 0x60d0658a). Proposed overlay hook site | docs/RE_DRAW_PLUGIN.md §2.4, §4.1 |
+| `0x60d0f530` | region_count | func | V | a0 region -> d0 (24,a0) | Update region: 36 B, rects at +0 (8 B each), count +24; 0x60d0f529 clears the count, 0x60d0f539 copies 36 B | docs/PLUGINS.md §11 |
+| `0x60d0fb40` | gc_set_colour3 | func | V | d0 colour, a0 gc; ret [a2],8 | gc+0x290. ge_draw_text calls it with style +8 | docs/PLUGINS.md §11 |
+| `0x60d0fb5d` | gc_set_colour2 | func | V | d0 colour, a0 gc; ret [a2],8 | gc+0x28c (converted if gc+0x294/295 == 1). ge_draw_text calls it with style +4 | docs/PLUGINS.md §11 |
+| `0x60d0fc05` | gc_set_colour | func | V | d0 colour, a0 gc; retf [d2,d3,a2,a3],16 | Writes gc+0x24 and gc+0x280; if gc+0x294/295 set, remaps the colour through gc+0x296..298 shifts and gc+0x274/278/27c masks. ge_draw_text overwrites it from style +0, so set the colour in the style (PLUGINS §11). 8-bit palette index; 0 = transparent | docs/EXTRAS_OVERLAY.md |
+| `0x60d0fce0` | gc_set_font | func | V | d0 text-style id, a0 gc; ret [a2],8 -> a0 font or 0 | Text-style id (74-B record at *(0x61fc15bc+4*bank)+74*id), not a font index; sets gc+0x4c via 0x60d0fd74. Stock calls it before every text draw (PLUGINS §11) | docs/EXTRAS_OVERLAY.md |
+| `0x60d0fd83` | gc_set_mode34 | func | V | a0 gc, d0 -> u16 gc+0x34; retf | All three stock callers pass 2 right before a text draw | docs/PLUGINS.md §13 |
+| `0x60d0fd83` | gc_set_mode | func | V | d0 value, a0 gc; retf [],0 | Writes gc+0x34. Stock sets it to 2 before a list text draw | docs/EXTRAS_OVERLAY.md |
 | `0x60d0ffb4` | gui_post | func | I | (code, lparam, ., ., msg*) | Builds a 28-B message (sender 0xfffe) and enqueues; 61 callers, most in the input layer 0x60d1d9ec..0x60d25a02 | docs/RE_UI.md §2.3 |
 | `0x60d10133` | gui_msg_get | func | V | (timeout) -> nonzero when a message was copied | Serves 0x1002 and 0x1100 first | docs/RE_UI.md §2.3 |
 | `0x60d1050a` | gui_msg_purge | func | V | code -> n removed |  | docs/RE_UI.md §2.3 |
+| `0x60d10708` | gc_font_release | func | V | a0 font (from 0x60d0fce0); [],4 | calls (0x61fb2614)(font) if both non-zero. Every stock 0x60d0fce0 user calls it after its draw (0x60d4c638, 0x60d457a5, 0x60d0695c); the gc+0x4c it leaves behind is a released font | docs/PLUGINS.md §13 |
+| `0x60d10b88` | osd_text_style | func | V | d0 style id -> d0 74-B record | (0x61fc15bc)[bank] + 74*id: the text-style records gc_set_font 0x60d0fce0 reads | docs/I18N_ZH.md |
+| `0x60d10bf2` | osd_string_get | func | V | d0 string id -> a0 wchar*; [d2],8 | a0 = (*(0x61fc1530 + 4*bank))[id]; bank = 0x60d10c09. Behind ge_draw_text_res 0x60d0758f and 9 other callers | docs/I18N_ZH.md |
+| `0x60d10c09` | osd_lang_bank | func | V | -> d0 = (u8)(0x61fb2818); retf | Index into the per-bank string-table and text-style pointer arrays 0x61fc1530 / 0x61fc15bc | docs/I18N_ZH.md |
 | `0x60d113d1` | hsm_init | func | V | (n_ss, ss, ctx, table, state) | Clears ctx, runs first entry. Called from 0x60dd4b19 (19, 1, ctx, 0x611317c4, 2) | docs/RE_UI.md §2.1 |
 | `0x60d11448` | ssmenulv_dispatch | func | C | handler = words[matrix[event_index*29 + state-1]] | SsMenuLv: event-major matrix (state 2 LC, 3 SCP). Handler words e.g. 0x611a2c68 (word 24) | docs/AP_CUSTOM.md |
 | `0x60d1144d` | hsm_dispatch | func | V | (event, lparam, ctx, uparam) -> 0 ok, 1-4 errors | Call-site entry of ssmenulv_dispatch (prologue 0x60d11448). handler rc = new_ss<<8 \| new_state; exit/entry on change. Sole caller gui_WinMain 0x60cfd558 | docs/RE_UI.md §2.1 |
 | `0x60d1145e` | editor_fsm_dispatch | func | V |  | Common FSM dispatcher body | docs/HSL_PORT.md |
 | `0x60d1158b` | hsm_event_index | func | V | (event, ., ctx) -> index or 0xffff | Linear scan of the descriptor event map | docs/RE_UI.md §2.1 |
+| `0x60d115c2` | hsm_desc | func | V | a0 ctx -> a0 descriptor | descriptor = (*(u32 **)(ctx + 4))[ss - 1]. The ss table pointer is read only through ctx+4 (0x611317c4 has one reference, the init at 0x60dd4b21) | docs/PLUGINS.md §7 |
 | `0x60d115c2` | hsm_desc_get | func | V | a0 ctx -> descriptor of ctx.ss |  | docs/RE_UI.md §2.1 |
 | `0x60d115d4` | GPIInitPlatform | func | V |  | getVramInfo for layers 0..2 x 2 buffers + WORK; clears each layer (rect 0,0,800,600); builds DC function tables; 800x600 canvas | docs/RE_DRAW_PLUGIN.md §2.3 |
 | `0x60d1192f` | gpi_dc_get | func | V | d0 layer -> a0 DC | 0..2 -> 0x6246a774 + 164n; -1 -> 0x6246a960; -2 -> 0x6246aa04 | docs/RE_DRAW_PLUGIN.md §2.3 |
@@ -455,10 +523,14 @@ Events: 0x9004/0x9006 step, 0x9008/0x900a sector, 0x900c commit, 0x900e MENU, 0x
 | `0x60d131db` | gpi_layer_mask_set | func | V | d0 mask, d1 present now | Stores 0x61fb2954; d1 != 0 -> gpiUpdateDisplay(1) | docs/RE_DRAW_PLUGIN.md §2.3 |
 | `0x60d132e6` | gpi_palette_commit | func | V |  | "cw_setColorPalette (128Color Layer)"; run before every present | docs/RE_DRAW_PLUGIN.md §2.4 |
 | `0x60d13a0b` | gpiSetDrawOffset | func | V | d0 x, d1 y | Stores 0x61fb2964/66; clear 0x60d13a33; get 0x60d13a52 (a0 &x, a1 &y) | docs/RE_DRAW_PLUGIN.md §2.3 |
+| `0x60d15503` | gpi_platform_fn | func | V | d0 id (0xc..0x89) -> a0 fn | Platform function lookup (open hash 0x60f96578, 32 slots). Registered by 0x60d0eec0 into DAT_61fb2588.. (font metric 0x34, draw 0x8a, etc.) | docs/EXTRAS_OVERLAY.md |
 | `0x60d1a6a0` | key_logical_map | func | V |  | Also 0x60d1a73e; logical key 10 -> 0x9016 | docs/LOOK_EDITOR.md |
+| `0x60d3379b` | ge_current_window | func | V | -> a0 = *(0x61fb3138); retf | Set by 0x60d337a4 from the window ctor 0x60cff51e and 0x60cfd455. 893 callers | docs/PLUGINS.md §11 |
+| `0x60d4c434` | label_widget_draw | func | V | widget draw method, frame [d2,d3,a2,a3]; gc (24,sp), rect (28,sp); ref 0x60faeeb4 | Stock text-label draw: 0x60d0fce0(gc, widget+128 text style), 0x60d0fd83(gc, 2), then inline text (widget+174 == 1) -> 0x60d075a7(style = widget+132); no gc colour call | docs/PLUGINS.md §11 |
 | `0x60d4c9df` | text_setter | func | V | a0 widget, a1 wchar*; `[d2,d3,a2,a3],24` | Heap-copies any length | docs/CODE_SPACE_MAP.md, WORKLOG.md |
 | `0x60d7f0a4` | firmware_view | func | C |  | Body value setter calls 0x60d7f271 (+940), 0x60d7f2cd (+300) | WORKLOG.md, docs/CODE_SPACE_MAP.md |
 | `0x60dd4b47` | hsm_default_handler | func | V | -> 0 | Matrix default in every Ss: unmapped events are dropped | docs/RE_UI.md §2.1, §5 |
+| `0x60dd4ba9` | gui_key_sink | func | V | vtbl[0] of the object at (0x61fc18c0); vtable 0x611401c4 | CA -> GUI key forwarder: send-key id -> GUI event, post. Registered in CA at 0x60cc7352 (0x60cfccc8: sub-object +32) | docs/PLUGINS.md §7 |
 | `0x60dd5125` | open_request_set | func | V | d0 group, d1 key | Stores u16 0x61fc1bb0 / 0x61fc1bb2; getter 0x60dd5110 | docs/RE_UI.md §4.2 |
 | `0x60dd5146` | act_create | func | V | kind -> actuator | Table 0x611401f4 (45 x {kind, create}); sends 0xf805 init | docs/RE_UI.md §3.2 |
 | `0x60dd518e` | column_create | func | V | (column kind, ., &param) | Table 0x6114035c (12): 0 Cursor_Move_Set_Mode, 1 kind-4 class, 3/4 Cursor_Move, 5/6 Cursor_2CNL, 7 Plural_Direct, 8 AF_Target, 14 Direct | docs/RE_UI.md §3.2 |
@@ -472,6 +544,9 @@ Events: 0x9004/0x9006 step, 0x9008/0x900a sector, 0x900c commit, 0x900e MENU, 0x
 | `0x60ddc1f1` | cursor_2cnl_transition | func | V | (n, ., act, list) -> rc | Entry {u32 depth, u16 row, u16 sub, fn pre(a0 act), u16 group, u16 key, fn post(a0 act, a1 &group, d0 &key)}; open -> rc 4 | docs/RE_UI.md §4.2 |
 | `0x60de3540` | CursorMove_Init | func | V | modeId | Cursor_Move_Set_Mode_Actuator: per-mode init table 0x61151474 (314 x 8 B {u16 mode, fn}); default 0x60de3670 (facade +24/+8/+28) | docs/LOOK_MENUS.md |
 | `0x60de477b` | pm_list_builder | func | V |  | Picture-mode rows: 15272==1646 -> 8 rows 0x61152c80; else by sid 26 25 rows 0x61151f90 (string ref 0x60de47c0) | docs/LOOK_MENUS.md |
+| `0x60dec4d4` | profile_view_new | func | V | a0 parent -> new 148 B view (0x60a4ec03), ctor 0x60dec4f4 [d2,d3,a2,a3],88 | Ctor stores vtable 0x61155e14 and registers listener 111 through 0x607f9062 -> +8 | docs/PLUGINS.md §10 |
+| `0x60dec697` | profile_view_dtor | func | V | vtable +4; movm [a2,a3] prologue; a0 view | Restores vtable 0x61155e14, unregisters listener 111. v0.32 diag: word 0x61155e18 -> dg_dtor | docs/PLUGINS.md §10 |
+| `0x60dec790` | colprof_view_update | func | V | a0 view; movm [d2,d3,a2,a3]; add -12; ... ret [d2,d3,a2,a3],28 | Rebuilds the view state (GUI data 175) via the facade; reads ALL state 0x61fc3804, picture mode 111, cursor settings 1091/1096/1097/1686 | docs/EXTRAS_OVERLAY.md |
 | `0x60decabd` | sector_value_label | func | V |  | ID tables .data 0x61fc27e8/2818/2848/2878 | docs/LOOK_EDITOR.md |
 | `0x60decbfc` | guide_label | func | C |  | Blanks ALL-off label when values hit both -5 and +5 | docs/LOOK_EDITOR.md, WORKLOG.md |
 | `0x60df249e` | view_create | func | V | kind -> viewer | Table 0x6115c724 (126 x {kind, create}); vtbl[0] draw, [1] dtor | docs/RE_UI.md §3.3 |
@@ -493,6 +568,7 @@ Events: 0x9004/0x9006 step, 0x9008/0x900a sector, 0x900c commit, 0x900e MENU, 0x
 | `0x60e23b98` | lc_actuator | func | C |  | Live Control = screen group 20; INFO release via 0x60e2418b -> 0x60e22413; handler 0x60e593be | docs/MOVIE_COLOUR.md |
 | `0x60e26ab0` | mono_profile_view | func | V |  | Preset label slot; view+400 = GetValue(111) at 0x60e26b33 | docs/MONO_PRESETS.md |
 | `0x60e27639` | mono_view_page | func | V |  | Page from sid 1088; guide label view+186 | docs/MONO_PRESETS.md |
+| `0x60e4ba62` | sscommon_fn_noop | func | V | clr d0; retf | SsCommon state 8 (StCaReqDisp, shooting) handler for 0x9057, handler word 57 of the ss-1 descriptor 0x611992c4, used by no other (event, state) | docs/PLUGINS.md §7 |
 | `0x60e4c9a0` | IGui_Controler_ctor | func | V | (controller kind, args, obj 228 B) | Kind -> layout (0x6119a0b0 or RAM resolver 0x61fc4198+8k) -> 0x6119a100 {layout, act kind, view kind}; wrapper with alloc 0x60e4ce8b | docs/RE_UI.md §3.1 |
 | `0x60e4cb5a` | screen_build | func | V | (key, 0, obj, desc words) | Fills the 228-B object from a 24-B descriptor; act_create + view_create | docs/RE_UI.md §3.1 |
 | `0x60e4ce26` | screen_close | func | V | a0 screen | Frees binding; actuator vtbl +0x28, viewer vtbl +4. 61 callers | docs/RE_UI.md §3.1 |
@@ -510,14 +586,25 @@ Events: 0x9004/0x9006 step, 0x9008/0x900a sector, 0x900c commit, 0x900e MENU, 0x
 | `0x60e9e771` | gui_transition_log | func | V | (event, old ss/state, new ss/state) | "Event 0x%04x: [%s][%s]-->[%s][%s]" | docs/RE_UI.md §2.1 |
 | `0x60e9eb89` | gui_event_trace | func | V | (kind, code, arg) | Event trace ring entry, not a filter | docs/RE_UI.md §2.3 |
 | `0x60ea15a3` | gui_timer_start | func | I | (id, ticks) | 76 callers; cancel 0x60ea15ca | docs/RE_UI.md §2.3 |
+| `0x60eac6f2` | gui_load_language | func | V | d0 mode (0/1 load strings, 0 also res type 1) | Reads sid 3009 (facade +8 0xbc1), maps it through 0x60eac8a3 / 0x60eac851, loads font (type 0), strings (type 2) and type 1 via facade +0x34; strings "MODE_LANGUAGE", "loadLanguageData", "pFontsList" | docs/I18N_ZH.md |
+| `0x60eac851` | lang_to_string_res | func | V | d0 language value -> (a3) u16 resource | Table 0x611f0c5c {u32 lang, u16 res}, -0x10000 end: 5 -> 2 (Simplified Chinese), 6 -> 3 (Traditional), 1 -> 8 (English) | docs/I18N_ZH.md |
+| `0x60eac8a3` | lang_to_font_res | func | V | d0 language value, d1 1 -> u16 resource | Table 0x611f0d7c {u32 lang, u16 1, u16 res}: font = string res + 34 (5 -> 36, 6 -> 37) | docs/I18N_ZH.md |
 | `0x60f389a8` | btn_key_table | table | C | keycode -> sid | Keycodes 0x1c/0x1d/0x1e -> button sids; arrows sids 50 up, 51 down, 52 left, 53 right | docs/BUTTONS.md |
 | `0x60f38af8` | btn_func_table | table | C | 55 entries | Function code -> action | docs/BUTTONS.md |
+| `0x60f38d8c` | multi_function_actions | table | V | 9 x {u32 sub-function, u32 action} | 1->48, 3->50, 5->42, 6->49, 2->23, 8->43, 7->44, 9->88, 10->30 | docs/PLUGINS.md §12 |
 | `0x60f3928c` | sendkey_event_table | table | V | +16: 8 UP, 0xb DOWN, 0xe LEFT, 0x11 RIGHT | Names 0x60f77cb4.. | docs/BUTTONS.md §4d |
+| `0x60f3928c` | ca_key_events | table | V | 142 x 20 B {u32 ca event, u32 keycode, u32 sub (0 press, 1 release, 2/3), u32 mask, u32 send-key id} | Read by 0x60cc9790 (event -> keycode). Fn (keycode 15): 0x0100002e press / 0x0100002f release, send-key 0x57 / 0x58 | docs/PLUGINS.md §7 |
+| `0x60f4d230` | select_action_state | table | V | 25 x {u32 action, u32 CA state} | Read by 0x60ceb5b6; 49 and 50 -> 0x5800 | docs/PLUGINS.md §12 |
+| `0x60f9477c` | ge_window_vtable | table | V | >= 712 B vtable | Base window class, stored by ctor 0x60cff51e (one caller, 0x60d43e80). +164 at 0x60f94820 | docs/PLUGINS.md §10 |
+| `0x60f94820` | win_vtbl_a_164 | data | V | u32 = 0x60cfe263 | Window class A vtable +164 (base 0x60f9477c). overlay_probe -> ov_post | docs/EXTRAS_OVERLAY.md |
 | `0x60f95f10` | gpi_layer_plane | table | V | u8[3] = {1, 2, 0} | GUI layer -> OSD API plane | docs/RE_DRAW_PLUGIN.md §2.3 |
 | `0x60f95f2c` | gpi_layer_bpp | table | V | u8[3] = {4, 8, 4} | Stride = 800*bpp/8 (DC+148) | docs/RE_DRAW_PLUGIN.md §2.3 |
+| `0x60fac34c` | ge_window_sub_vtable | table | V | >= 712 B vtable | Subclass, ctor 0x60d43e80, made only at 0x60d39f41. +164 at 0x60fac3f0 | docs/PLUGINS.md §10 |
+| `0x60fac3f0` | win_vtbl_b_164 | data | V | u32 = 0x60cfe263 | Window class B vtable +164 (base 0x60fac34c). overlay_probe -> ov_post | docs/EXTRAS_OVERLAY.md |
 | `0x610a3c38` | scp_aspect_cell | struct | C | +0x34 u8 2, u8 count; +0x38 parts; +0x3c u16[count] | SCP current-value widget; parts 0x610a0798 {0xffff,7,7,bitmap} | docs/ASPECT.md |
 | `0x611317c4` | hsm_ss_table | table | V | 19 x u32 descriptor*, index ss-1 | Descriptor 32 B: +0 u8 n_states, +2 u16 n_events, +4 u16 n_handlers, +6 s16 n_map, +8 matrix, +0xc handlers, +0x10 event map {code, index}, +0x14 entry[], +0x18 exit[], +0x1c u8 wide | docs/RE_UI.md §2.1 |
 | `0x6113e938` | gui_key_table | table | V |  | GUI key codes (HFW order). Events: 0x9004/6 step, 0x9008/a sector, 0x900c commit, 0x900e MENU, 0x9010 PLAY, 0x9012 Movie, 0x9014 INFO, 0x9016 Del, 0x903e held OK | docs/LOOK_EDITOR.md, docs/FIRMWARE_GUIDE.md §4 |
+| `0x6113e938` | gui_sendkey_map | table | V | {u32 send-key id, u32 GUI event} | Send-key id n -> GUI event 0x90nn for the Fn range (0x57 -> 0x9057, 0x58 -> 0x9058); 0x7fff = none. Read by 0x60dd4ba9 | docs/PLUGINS.md §7 |
 | `0x611401f4` | act_factory_table | table | V | 45 x {u32 kind, fn create} | e.g. 5 Cursor_Move_Set_Mode, 21 Cursor_2CNL, 24 main menu, 26 Plural_Direct, 27 Plural_Lv_Control, 8/9 Func_Scp | docs/RE_UI.md §3.2 |
 | `0x6114040c` | act_key_slot_table | table | V | 16 x {u32 event-0x9003, stub} |  | docs/RE_UI.md §3.2 |
 | `0x6114b2e0` | cursor_2cnl_kind_table | table | V | 156 x 36 B {kind, column kind, column mode, listA, nA, listB, nB, listC, nC} | Bound 0x9c hard-coded (0x60dda6a0, 0x60dda760). listA 12 B inline column; listB (Right) / listC (OK) 24 B transitions | docs/RE_UI.md §4.2 |
@@ -531,6 +618,7 @@ Events: 0x9004/0x9006 step, 0x9008/0x900a sector, 0x900c commit, 0x900e MENU, 0x
 | `0x61150e0c` | cursor_move_col_vtable | table | V | Cursor_Move column (0x5c B) | +0x40 mode, +0x48 n, +0x4a first enabled, +0x4c grey flags, +0x50 ids, +0x54/+0x56 first/last enabled; init 0x60de2134 | docs/RE_UI.md §4.3 |
 | `0x61155a7c` | prop_child_vtable | table | V | 144 B child: +84 sid, +88 count, +90 cur idx, +96 codes, +100 list |  | docs/FIRMWARE_GUIDE.md §4 |
 | `0x61155e14` | profile_view_vtable | table | V |  | Color Profile view; update 0x60dec790 rebuilds 96-B state | docs/LOOK_EDITOR.md |
+| `0x61155e14` | colprof_view_vtbl | data | V | Colour Profile editor view vtable; +0 update 0x60dec790, +4 0x60dec697 | overlay_probe re-points +0 (update) to ov_upd, which sets the overlay flag each time the editor paints | docs/EXTRAS_OVERLAY.md |
 | `0x61159f08` | scp_cell_table | table | V | 39 x 14 B {u16 sid, 6 x u16} | Copied by Func_Scp_Actuator::initActModeDetail 0x60df1429 to actuator +0x5c; per-mode swaps in 0x60df149c | docs/RE_UI.md §6 |
 | `0x6115ba70` | func_scp_vtable | table | V | Func_Scp_Actuator (actuator kinds 8/9) |  | docs/RE_UI.md §3.2, §6 |
 | `0x6116ae1c` | item_table | table | C | 74 rows x 52 B | Row 16 = aspect at 0x6116b190 | docs/ASPECT.md |
@@ -543,6 +631,9 @@ Events: 0x9004/0x9006 step, 0x9008/0x900a sector, 0x900c commit, 0x900e MENU, 0x
 | `0x61185bdc` | editor_rec_color1 | struct | C | 56 B: +0 key, +4 init, +8 child_get, +12 Up, +16 Down, +20 Left, +24 Right, +28/+32 dial, +36 catch-all, +40, +44 INFO, +48/+52 0 | COLOR1 (0x13b3). COLOR2 0x61185c14, COLOR3 0x61185c4c, COLOR4 0x61185c84, CC 0x13a9 at 0x61185ba4. Docs quoting 0x61185be8.. give the +12 word | docs/LOOK_EDITOR.md §1 (base corrected here) |
 | `0x61186ba4` | editor_desc_table | table | V | 47 x {u16 key, u16 n, u32 child list} | COLOR1-4 keys 0x13b3/0x13b4/0x13b5/0x140c | docs/FIRMWARE_GUIDE.md §4 |
 | `0x61187534` | editor_parent_vtable | table | V |  | Ctor 0x60e20691/0x60e206a9. Parent: +100 key, +120 child count, +122 cursor, +124 child[] | docs/LOOK_EDITOR.md |
+| `0x6118c818` | lv_grid_value_lists | table | V | 18 x 5 x {u32 value, u32 bitmap}, 40 B each | Values 8 diagonal, 6 golden, 5 grid, 7 cross, 1 thirds; bitmaps 5996-6126, index 124, 2-px lines (6018: 708x399 thirds) | docs/SPLIT_TONE_G1.md §2 |
+| `0x6118c8e0` | lv_grid_list_179 | table | V | 5 x {value, bitmap}: 6001 6007 6766 6015 6021 | Aspect-10 (17:9) lists of the three classes: 0x6118c8e0 / c9d0 / cb10. 6001/6007/6087/6099/6105/6031 are referenced in main only by these lists | docs/SPLIT_TONE_G1.md §2 |
+| `0x6118cc00` | lv_grid_aspect_table_a | table | V | 6 x {u32 aspect, u32 list, u32 count}; aspects 1,2,3,4,9,10 | LV grid selector 0x60e32406 (count `mov 6,a0` at 0x60e326c3). Siblings 0x6118cc48 (state (1020,this) == 1), 0x6118cc90. Row 5 (aspect 10, 17:9) is dead in this function: aspect is 1/3 in movie or GetValue(270), never 10 | docs/SPLIT_TONE_G1.md §2 |
 | `0x611992c4` | ss_SsCommon | struct | V | HSM descriptor, 14 states, 89 events | ss 1 | docs/RE_UI.md §2.2 |
 | `0x6119a0b0` | screen_ctrl_kind_table | table | V | {u32 controller kind, u32 layout} until kind 0x20 | 10 -> 13 (SCP), 11 -> 14 | docs/RE_UI.md §3.1 |
 | `0x6119a100` | screen_layout_table | table | V | 45 x 12 B {layout, actuator kind, viewer kind} | Layout 13 = SCP (act 8, view 15), 14 = RC SCP (act 9, view 16) | docs/RE_UI.md §3.1 |
@@ -560,18 +651,28 @@ Events: 0x9004/0x9006 step, 0x9008/0x900a sector, 0x900c commit, 0x900e MENU, 0x
 | `0x611abc5c` | ss_SsPlaySingle | struct | V | HSM descriptor, 43 states | ss 6 | docs/RE_UI.md §2.2 |
 | `0x611ada58` | ss_SsRec | struct | V | HSM descriptor, 5 states, 47 events | ss 2 | docs/RE_UI.md §2.2 |
 | `0x611c2c78` | item_info_index | table | V | 129 x 24 B {key = viewer param, records, n, 0, ., .} | Read by the 2CNL viewer at 0x60e89a28 (bound 129). Record 36 B {id, title label, value list, n, 0, text, popup list, n}. Second tree 0x611cce58.. | docs/RE_UI.md §4.4 |
+| `0x611f0c5c` | lang_string_res_tab | table | V | 34 x {u32 lang, u16 res, u16 pad} | Language value (sid 3009) -> OSD string resource 1..34 | docs/I18N_ZH.md |
+| `0x611f0d7c` | lang_font_res_tab | table | V | 34 x {u32 lang, u16 1, u16 res} | Language value -> OSD font resource 35..68 | docs/I18N_ZH.md |
+| `0x61fb0dd8` | sel_replay_key | data | V | u32 key to replay after the select state exits (+4 0x61fb0ddc last key) | Written by the select-state key handlers and keyhook ka_rep | docs/PLUGINS.md §12 |
 | `0x61fb2938` | gpi_cur_buf | data | V | u8 0/1 | Current back-buffer index; toggled by present | docs/RE_DRAW_PLUGIN.md §2.3 |
 | `0x61fb2939` | gpi_dirty | data | V | u8 | Set by sync rect, cleared by present | docs/RE_DRAW_PLUGIN.md §2.3 |
 | `0x61fb2954` | gpi_layer_off_mask | data | V | u16: 0x02 layer 0, 0x10 layer 1, 0x100 layer 2 | Planes hidden at present | docs/RE_DRAW_PLUGIN.md §2.3 |
+| `0x61fb3138` | ge_current_window_ptr | data | V | u32 window* | Current (last constructed) window | docs/PLUGINS.md §11 |
+| `0x61fc1530` | osd_string_tables | data | V | u32[bank] -> u32 string pointer table | Bank 0 = *res (p0 of the loaded string resource), written by 0x60eac6f2 | docs/I18N_ZH.md |
+| `0x61fc15bc` | osd_style_tables | data | V | u32[bank] | Bank 0 = res[1] of the loaded string resource (text styles / pFontsList) | docs/I18N_ZH.md |
 | `0x61fc1c00` | cursor_2cnl_handlers | data | V | 7 words: Up, Down, Left, Right, dial, dial, other | RAM .data, image 0x60259ec0: 0x60ddab47, 0x60ddac5f, 0x60ddad77, 0x60ddaee9, 0x60ddb06d, 0x60ddb0de, 0x60ddb14e. Data-hookable | docs/RE_UI.md §4.2 |
 | `0x61fc27d0` | profile_view_parts | table | C | .data, init image 0x6025aa90 | Part 3 guide label: init word 0x6025aa98 (stock 0x60decbfc) | docs/LOOK_EDITOR.md, docs/MIN_SHUTTER.md |
 | `0x61fc4328` | scp_screen | data | V | IGui_Controler* | SCP screen; LC 0x61fc432c; group-18 editor 0x61fc4330; open key 0x61fc4370 | docs/RE_UI.md §5, §6 |
 | `0x61fc4ffc` | menu_history | data | V | 10 x 6 B {u16 item, u8 cursor, ., u16 x}; depth u8 0x61fc5038 | Push 0x60ea7dcc, pop 0x60ea7d42, drop 0x60ea7da4, peek 0x60ea7c89 | docs/RE_UI.md §5.1 |
+| `0x6203bcb2` | kh_fn_stage | data | V | u8 Fn stage byte (.bss pad) | bits 0-1 site + 1, bits 2-3 plugin decision (0 not called, 1 stock, 2 handled), bits 4-7 Fn presses mod 16; diag readout K | docs/PLUGINS.md §12 |
+| `0x622ab792` | ov_flag | data | V | .bss u8 (uncached 0xa22ab792) | overlay_probe: set by ov_upd, cleared by ov_post each frame (self-clear on editor close) | docs/EXTRAS_OVERLAY.md |
+| `0x622ab793` | ov_counter | data | V | .bss u8 (uncached 0xa22ab793) | overlay_probe: ghosting counter, incremented each draw, shown as 2 hex digits in row D | docs/EXTRAS_OVERLAY.md |
 | `0x6246684c` | hsm_ctx | data | V | 32 B: +0 u8 ss, +1 u8 state, +2 u8 n_ss, +4 ss table, +8 u16 cur handler | Pointer stored in 0x61fb2564 by gui_WinMain | docs/RE_UI.md §2.1 |
 | `0x62466870` | gui_msg_queue | data | V | 500 x 32 B {u8 used, msg 7 words}; head/tail u16 0x6246a6f0/0x6246a6f2 | Get 0x60d10133 (0x1002/0x1100 first), purge-by-code 0x60d1050a | docs/RE_UI.md §2.3 |
 | `0x6246a774` | gpi_dc_layers | struct | V | 3 x 164 B: +0 layer, +2 800, +4 600, +6 bpp, +72 layer desc, +76 fn table (18 words), +148 stride | Also DC -1 0x6246a960, DC -2 0x6246aa04 | docs/RE_DRAW_PLUGIN.md §2.3 |
 | `0x6246aaa8` | gpi_vram_tab | table | V | VRAM_INFO* [3 layers][2 buffers] | Back buffer of layer L = [L][(u8)0x61fb2938] | docs/RE_DRAW_PLUGIN.md §2.3 |
 | `0x6246aac0` | gpi_vram_work | data | V | VRAM_INFO* | Plane 3 (WORK) | docs/RE_DRAW_PLUGIN.md §2.3 |
+| `0xa400bac0` | zh_font_cmap | data | I | u32[256] page dir -> {u16 w, u16 h, u32 glyph}[256] | Font res 36 +0x54580: 636 CJK glyphs (37 px). Second dir +0x54980: 133 Latin / full-width (40 px). tools/zh_glyphs.py. Runtime address via the inferred font base 0xa3fb7540; the structure is verified in flash | docs/I18N_ZH.md |
 
 ## 5. OSD component
 
@@ -694,10 +795,14 @@ Caduceus extension → work list runs synchronously in REC_IMAGE.
 | `0x60040a20` | recview_sem_id | data | V | u16 = 22 | REC_VIEW holds it per request; REC_IMAGE briefly | docs/RE_CAPTURE.md §1 |
 | `0x60040c90` | rec_main_flag_id | data | V | u16 = 203 | Bits 0x1 mbx 75, 0x2 local, 0x4/0x8 CPU2 slot 0/1 | docs/RE_CAPTURE.md §1 |
 | `0x60040d6e` | rec_mbx_ids | data | V | u16 73..79 | 73 REC_FILE, 74 REC_IMAGE, 75 REC_MAIN, 76/77 REC_PREPRO, 78 REC_SOUND, 79 REC_VIEW; 0x60040e32 171 PRE_V1, 0x60040e34 172 PRE_I1, 0x60040e1a 159 REC_EXT | docs/RE_CAPTURE.md §1 |
+| `0x602325b4` | rap_block_names | table | V | char* x 26 | RAP_* / VDC_* debug names; RAP_SHADING_SETTING and RAP_CIRCLE_SHD_SETTING (and _2) are front-end blocks | docs/VIGNETTE_FIX.md |
+| `0x602a529f` | cap_still_cmd_build | func | V | capture command builder | Calls 0x6055545e, stores cap+0x1326 / +0x13b0 / +0x15f0 / +0x1650 / +0x384a / +0x13b8 / +0x5da0 pointers at cmd+0x1bc..0x1d8 | docs/VIGNETTE_FIX.md |
+| `0x602a79ef` | lens_shading_fetch | func | V | a0 desc (bit 0 -> 0x2000) | Reached from R3/R4 when key 0x8c21 == 1. Front-end command with outputs cap+0x1326 (64 u16), cap+0x13b0, +0x15f0, +0x1650, +0x384a, +0x5da0 | docs/VIGNETTE_FIX.md |
 | `0x602a7eda` | cap_sharp_read | func | C | call 0x6005e971 key 0x8119 -> cap+24010 | Sharpness read (hook sh_get at rel32 +1) | docs/SHARPENING_OFF.md |
 | `0x602a8095` | cap_nr_read | func | C | key sid 143 | Noise Filter capture read (also MakerNote 0x6028d08a) | docs/CODE_SPACE_MAP.md |
 | `0x602a8372` | cap_me_fields | func | V |  | Copies keys 0x1851 (Auto Gain), 0x1841 (frames) into capture (0x602a8385) | docs/LIVE_ND.md |
 | `0x602a857e` | capture_populate | func | V |  | Settings -> capture record: pm read 0x602a8577 (cap+24053), F6B1 0x602a85b7 (if pm 11, cap+24083), S x12 cap+24058.., mono +24084..86 | docs/PROFILE_INDEX_WB.md, docs/AP_CUSTOM.md |
+| `0x602ab42d` | cap_still_cmd_shading_b | func | V | same contract as 0x6055545e | R2 of VIDEO_HIDDEN §5 (call 0x602ab488); +0x10000 always | docs/VIGNETTE_FIX.md |
 | `0x603017f3` | capture_setup | func | C | (8,sp) = cap | EXIF-facing capture fields; copyright-enable getter 0x6030288d | patches/exif_name/ex.s.in |
 | `0x60302c0f` | wb_resolve | func | V |  | Segment to 0x60302fc9: category cap+24006 (prop 33057), preset cap+24002 (33073); 10 rel32 WB getter sites | docs/WB_AND_MONO.md, docs/WB_PATCH.md |
 | `0x6030e9d1` | params_builder_2 | func | V |  | Second params builder (<- 0x60329080); WB reads 0x6030eb61/77 | docs/WB_PATCH.md |
@@ -728,6 +833,9 @@ Caduceus extension → work list runs synchronously in REC_IMAGE.
 | `0x603f2b1f` | REC_VIEW_CPU2 | func | V | CPU2 task 0x2014, prio 25 | Results back to CPU0 flag 203 + slot | docs/RE_CAPTURE.md §1 |
 | `0x6053adbc` | rec_main_route_jtab | table | V | 28 x u32 | Route code (+52) -> handler | docs/RE_CAPTURE.md §1 |
 | `0x6053da74` | rec_image_cmd_jtab | table | V | 19 x u32 (cmd 0x1001..0x1013) | REC_IMAGE per-command tail | docs/RE_CAPTURE.md §1 |
+| `0x6055545e` | cap_still_cmd_shading | func | V | d0 capture-mode id, a0 cmd; 5 callers | Fifth 0x8c21 reader (call 0x605554bc). Record bit 3 && key == 1 -> cmd+4 \|= 0x2000. Twin of 0x602ab42d. v0.25 sc_get covers it | docs/VIGNETTE_FIX.md |
+| `0x60555739` | cap_mode_record | func | V | d0 id -> a0 record or 0 | 45 x 48-B records at 0x6055ca20; +4 bit 3 = shading allowed (still ids 0x1xxxx yes, LV 0x2xxxx and 0x90000 sensor-check no) | docs/VIGNETTE_FIX.md |
+| `0x6055ca20` | cap_mode_records | table | V | 45 x 48 B {u32 id, u16 flags, ...} | Id 0x10000/0x110000/0x210000/0x50000/0x1000e/0x10019 ... have flags 0x000b (bit 3) | docs/VIGNETTE_FIX.md |
 | `0xa26a0aa0` | rec_history | data | V | +0 tail, +2 head, +8 256 x {u8 task letter, u8 stage, u16 cmd} | No timestamps; .bss. Stages 60/62 begin/end, 91/93 view, 101 REC_MAIN | docs/RE_CAPTURE.md §1 |
 | `0xa27409e8` | xcpu_slot_ring | data | V | u8 index, busy bytes +1.., keys 0xa27409ec+8n, records 0xa27409fc+300n | CPU0 <-> CPU2 REC messages | docs/RE_CAPTURE.md §1 |
 
@@ -761,6 +869,8 @@ CPU access to buffers only through the window mapper, lock, flush ([FIRMWARE_GUI
 
 | Address | Name | Kind | Tag | Signature / layout | Notes | Source |
 |---|---|---|---|---|---|---|
+| `0x603397e0` | dev_stage_list | func | V | a0 ctx | Stage builder; 0x60339b8e gates the lens shading stage 0x6039d19a -> 0x6039e54e | docs/VIGNETTE_FIX.md |
+| `0x60339b8e` | gate_lens_shading | func | V | a0 ctx -> d0 | On when ctx+0xc4 == 0 and 0x603b54b0(request) != 0 and byte 1 != 0xff | docs/VIGNETTE_FIX.md |
 | `0x6034667e` | isp_desc_write | func | V |  | Copies output words verbatim to hardware descriptors | docs/FINDINGS.md |
 | `0x60346e37` | gamma_lut_upload | func | V | a? window (u32 words), ctx (+12 O, +0x38 owner, +0x6c dirty bits) | R==G==B: window+0x000; else R +0x400, G +0x800, B +0xC00 (bytes), O+2608 -> +0x1000; skipped unless owner changed (0xa27360ec[2]) or ctx+108 bit0. Callers 0x60345f9b, 0x60345fbd (in 0x60345ebe) | docs/RE_LIVEVIEW.md §4 |
 | `0x6034fcd2` | tone_ctrl_scale | func | V | (R+1512, C+64) | Raw -7..7 tone values scaled; spline bend 0x6034ff93 | docs/TONE_ENDS.md |
@@ -778,6 +888,7 @@ CPU access to buffers only through the window mapper, lock, flush ([FIRMWARE_GUI
 | `0x60354930` | request_wait | func | V |  | Wait for producing request before CPU reads | docs/FIRMWARE_GUIDE.md §7 |
 | `0x60354ce4` | request_pack | func | V |  | Clears request (job+11364, 1884 B) and fills from params | docs/FIRMWARE_GUIDE.md §6 |
 | `0x60355409` | request_pack_movie | func | V |  | Same S path (request+1816) | docs/MOVIE_COLOUR.md |
+| `0x60355ebe` | job_pre_pass_cb | func | V | job+0x2c20 callback | Set for every key but 12 and 0x01010068/0x01020068 (worklist_build). Returns 0x603a2ec6(...) unless params+5555 | docs/VIGNETTE_FIX.md |
 | `0x60355fd4` | job_callback | func | V |  |  | docs/HSL_PORT.md |
 | `0x603573d3` | worklist_mod_slot | func | V |  | Development entry modifier slot; final add 0x6035739e | docs/GRAIN_PORT.md |
 | `0x60357415` | worklist_build | func | V |  | Dispatch on key (hash 0x6052200c, (key-11)&31); post-handler flag tests 0x603578bd.. | docs/FIRMWARE_GUIDE.md §6 |
@@ -785,13 +896,18 @@ CPU access to buffers only through the window mapper, lock, flush ([FIRMWARE_GUI
 | `0x603574e3` | worklist_gf | func | V |  | Grainy Film I/II handler | docs/OM3_NOTES.md |
 | `0x6035778b` | worklist_key12 | func | V |  | MONO: job+11320==0 -> mask pass 0x60359bc8 (stage 0x0900) + grain pass 0x60359cd8 (0x0901) | docs/GRAIN_PORT.md |
 | `0x6035b03a` | creative_shading_mod | func | V | effect 0x0c00 | Fallback 0x6035b529 / 0x6035b517 | docs/GRAIN_PORT.md |
+| `0x6035b03f` | creative_shading_mod_body | func | V | job, request | Level job+0x15d4: 0 -> effect 0, gain 0x400 (emulated bank == no mask); 1..5 / -1..-5 -> effect 0x0c00, gain 0x100000/tbl 0x604ec0d8. Copies the mask desc *(job+0x37a0)+0xc -> request+0x214 | docs/VIGNETTE_FIX.md |
+| `0x6035b105` | mask_mod_10000 | func | V | job, request | Job flag 0x10000 modifier: mask desc job+0x11c8/+0x1208, effect 0xfe00, gain job+0x1248. 0x10000 is cleared for stills in art_effect_to_flags (0x603eabd0) and never set there | docs/VIGNETTE_FIX.md |
 | `0x6035ca31` | sf_blend | func | V |  | 0x1000 + 0x1061 -> new 0x1000; returns with buffer complete | docs/FIRMWARE_GUIDE.md §6 |
 | `0x6035cc1b` | softfocus_pending | func | V | cb 0x6035cd94 | Classes 5-8 single pass; classes 0-3 reduce 0x6035cee6 -> upscale 0x6035cfe9 -> blend 0x6035ca31 | docs/BLOOM_HALATION.md |
 | `0x6035cee6` | sf_reduce | func | V |  | 0x1000 -> 0x1060 (160x120 / 144x108 / 144x80, fmt 0x0305, 4 B/px); sizes 0x60348ce2, table 0x604eb450 | docs/BLOOM_HALATION.md |
 | `0x6035cfe9` | sf_upscale | func | V | kind 3, stage 0xf005, effect 0x0401 | 0x1060 -> 0x1061 (fmt 0x0302) | docs/BLOOM_HALATION.md |
 | `0x6035d0f4` | dramatic_pass | func | V | effect 0x0100 -> 0x6035d253 (0x0101) | Highlight finding unresolved (0x6035d4ae?) | docs/BLOOM_HALATION.md |
 | `0x6035d6ef` | starlight_pass | func | V | kind 3, effect 0x0106 -> combiner 136 | Star layer 0x1083 | docs/BLOOM_HALATION.md |
+| `0x60366f21` | dev_default | func | V | default dev entry body (from 0x60356d7b) | request+0x668 is set (1 / 0x10101 / 0x20201 / 0x30101 / 0x40201) only when job+0x2c4a != 0 (multi-pass branch); else stays 0 | docs/VIGNETTE_FIX.md |
+| `0x6036b564` | mask_cache_96 | func | V | 2 x 92-B objects | Key 0x01010076 only: 4 planes 96 x 96 from fixed ROM tables 0x604eb85c.. (0x6036ce3d -> 0x603389c8) | docs/VIGNETTE_FIX.md |
 | `0x6036b635` | mask_cache | func | V | 4 x 100-B objects at 0xa27364e8 | Shading/vignette mask; descriptor by 0x6036cec0 (128x128 u16 Q10, fmt 0x080C); pixels 0x603390a4 -> 0x60338d49 (radial 0x604ebf1c) | docs/HALATION_RED.md §10c, docs/VIGNETTE.md |
+| `0x6039e54e` | stage_lens_shading | func | V | a0 ctx (+4 request, +0x14 bank) | Kind 0: request+0x6fc on -> 64-entry radial gain from request+0x67c into bank+0x404/+0x484, bit 4 of bank+0xc; off -> flat 0x2000. Kind 5: off. Runs only if request+0x668 != 0 | docs/VIGNETTE_FIX.md |
 | `0x6039fe58` | combiner_5 | func | V |  | Water Color I affine; table 0x605244f4; default chroma 0x6039fdf0 | docs/BLOOM_HALATION.md |
 | `0x6039fee8` | sf_weight_get | func | C |  | Soft Focus weight table 0x604ec02e by level | docs/BLOOM_HALATION.md |
 | `0x603a013b` | combiner_config | func | V |  | Hash 0x60524508; bank = base+7364 | docs/GRAIN_PORT.md |
@@ -799,6 +915,7 @@ CPU access to buffers only through the window mapper, lock, flush ([FIRMWARE_GUI
 | `0x603a05b3` | combiner_31 | func | V |  | Grain; gains 0x604ec0ce (110/300/600) | docs/GRAIN_PORT.md |
 | `0x603a065b` | combiner_32 | func | V |  | Grain; gains 0x604ec0d4 (50/75/100); counter 0xa27393f8 | docs/GRAIN_PORT.md |
 | `0x603a06f8` | combiner_33 | func | V | mode 0x1002 | Lerp to constant colour through mask (vignette/shading) | docs/VIGNETTE.md |
+| `0x603a2ec6` | pre_pass_select | func | V | d0 0, type, key*, ISO, ... | ISO bucket tables 0x60505280 (on from bucket 5) / 0x6050528c (all on); key only matters for art 0x0101006d and 0x0200008f/0x020003e8 | docs/VIGNETTE_FIX.md |
 | `0x603aaced` | stage_dispatch | func | V |  | Request kinds 0/16 -> 0x603b17e6/0x603b1819; callers 0x60339870, 0x603399d7 | docs/LV_BUNDLES.md |
 | `0x603ac0c1` | sharpen_gain | func | C |  | One byte from Sharpness (0 at -5 on key 11) | docs/SHARPENING_OFF.md |
 | `0x603acfe4` | mono_selector | func | V |  |  | docs/MONO_COLOUR.md |
@@ -806,6 +923,9 @@ CPU access to buffers only through the window mapper, lock, flush ([FIRMWARE_GUI
 | `0x603ae354` | gamma_select | func | C |  | RGB gamma selection; movie log path | docs/VIDEO_LOG.md |
 | `0x603ae7d3` | rgb_gamma_set | func | V | three curve pointers | Per-channel R/G/B gamma setter (split-tone lead) | docs/FUJI_GAPS.md, docs/SPLIT_TONE.md |
 | `0x603ae80d` | gamma_stage | func | V | a0 stage ctx (+4 request, +12 output O); `call ..,[d2,d3,a2,a3],16` | From dev_stage_list 0x603b14a6 (2nd stage). gamma_select -> cache check -> rgb_gamma_set 0x603ae995 -> cache store. Split-tone hook G1 at 0x603ae830 (5 B f8923c 5c24) | docs/RE_LIVEVIEW.md §4-5 |
+| `0x603ae830` | gamma_stage_after_select | site | V | 5 B `movbu d0,(60,sp); mov (36,sp),a0`; frame add -260,sp | (40,sp) request R, (36,sp) output O, (56,sp) ctx, (60,sp) select result, (68/72/76,sp) R/G/B curve pointers; stage returns by ret (MDR dead) | docs/SPLIT_TONE_G1.md §1.2 |
+| `0x603ae861` | gamma_change_cache_ptr | code | V | d3 = (R+1484) + 5736 when (R+1484) != 0 | Cache {R*, G*, B*, 12 B, u8 +20}; all three equal and 0x603b5ddc == 4 -> setter skipped (0x603ae8c1..8f0) | docs/SPLIT_TONE_G1.md §1.2 |
+| `0x603aeacd` | gamma_stage_art_reads_g_slot | code | V | mov (2600,O),a1 -> 0x60335323 | Only O-slot read in the gamma stage; in the art-key branch (keys 0x01010064..0x01030069) after its own setter | docs/SPLIT_TONE.md |
 | `0x603af871` | mono_color_route | func | V |  | Key 12: hash 0x60532510 miss -> desc 0x60530eb8 (table 0x605120ec, ctrl 0xb8f) or 0x60530eec (0x60512cc0, 0x3cf) | docs/WB_AND_MONO.md |
 | `0x603afb94` | color_builder_art | func | V |  | Art tables; bypasses H/L hook | docs/HSL_PORT.md |
 | `0x603afd26` | color_builder_general | func | V |  | Non-11 keys when flagged | docs/MOVIE_COLOUR.md |
@@ -819,6 +939,7 @@ CPU access to buffers only through the window mapper, lock, flush ([FIRMWARE_GUI
 | `0x603b1517` | stage_list_alt | func | V |  | From 0x603b1843/0x603b18b5; colour step 0x603b0345 | docs/LV_BUNDLES.md |
 | `0x603b18cd` | stage_kind4_lv | func | V |  | Kind 4 defaults, chroma off (0x603b1904) | docs/WB_AND_MONO.md |
 | `0x603b5200` | combiner_select | func | V | (key, stage, effect) | Key 12: 0x0901 -> 31, 0x0902 -> 32 (0x603b531a); default path 0x603b539f hash 0x60532e98 (0x0402 -> 11, 0x0403 -> 12); grain hook 0x603b5249 | docs/GRAIN_PORT.md |
+| `0x603b54b0` | req_pre_pass_cfg | func | V | a0 request -> d0 | Kind 0/16: request+0x668, kind 4: +0x108, kind 5: +0xd8 | docs/VIGNETTE_FIX.md |
 | `0x603b5ddc` | gamma_cache_cmp | func | I | a0, a1 -> d0 (4 = same) | Second half of the gamma-stage cache check (after pointer compare) | docs/RE_LIVEVIEW.md §4 |
 | `0x603b5e8c` | gamma_curve_analyse | func | I | a0, a1 curve, d0 out | Run per distinct curve when gamma_select returns 1; outputs to stage frame +44..+64 (meaning unknown) | docs/RE_LIVEVIEW.md §4 |
 | `0x604eb450` | sf_reduce_sizes | table | V |  | Global; changing it changes stock Soft Focus | docs/BLOOM_HALATION.md |
@@ -867,6 +988,7 @@ fileif API in section 4. From an ordinary CPU0 task each call is a synchronous R
 | Address | Name | Kind | Tag | Signature / layout | Notes | Source |
 |---|---|---|---|---|---|---|
 | `0x6005a509` | linux_from_sd | func | V |  | Stock fopen/ftell/fseek/fread/fclose precedent | docs/SD_BUNDLES.md |
+| `0x605b771f` | sd_lo_slot62 | data | V | sd_lo[62..63] (sd_lo 0x605b76e1, sd_span 0x605b7721) | Loader v3 range check is (s8 byte - s8 lo) <= span unsigned (0x605b75e8..) | docs/SPLIT_TONE.md |
 | `0x60613000` | fs_library | data | V | 0x60613000-0x60650000 | FS library (no calls into section 5) | docs/SD_BUNDLES.md |
 | `0x60618b53` | card_mount_dcf_init | func | V |  | Card mount sequence (dcfnum.c); last step card_param_csv_load 0x6061907a | docs/RE_SETTINGS.md §6 |
 | `0x6062fc44` | FILECLBK | func | V | task 16, prio 55, stack 0x1000 | Dispatch by class: 0x0000xxxx low-level (unmount 18, mount 97, sector read 83, table 0x6070a410), 0x0001xxxx fileif | docs/SD_BUNDLES.md |
@@ -881,6 +1003,12 @@ fileif API in section 4. From an ordinary CPU0 task each call is a synchronous R
 | `0x60646851` | drive_letter | func | V |  | Drive 0 = C: (adds 67) | docs/SD_BUNDLES.md |
 | `0x60765cc8` | fopen_w_precedent | func | V |  | Section-5 app code opens with "w" | docs/LOOK_PICKER.md |
 | `0x6077d590` | media_status_set | func | V | d0 media type, d1 status (0xF000 MOUNT OK); ret [d2],20 | Called by 0x60863da7 (0x60863e90, dead for our use) | docs/SD_BUNDLES.md, docs/REVIEW_v04.md |
+| `0x607d5510` | ls_chk | func | V | jmp from 0x6143a4ed; a3 = L, d3 = size, a2 = P | Ours (looks_split, sec-5 dead sdk-api claim 0x607d5500..0x607d5900): ls_sc, then call fm_check, jmp 0x6143a4f2 | patches/looks_split |
+| `0x607d5521` | ls_sc | func | V | [d2,d3,a2,a3],20 | Ours: CRC first; each record +61/+62 = 0, or +60 = 0 and both split bytes in range; then stash L+2568+2j, zero them in the record, rewrite CRC +16, L+2564 = P, L+2560 EP7W last. Any miss: file untouched (fm_check rejects split bytes after the name NUL) | patches/looks_split |
+| `0x6143a410` | fm_load | func | V | CALLS, a2 = P | Ours (film_menu_v2 fm_core, sec 9): once per power-on LOOKS.BIN -> L (malloc 2640 from v0.32, was 2560), fm_check, slot resume by name, publish P+1016 / P+1020 EP7F. v0.32: its fm_check call goes through ls_chk (split stash) | patches/looks_split |
+| `0x6143a4ed` | fm_load_call_fm_check | site | V | 5 B `call fm_check,[d2,d3,a2,a3],20` (cd b9 00 f0 14) | Ours (film_menu_v2 fm_core). After it: cmp 0,d0 at 0x6143a4f2; size test and 63 / cmp 128 / cmp 2113 at 0x6143a49e..a4b5; malloc 2560 at 0x6143a439 | docs/SPLIT_TONE_G1.md §1.2 |
+| `0x6143a5a6` | fm_check | func | V | a3 = L (file), d3 = size -> d0 0 valid; [d2,d3,a2,a3],20 | Ours (fm_core): header template, CRC (bytes 0..15, 20..end), per-record range table 0..44, class/mask, tint, name rule (NUL tail to +63). Unchanged in v0.32: ls_sc hands it a file whose +61/+62 are already 0 | patches/looks_split |
+| `0x6143a688` | fm_crc | func | V | d0 running CRC, a0 data, d1 length > 0 -> d0; [d2,d3],8; keeps a1 | Ours (fm_core): bitwise CRC-32 (0xedb88320), no table. Also called by ls_sc and plugin_loader | patches/looks_split |
 | `0x61fa8fb8` | media_status_words | data | V | +0/+8/+10/+18 | Mount status per medium | docs/SD_BUNDLES_V2.md |
 
 ## 11. Movie
@@ -982,6 +1110,7 @@ Not in this atlas. Every Caduceus claim (section FF tails, dead EVF gamma tables
 | 8 | Getter 0x6005e96f | tools/port_em10iv_map.py, patches/em10iv_vivid | That is the **E-M10 IV** getter; E-P7 is 0x6005e971 (dis-checked). Several `tools/*.py` constants (OSTR 0x601a47b0, FLASH_WRITE 0x600c1ea1, …) are other bodies: check the body before reusing |
 | 10 | LV job state table | LV_ART_PREVIEW §7: table at 0x604e3190, handlers labelled "event 0" | Table starts **0x604e315c** (13 states × 28 events, dispatch 0x6032967e); those handlers are **event 7** (param update). [RE_LIVEVIEW.md](RE_LIVEVIEW.md) |
 | 11 | Watchdog handler | HALATION_RED §18: wdt_expiry_handler 0x60059c20 | Mid-instruction. All faults and WDT enter NMI handler **0x60059a9d**; the WDT case is the branch at **0x60059c63**. [RE_CAPTURE.md](RE_CAPTURE.md) |
+| 12 | Extras overlay hook / Firmware text | EXTRAS_OVERLAY §2.2: +164 "empty in both window classes" (0x60f94820, 0x60fac3f0); PLUGINS §3: "0.32S" readable | 0x60cfe263 is the +164 word of ~400 vtables; those two are one class pair (ctors 0x60cff51e / 0x60d43e80). The only +164 call is 0x60d005ef in 0x60d00506 (v0.32 diag hooks it). "0.32" already clips, so a suffix isn't readable; diag shows "L/O". [PLUGINS.md §10](PLUGINS.md) |
 | 9 | Doc-internal corrections already recorded | SsMenuLv matrix index (AP_CUSTOM b6 → b7, event-major); updater LED meaning (SD_REJECT); .data init delta (MIN_SHUTTER m2); SD loader v1 hook dead (REVIEW_v04) | Use the corrected forms (this atlas does) |
 
 ## 16. Known unknowns, ranked

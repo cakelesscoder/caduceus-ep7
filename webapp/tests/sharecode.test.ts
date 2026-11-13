@@ -4,7 +4,7 @@ import { TONE_KEYS, blankLook, parsePack, toneLimit, zeroTone, type Look } from 
 import {
   ALPHABET, crc15, crc15Bits, decodeLookCode, decodePackCode, encodeLookCode, encodePackCode, isPackCode, normaliseLookCode,
 } from '../src/sharecode';
-import library from '../src/data/library.json';
+import library from '../src/data/packs/standard-1.0.json';
 
 const pack = parsePack(library);
 const hex = (b: Uint8Array) => Buffer.from(b).toString('hex');

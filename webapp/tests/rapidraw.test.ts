@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import lib from '../src/data/library.json';
+import lib from '../src/data/packs/standard-1.0.json';
 import { type Look, type Pack } from '../src/pack';
 import { RR_BANDS, hslFor, lumaCurve, rrAdjustments, rrpreset } from '../src/rapidraw';
 

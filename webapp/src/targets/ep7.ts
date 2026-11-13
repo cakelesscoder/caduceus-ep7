@@ -6,7 +6,7 @@ export const ep7: Target = {
   id: 'ep7-caduceus',
   label: 'Olympus E-P7 (Caduceus)',
   status: 'ready',
-  note: 'LOOKS.BIN for the Film page (Caduceus v0.19; older firmware ignores the tone).',
+  note: 'LOOKS.BIN for the Film page (Caduceus v0.19; older firmware ignores the tone). Split toning (record +61/+62) only for firmware v0.32 or later.',
   supports(look) {
     const p = validateLook(look);
     return p.length ? p[0].message : true;

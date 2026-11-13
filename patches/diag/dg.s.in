@@ -1,0 +1,823 @@
+/* E-P7 1.1 camera diagnosis layer (ep7-firmware, our own code). docs/PLUGINS.md §10-§13.
+ *
+ * Firmware-screen readout "L/OK" (Setup > Firmware, Body value; 4 glyphs so the narrow value box doesn't clip it):
+ *   L = furthest plugin-loader stage this power-on (bits 1-3 of the ap_custom boot byte {boot}, .bss, 0 at power-on):
+ *       0 not run, 1 no file (or no 16 KB block), 2 opened but seek/size/read failed, 3 bad magic/ABI/flags,
+ *       4 firmware id mismatch, 5 size field / CRC bad, 6 init called (declined), 7 init accepted (plugin ready).
+ *   O = Extras overlay stage (bits 4-6 of the overlay byte {flag}, .bss, 0 at power-on; highest bit set wins):
+ *       0 none, 1 the Colour Profile view's update ran, 2 a window post-paint ran while that view was alive,
+ *       5 text drawn with the window's default text style, selected by us (0x60d0fce0) as every stock text draw
+ *       does (3 = drawn without our selection: no longer reachable), 4 Extras page reached but no font could be
+ *       selected (no call). Draws only into the current window (*0x61fb3138), the focused one.
+ *   K = keyhook Fn stage (byte {kstage}, written by kh_chk, PLUGINS §12): 0 no Fn press seen; else
+ *       3*(bits 0-1) - 2 + (bits 2-3): 1/2/3 last Fn at 0x60ce0108 (shooting) not called / stock / handled,
+ *       4/5/6 the same at 0x60cebc89 (popup open). The readout is "L/OK" (4 glyphs).
+ *       3/5 win over 4. The gc is *(painter+8): the +164 argument is the painter, not the gc (camera 7/4, §11).
+ *   Text colour goes in the style record's word 0 (the drawer 0x60d075a7 sets the gc colour from style +0/+4/+8 and
+ *   restores it after), not on the gc: the camera's 7/3-but-invisible was colour 0 = palette entry 0, transparent.
+ *
+ * TRACE (PLUGINS §13): a 16 KB ring log in one class-2 block, dumped to EP7MOD/TRACE.TXT on a half-press.
+ *   Entries are 16 B (tag, w1, w2, w3). Tags: K0/K1/KT key event at site 0 / site 1 / the unhooked twin (event code,
+ *   CA state = record+196, record+4); D0/D1 the plugin handled it (same words); PT editor-view paint (window, its
+ *   vtable, painter; capped at {pcap} per dump); PD our draw (gc, gc+0x4c before, after; tag bits: selected, rows,
+ *   gc+0x34 before/after); PS (sp on entry, sp on exit, the draw's d0).
+ *   Where the pointer lives: real P (ap_P) +{plog} base, +{phead} bytes ever logged, +{pcnt} paint entries since the
+ *   last dump. +860..927 has no user (SPLIT_TONE §P+848 slot list; loader +852/856, mono_colour from +928). P is a
+ *   fresh malloc each power-on with stale DRAM, so nothing trusts those slots: logging is gated on {logon}, a
+ *   boot-cleared .bss pad byte (keyhook check_stage: 0x6203bcb3 has no reference) that only dg_ap sets, after it has
+ *   written this power-on's block into P. The block base is also range-checked against the class-2 pool.
+ *
+ *   dg_ap    <- jmp at pl_ap's first instruction (frame of ap_post's `call pl_ap,[d2,d3,a2,a3],24`, a2 = the real P).
+ *               The plugin loader with stage marks, otherwise pl_ap + pl_chk unchanged. P+{ps} and the log slots are
+ *               cleared first; after the plugin, one 16 KB class-2 block for the log (none free -> no log).
+ *   dg_fw    <- the Firmware screen's two Body value calls (were pl_fw, frame 88): non-empty value -> the readout;
+ *               empty -> fw_val (pass through, as stock).
+ *   dg_upd   <- Colour Profile view vtable +0 (stock update {view_body}): body, then {flag} |= 0x11 (alive, O1).
+ *   dg_dtor  <- Colour Profile view vtable +4 (stock {view_dtor}): {flag} &= ~1, then the stock body, registers as found.
+ *   dg_paint <- jmp at the GE paint routine's `mov (164,a2),a2; calls (a2)`: replays it; while the view is alive: O2,
+ *               PT, and dg_draw if the painted window is the current window. dg_draw uses the stock text recipe
+ *               (select the window's default style, gc+0x34 = 2, draw, release the font) and puts gc+0x4c / gc+0x34
+ *               back. The camera build drew with the font a previous stock draw had already released (bad glyphs).
+ *   dg_key0/1 <- the site jmps (0x60ce011a / 0x60cebc9a): log, then kh_chk / kh_chk2 as kh / kh2 do.
+ *   dg_twin  <- jmp at the unhooked twin's kmap call (0x60ce0190): log, rebuild the copy-loop registers, replay.
+ *   dg_half  <- jmp at ap_post's gated block (0x601df6fa, half-press only, before the EP7U gate): dump if anything
+ *               was logged since the last dump (at most one write per half-press), then the relocated prologue.
+ *
+ * {flag} bit 0 alive, bit 1 font-selected mark, bit 3 no-font mark, bits 4-6 O stages; {cnt} the row-D counter. Both
+ * cached (the bytes share a cache line with live stock statics: an uncached store can be lost when that line is
+ * written back). Stores: those two bytes, {boot}, {logon} (register form), P+{ps}/{pb}/{plog}/{phead}/{pcnt}, the
+ * log block (uncached), the gc's +0x34 / +0x4c (put back as found) and the stack. No mul/div/setlb, no fb forms.
+ */
+ .am33_2
+ .text
+ .global _start
+
+ .macro STAGE val                   /* L = n in {boot} bits 1-3 (clobbers d0, a0) */
+ mov {boot},a0
+ movbu (a0),d0
+ and 0xf1,d0
+ or \val*2,d0
+ movbu d0,(a0)
+ .endm
+
+ .macro OSET bits                 /* {flag} |= bits (clobbers d0, a0) */
+ mov {flag},a0
+ movbu (a0),d0
+ or \bits,d0
+ movbu d0,(a0)
+ .endm
+
+ .macro HEXDIG sh, boff
+ mov d0,d2
+ lsr \sh,d2
+ and 15,d2
+ cmp 10,d2
+ bcs 1f
+ add 0x37,d2
+ bra 2f
+1:
+ add 0x30,d2
+2:
+ movhu d2,(\boff,a1)
+ .endm
+
+ .macro HEX8                      /* d0 = u32 -> 8 hex bytes at (a0), a0 += 8; clobbers d0, d1, d2 */
+ mov 8,d1
+7:
+ mov d0,d2
+ lsr 28,d2
+ add d0,d0
+ add d0,d0
+ add d0,d0
+ add d0,d0
+ cmp 10,d2
+ bcs 5f
+ add 0x37,d2
+ bra 6f
+5:
+ add 0x30,d2
+6:
+ movbu d2,(a0)
+ inc a0
+ add -1,d1
+ bne 7b
+ .endm
+
+ .macro ROW c, x0, y0, x1, y1     /* dg_draw frame: (4) string, (8..31) style, (32..39) rect, (40) gc */
+ mov \c,d0
+ mov d0,(8,sp)                    /* style +0 = text colour (palette index): the drawer sets the gc colour from it */
+ mov (40,sp),a0
+ mov 2,d0
+ movhu d0,(52,a0)                 /* gc+0x34 = 2, as the stock label draw (0x60d0fd83) */
+ mov \x0,d0
+ movhu d0,(32,sp)
+ mov \y0,d0
+ movhu d0,(34,sp)
+ mov \x1,d0
+ movhu d0,(36,sp)
+ mov \y1,d0
+ movhu d0,(38,sp)
+ mov sp,a0
+ add 8,a0
+ mov a0,d0
+ mov (4,sp),d1
+ mov (40,sp),a0
+ mov sp,a1
+ add 32,a1
+ call ep7_drawtext,[d2,d3,a2,a3],252
+ .endm
+
+_start:
+
+/* ---- loader ---- */
+dg_ap:
+ clr d0
+ mov d0,({ps},a2)                 /* no stale 'EP7K' from an earlier session */
+ mov d0,({plog},a2)               /* ring-log slots: an earlier session's values are never used (the log is gated */
+ mov d0,({phead},a2)              /* on {logon}, a boot-cleared .bss byte set only below, after the block is in P) */
+ mov d0,({pcnt},a2)
+ call ep7_ap_load,[d2,d3,a2,a3],24
+ STAGE 1
+ mov {bsize},d0
+ call ep7_malloc,[],4
+ mov a0,a3                        /* a3 = B */
+ cmp 0,a3
+ beq a_out
+ mov dg_path,a0
+ mov ep7_fm_mode,a1
+ call ep7_fopen,[],4
+ cmp 0,a0
+ beq a_free
+ mov a0,(4,sp)
+ STAGE 2
+ mov (4,sp),a0
+ clr d0
+ mov 1,d1                         /* END */
+ call ep7_fseek,[d2,d3,a2,a3],20
+ cmp 0,d0
+ bne a_close
+ mov (4,sp),a0
+ call ep7_ftell,[d2,a2,a3],16
+ mov d0,d2                        /* size */
+ cmp {minsz},d2
+ bcs a_close
+ cmp {bsize1},d2
+ bcc a_close
+ mov (4,sp),a0
+ clr d0
+ mov 2,d1                         /* SET */
+ call ep7_fseek,[d2,d3,a2,a3],20
+ cmp 0,d0
+ bne a_close
+ mov a3,a0
+ mov 1,d0
+ mov d2,d1
+ mov (4,sp),a1
+ call ep7_fread,[d2,d3,a2,a3],24
+ mov (4,sp),a0
+ mov d0,(4,sp)
+ call ep7_fclose,[d2,a2,a3],16
+ mov (4,sp),d0
+ cmp d2,d0
+ bne a_free
+ STAGE 3
+ mov (a3),d0
+ cmp {pmagic},d0
+ bne a_free
+ mov (8,a3),d0                    /* u16 ABI, u16 flags 0 */
+ cmp {abi},d0
+ bne a_free
+ STAGE 4
+ mov (12,a3),d0
+ cmp {fwid},d0
+ bne a_free
+ STAGE 5
+ mov (16,a3),d0
+ cmp d2,d0
+ bne a_free
+ mov -1,d0                        /* CRC-32 of bytes 8..size-1 */
+ mov a3,a0
+ add 8,a0
+ mov d2,d1
+ add -8,d1
+ call ep7_fm_crc,[d2,d3],8
+ not d0
+ mov (4,a3),d1
+ cmp d1,d0
+ bne a_free
+ STAGE 6
+ mov a3,d0
+ add {entry},d0                   /* B - 0x40000000 + 32 */
+ mov d0,a1
+ mov ep7_api,a0
+ mov a3,d0
+ calls (a1)                       /* init(a0 api, d0 B); B is kept from here on */
+ cmp 0,d0
+ bne a_out
+ mov a3,({pb},a2)
+ mov {rmagic},d0
+ mov d0,({ps},a2)
+ STAGE 7
+ bra a_out
+a_close:
+ mov (4,sp),a0
+ call ep7_fclose,[d2,a2,a3],16
+a_free:
+ mov a3,a0
+ call ep7_free,[],4
+a_out:                            /* the ring log: one 16 KB class-2 block, taken after the plugin's (so the plugin */
+ mov d0,(4,sp)                    /* never loses a block to the log); none free -> no log, everything else as before */
+ mov {lsize},d0
+ call ep7_malloc,[],4
+ cmp 0,a0
+ beq 1f
+ mov a0,({plog},a2)
+ clr d0
+ mov d0,({phead},a2)
+ mov d0,({pcnt},a2)
+ mov {logon},a0
+ mov 1,d0
+ movbu d0,(a0)                    /* log live (HLS task: the only writer of {logon}) */
+1:
+ mov (4,sp),d0
+ ret [d2,d3,a2,a3],24
+
+/* ---- Firmware screen readout (frame of `call fw_val,[d2,d3,a2,a3],88`: a0 widget, a1 value) ---- */
+dg_fw:
+ cmp 0,a1
+ beq f_miss
+ movhu (a1),d0
+ cmp 0,d0
+ beq f_miss
+ mov {boot},a1
+ movbu (a1),d0
+ lsr 1,d0
+ and 7,d0
+ add 0x30,d0
+ movhu d0,(4,sp)                  /* L digit */
+ mov 0x2f,d0
+ movhu d0,(6,sp)                  /* '/' */
+ mov {flag},a1
+ movbu (a1),d1
+ clr d0
+ btst 0x10,d1
+ beq 1f
+ mov 1,d0
+1:
+ btst 0x20,d1
+ beq 2f
+ mov 2,d0
+2:
+ btst 0x08,d1
+ beq 4f
+ mov 4,d0
+4:
+ btst 0x40,d1
+ beq 3f
+ mov 3,d0
+ btst 0x02,d1
+ beq 3f
+ mov 5,d0
+3:
+ add 0x30,d0
+ movhu d0,(8,sp)                  /* O digit */
+ mov {kstage},a1                  /* keyhook Fn stage (PLUGINS §12): bits 0-1 site+1, bits 2-3 decision */
+ movbu (a1),d1
+ clr d0
+ mov d1,d2
+ and 3,d2
+ beq 5f                           /* no Fn press seen (or site bits 0): K = 0 */
+ mov d2,d0
+ add d2,d0
+ add d2,d0                        /* 3 * (site+1) */
+ add -2,d0
+ lsr 2,d1
+ and 3,d1
+ add d1,d0                        /* + decision */
+5:
+ add 0x30,d0
+ movhu d0,(10,sp)                 /* K digit */
+ clr d0
+ movhu d0,(12,sp)
+ mov sp,a1
+ add 4,a1
+ call ep7_setter,[d2,d3,a2,a3],24 /* a0 = widget */
+ ret [d2,d3,a2,a3],88
+f_miss:
+ jmp ep7_fw_val
+
+/* ---- Colour Profile view +0 (update; a0 = view). Same frame/return as the stock body. ---- */
+dg_upd:
+ movm [d2,d3,a2,a3],(sp)
+ add -12,sp
+ mov a0,(4,sp)
+ mov ep7_upd_body,a2
+ calls (a2)
+ mov d0,(8,sp)
+ OSET 0x11                        /* alive + O1 */
+ mov (8,sp),d0
+ ret [d2,d3,a2,a3],28
+
+/* ---- Colour Profile view +4 (dtor): clear "alive", then the stock body with every register as found. ---- */
+dg_dtor:
+ add -8,sp
+ mov d0,(0,sp)
+ mov a0,(4,sp)
+ mov {flag},a0
+ movbu (a0),d0
+ and 0xfe,d0
+ movbu d0,(a0)
+ mov (0,sp),d0
+ mov (4,sp),a0
+ add 8,sp
+ jmp ep7_view_dtor
+
+/* ---- GE paint, post-paint call (jmp from the site; a0 window, a1 painter, a2 vtable, d3 window; paint's (4,sp) =
+        painter). Every register the code after the site reads is as the stock call left it: d0/d1 are kept, a0/a1/a2
+        are reloaded there, d2/d3/a3 come back through our callee-saved frames. ---- */
+dg_paint:
+ mov (164,a2),a2
+ calls (a2)                       /* the stock +164 call, unchanged */
+ add -16,sp                       /* (0) call slot, (4) d0, (8) d1, (12) sp on entry; paint's (4,sp) is now (20,sp) */
+ mov d0,(4,sp)
+ mov d1,(8,sp)
+ mov sp,a0
+ add 16,a0
+ mov a0,(12,sp)
+ mov {flag},a0
+ movbu (a0),d0
+ btst 1,d0
+ beq p_back                       /* view not alive: nothing (every window paints; only while the editor view lives) */
+ or 0x20,d0                       /* O2 */
+ movbu d0,(a0)
+ mov (12,sp),d0                   /* sp on entry */
+ mov (20,sp),a1                   /* painter */
+ call dg_pnt,[d2,d3,a2,a3],48     /* d3 = window (paint's own); -> d0 = 1 if PD was logged, d1 = draw's d0 */
+ cmp 1,d0
+ bne p_back
+ mov d1,a1                        /* PS: (sp on entry, sp on exit, draw's return value) */
+ mov sp,a0
+ add 16,a0                        /* sp as it will be at the jmp back */
+ mov (12,sp),d1
+ mov {tps},d0
+ call dg_logw,[d2,d3,a2,a3],40
+p_back:
+ mov (4,sp),d0
+ mov (8,sp),d1
+ add 16,sp
+ jmp ep7_paint_back
+
+/* ---- dg_pnt: d0 sp on entry, a1 painter, d3 window. Log PT (capped per dump), then dg_draw on the current window.
+        Frame 48: (4) painter, (8) sp entry, (12) gc, (16) may-log. ---- */
+dg_pnt:
+ mov d0,(8,sp)
+ mov a1,(4,sp)
+ clr d0
+ mov d0,(16,sp)
+ movbu ({logon}),d0               /* log live this power-on (set by dg_ap after the block is in P) */
+ cmp 1,d0
+ bne n_gc
+ call ep7_ap_p,[d2],8
+ cmp 1,d0
+ bne n_gc
+ mov ({pcnt},a0),d0               /* paint entries since the last dump: capped so keys stay in the ring */
+ cmp {pcap},d0
+ bcc n_gc
+ inc d0
+ mov d0,({pcnt},a0)
+ mov 1,d0
+ mov d0,(16,sp)
+n_gc:
+ mov (4,sp),a1
+ mov 0,a0
+ cmp 0,a1
+ beq 1f
+ mov (8,a1),a0                    /* gc = *(painter+8), as paint (0x60d060e3) and the label draw 0x60d4c434 take it */
+1:
+ mov a0,(12,sp)
+ mov (16,sp),d0
+ cmp 0,d0
+ beq n_draw
+ mov {flag},a0                    /* PT: tag | flag byte << 8, window, window vtable, painter */
+ movbu (a0),d0
+ asl 8,d0
+ or {tpaint},d0
+ mov d3,d1
+ mov 0,a0
+ cmp 0,d3
+ beq 2f
+ mov d3,a1
+ mov (a1),a0
+2:
+ mov (4,sp),a1
+ call dg_logw,[d2,d3,a2,a3],40
+n_draw:
+ clr d0
+ mov (12,sp),a1
+ cmp 0,a1
+ beq n_out
+ mov ({curwin}),a0                /* draw only into the current window (the focused one), as stock 0x60d06bb7 */
+ cmp 0,a0
+ beq n_out
+ mov a0,d1
+ cmp d3,d1
+ bne n_out
+ mov (16,sp),d0
+ call dg_draw,[d2,d3,a2,a3],108
+n_out:
+ ret [d2,d3,a2,a3],48
+
+/* ---- dg_draw: a1 = gc, d0 = may-log, d3 = window (== current window). Four probe rows on the Extras page, with
+        the stock text recipe: select the window's default text style (0x60d0fce0, as 0x60d06bb7: never trust the
+        font a previous draw left on the gc, it was released), gc+0x34 = 2, draw, release the font (0x60d10708), then
+        put gc+0x4c and gc+0x34 back as found. Frame 108: (4) string, (8..31) style, (32..39) rect, (40) gc,
+        (48..61) row D text, (64) may-log, (68) font before, (72) mode before, (76) our font, (80) last draw d0,
+        (84) rows drawn, (88) window. Returns d0 = 1 if PD was logged, d1 = last draw d0. ---- */
+dg_draw:
+ mov a1,(40,sp)
+ mov d0,(64,sp)
+ mov d3,(88,sp)
+ movhu ({state}),d3               /* P valid, EP7B, EP7E, axis {x_axis} */
+ add -1,d3
+ cmp {lim},d3
+ bcc d_none
+ btst 3,d3
+ bne d_none
+ mov d3,a2
+ add {pool},a2
+ mov (a2),d3
+ cmp {bmagic},d3
+ bne d_none
+ mov ({emark},a2),d3
+ cmp {emagic},d3
+ bne d_none
+ movbu ({axis},a2),d0
+ cmp {x_axis},d0
+ bne d_none
+ mov (40,sp),a0
+ mov (76,a0),d0
+ mov d0,(68,sp)                   /* gc+0x4c before */
+ movhu (52,a0),d0
+ mov d0,(72,sp)                   /* gc+0x34 before */
+ clr d0
+ mov d0,(76,sp)
+ mov d0,(80,sp)
+ mov d0,(84,sp)
+ mov (88,sp),a0                   /* window +488: its default text style id (u16 window+108 for the base class) */
+ mov (a0),a1
+ mov (488,a1),a1
+ calls (a1)
+ exthu d0
+ mov (40,sp),a0
+ call ep7_setfont,[a2],8          /* 0x60d0fce0: a0 gc, d0 style id -> a0 font (gc+0x4c) or 0 */
+ cmp 0,a0
+ bne 1f
+ OSET 0x08                        /* O4: no font could be selected, no draw */
+ bra d_rest
+1:
+ mov a0,(76,sp)
+ OSET 0x02                        /* font selected by us */
+ mov sp,a0
+ add 8,a0
+ clr d0
+ mov d0,(a0)
+ mov d0,(4,a0)
+ mov d0,(8,a0)
+ mov d0,(12,a0)
+ mov d0,(16,a0)
+ mov d0,(20,a0)
+ mov dg_sA,d0
+ mov d0,(4,sp)
+ ROW 1, 40, 40, 380, 96
+ mov d0,(80,sp)
+ OSET 0x40                        /* O3: a text call was made (O5 with bit 1) */
+ mov dg_sB,d0
+ mov d0,(4,sp)
+ ROW 2, 40, 110, 380, 166
+ mov d0,(80,sp)
+ mov dg_sC,d0
+ mov d0,(4,sp)
+ ROW 4, 44, 470, 460, 526
+ mov d0,(80,sp)
+ mov {cnt},a0
+ movbu (a0),d0
+ inc d0
+ movbu d0,(a0)
+ extbu d0
+ mov sp,a1
+ add 48,a1
+ mov 0x63,d1
+ movhu d1,(a1)
+ mov 0x36,d1
+ movhu d1,(2,a1)
+ mov 0x20,d1
+ movhu d1,(4,a1)
+ mov 0x23,d1
+ movhu d1,(6,a1)
+ HEXDIG 4, 8
+ HEXDIG 0, 10
+ clr d1
+ movhu d1,(12,a1)
+ mov a1,d0
+ mov d0,(4,sp)
+ ROW 6, 400, 40, 796, 96
+ mov d0,(80,sp)
+ mov 4,d0
+ mov d0,(84,sp)
+ mov (76,sp),a0
+ call ep7_frel,[],4               /* 0x60d10708: release the font we selected, as every stock text draw does */
+d_rest:
+ mov (40,sp),a0                   /* gc back as found */
+ mov (68,sp),d0
+ mov d0,(76,a0)
+ mov (72,sp),d0
+ movhu d0,(52,a0)
+ mov (64,sp),d0
+ cmp 0,d0
+ beq d_none
+ mov (40,sp),a0                   /* PD: tag | (we selected) << 8 | rows << 12 | mode before << 16 | mode after << 24 */
+ movhu (52,a0),d0
+ asl 24,d0
+ mov (72,sp),d1
+ extbu d1
+ asl 16,d1
+ or d1,d0
+ mov (84,sp),d1
+ asl 12,d1
+ or d1,d0
+ mov (76,sp),d1
+ cmp 0,d1
+ beq 2f
+ or 0x100,d0
+2:
+ or {tpd},d0
+ mov (40,sp),d1                   /* w1 gc */
+ mov (68,sp),a0                   /* w2 gc+0x4c before */
+ mov (40,sp),a1
+ mov (76,a1),a1                   /* w3 gc+0x4c after (== before when restored) */
+ call dg_logw,[d2,d3,a2,a3],40
+ mov 1,d0
+ mov (80,sp),d1
+ ret [d2,d3,a2,a3],108
+d_none:
+ clr d0
+ ret [d2,d3,a2,a3],108
+
+/* ---- ring-log writer (call [d2,d3,a2,a3],40). d0 tag, d1 w1, a0 w2, a1 w3 -> 16 B at base + (head & {lmask}),
+        head += 16 (head counts bytes ever written, so the dump knows whether the ring wrapped). ---- */
+dg_logw:
+ mov d0,(4,sp)
+ mov d1,(8,sp)
+ mov a0,(12,sp)
+ mov a1,(16,sp)
+ movbu ({logon}),d0               /* 0 until dg_ap has put this power-on's block into P (boot-cleared .bss pad) */
+ cmp 1,d0
+ bne lw_out
+ call ep7_ap_p,[d2],8             /* d0 = valid, a0 = P (pure reads) */
+ cmp 1,d0
+ bne lw_out
+ mov a0,a2
+ mov ({plog},a2),a3
+ mov a3,d0                        /* base inside the class-2 pool */
+ add {neg_pool2},d0
+ cmp {pool2_span},d0
+ bcc lw_out
+ mov ({phead},a2),d1
+ mov d1,d0
+ and {lmask},d0
+ mov a3,a0
+ add d0,a0
+ mov (4,sp),d0
+ mov d0,(a0)
+ mov (8,sp),d0
+ mov d0,(4,a0)
+ mov (12,sp),d0
+ mov d0,(8,a0)
+ mov (16,sp),d0
+ mov d0,(12,a0)
+ add 16,d1
+ mov d1,({phead},a2)
+lw_out:
+ ret [d2,d3,a2,a3],40
+
+/* ---- site 0 (0x60ce011a; handler frame [d2,a2,a3],40, a2 = record, a3 = CA). Log (K0, event, state, record+4),
+        then kh's own body: kh_chk, handled -> log D0 and the handler's epilogue, else kh_miss (replays kmap). ---- */
+dg_key0:
+ mov (a2),d1
+ mov (196,a2),a0
+ mov (4,a2),a1
+ mov {tkey0},d0
+ call dg_logw,[d2,d3,a2,a3],40
+ call ep7_khchk,[d2,d3,a2,a3],24
+ cmp 1,d0
+ beq 1f
+ jmp ep7_khmiss
+1:
+ mov (a2),d1
+ mov (196,a2),a0
+ mov (4,a2),a1
+ mov {tdec0},d0
+ call dg_logw,[d2,d3,a2,a3],40
+ ret [d2,a2,a3],40
+
+/* ---- site 1 (0x60cebc9a; handler frame [d2,d3,a2],48, a2 = record). Same, with kh_chk2 / kh2_miss. ---- */
+dg_key1:
+ mov (a2),d1
+ mov (196,a2),a0
+ mov (4,a2),a1
+ mov {tkey1},d0
+ call dg_logw,[d2,d3,a2,a3],40
+ call ep7_khchk2,[d2,d3,a2,a3],24
+ cmp 1,d0
+ beq 1f
+ jmp ep7_kh2miss
+1:
+ mov (a2),d1
+ mov (196,a2),a0
+ mov (4,a2),a1
+ mov {tdec1},d0
+ call dg_logw,[d2,d3,a2,a3],40
+ ret [d2,d3,a2],48
+
+/* ---- unhooked twin (0x60ce0190; frame [d2,d3,a2,a3],44, same copy loop): log (KT, event, state, record+4), then
+        rebuild the copy loop's registers (a0 = sp+28, a1 = a2+24, d0 = (24,sp), d1 = 0) and replay the kmap call. ---- */
+dg_twin:
+ mov (a2),d1
+ mov (196,a2),a0
+ mov (4,a2),a1
+ mov {tkeyt},d0
+ call dg_logw,[d2,d3,a2,a3],40
+ mov sp,a0
+ add 28,a0
+ mov a2,a1
+ add 24,a1
+ mov (24,sp),d0
+ clr d1
+ call ep7_kmap,[d2],4
+ jmp ep7_twin_back
+
+/* ---- ap_post's gated block (jmp from 0x601df6fa, event == half-press). d0/d1/a0/a1 are dead here (ap_post reloads
+        them from its (0..12,sp) after the block), so only that stack must stay untouched: our call slot is below it.
+        Then the relocated `movm [d2,d3,a2,a3],(sp); add -4,sp` and on to the ap_P call. ---- */
+dg_half:
+ add -8,sp
+ call dg_hc,[d2,d3,a2,a3],24
+ add 8,sp
+ movm [d2,d3,a2,a3],(sp)
+ add -4,sp
+ jmp ep7_half_back
+
+dg_hc:                            /* one dump per half-press, only if something was logged since the last one */
+ movbu ({logon}),d0
+ cmp 1,d0
+ bne h_out
+ call ep7_ap_p,[d2],8
+ cmp 1,d0
+ bne h_out
+ mov a0,a2
+ mov ({phead},a2),d0
+ cmp 0,d0
+ beq h_out
+ mov ({plog},a2),d0
+ add {neg_pool2},d0
+ cmp {pool2_span},d0
+ bcc h_out
+ call dg_dump,[d2,d3,a2,a3],56
+ cmp 1,d0
+ bne h_out                        /* not written (fopen failed): keep the log for the next half-press */
+ clr d0
+ mov d0,({phead},a2)              /* written: reset head and the paint cap */
+ mov d0,({pcnt},a2)
+h_out:
+ ret [d2,d3,a2,a3],24
+
+/* ---- dg_dump: a2 = P. TRACE.TXT = a title line, the header entry (-1, build id, L<<16 | flag<<8 | kstage, entries
+        ever logged), then the ring oldest first, one "W W W W" hex line per entry. Frame 56: (4) handle,
+        (8..23) header entry, (24) byte index, (28) bytes to dump, (32) start offset. d0 = 1 written, 0 fopen failed
+        (nothing written; the caller keeps the log). ---- */
+dg_dump:
+ mov dg_tpath,a0
+ mov ep7_wmode,a1
+ call ep7_fopen,[],4
+ cmp 0,a0
+ beq du_ret
+ mov a0,(4,sp)
+ mov dg_title,a0                  /* title line */
+ mov 1,d0
+ mov {tlen},d1
+ mov (4,sp),a1
+ call ep7_fwrite,[d2,d3,a2,a3],24
+ mov -1,d0
+ mov d0,(8,sp)
+ mov {buildid},d0
+ mov d0,(12,sp)
+ mov {boot},a0
+ movbu (a0),d0
+ lsr 1,d0
+ and 7,d0
+ asl 16,d0
+ mov {flag},a0
+ movbu (a0),d1
+ asl 8,d1
+ or d1,d0
+ mov {kstage},a0
+ movbu (a0),d1
+ or d1,d0
+ mov d0,(16,sp)
+ mov ({phead},a2),d0
+ lsr 4,d0
+ mov d0,(20,sp)
+ mov sp,a0
+ add 8,a0
+ mov (4,sp),d1
+ call dg_line,[d2,d3,a2,a3],80
+ mov ({phead},a2),d0              /* wrapped: the oldest entry is at head & mask, dump the whole ring */
+ clr d1
+ cmp {lsize1},d0
+ bcs 1f
+ mov d0,d1
+ and {lmask},d1
+ mov {lsize},d0
+1:
+ mov d0,(28,sp)
+ mov d1,(32,sp)
+ clr d0
+ mov d0,(24,sp)
+du_loop:
+ mov (24,sp),d0
+ mov (28,sp),d1
+ cmp d1,d0
+ bcc du_close
+ mov (32,sp),d1
+ add d1,d0
+ and {lmask},d0
+ mov ({plog},a2),a0
+ add d0,a0
+ mov (4,sp),d1
+ call dg_line,[d2,d3,a2,a3],80
+ mov (24,sp),d0
+ add 16,d0
+ mov d0,(24,sp)
+ bra du_loop
+du_close:
+ mov (4,sp),a0
+ call ep7_fclose,[d2,a2,a3],16
+ mov 1,d0
+ ret [d2,d3,a2,a3],56
+du_ret:
+ clr d0
+ ret [d2,d3,a2,a3],56
+
+/* ---- dg_line (frame 80): a0 = 16 B entry, d1 = handle. "W W W W\n" (4 x 8 hex), one fwrite. (4) entry,
+        (8) handle, (12..47) text. ---- */
+dg_line:
+ mov a0,(4,sp)
+ mov d1,(8,sp)
+ mov sp,a0
+ add 12,a0                        /* write cursor */
+ mov (4,sp),a1
+ mov (0,a1),d0
+ HEX8
+ mov 0x20,d1
+ movbu d1,(a0)
+ inc a0
+ mov (4,sp),a1
+ mov (4,a1),d0
+ HEX8
+ mov 0x20,d1
+ movbu d1,(a0)
+ inc a0
+ mov (4,sp),a1
+ mov (8,a1),d0
+ HEX8
+ mov 0x20,d1
+ movbu d1,(a0)
+ inc a0
+ mov (4,sp),a1
+ mov (12,a1),d0
+ HEX8
+ mov 0x0a,d1
+ movbu d1,(a0)
+ mov sp,a0
+ add 12,a0                        /* buffer */
+ mov 1,d0
+ mov 36,d1                        /* 4 x 8 hex + 3 spaces + newline */
+ mov (8,sp),a1
+ call ep7_fwrite,[d2,d3,a2,a3],24
+ ret [d2,d3,a2,a3],80
+
+ .balign 2
+dg_sA:
+ .short 0x63,0x31,0x20,0x43,0x6c,0x61,0x72,0x69,0x74,0x79,0x20,0x2b,0x32,0
+dg_sB:
+ .short 0x63,0x32,0x20,0x48,0x61,0x6c,0x6f,0x20,0x52,0x65,0x64,0x20,0x33,0
+dg_sC:
+ .short 0x63,0x34,0x20,0x53,0x68,0x61,0x64,0x6f,0x77,0x20,0x54,0x65,0x61,0x6c,0
+dg_path:
+ .asciz "C:\\EP7MOD\\PLUGIN.BIN"
+ .balign 2
+dg_tpath:
+ .asciz "C:\\EP7MOD\\TRACE.TXT"
+dg_title:
+ .ascii "CADUCEUS TRACE 1\n"
+dg_end:

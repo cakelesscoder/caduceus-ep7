@@ -1,11 +1,13 @@
 {
  "schema": "caduceus-pack/1",
- "name": "Caduceus library",
- "version": "0fdfba31",
+ "id": "standard-1.1",
+ "name": "Standard",
+ "version": "1.1",
+ "notes": "Standard 1.0 reviewed against the real stocks: split tone where the stock has a shadow/highlight cast, halation only on rem-jet-free film. docs/PACKS.md.",
  "looks": [
   {
    "name": "Velvia",
-   "notes": "Saturated landscape slide film: deep skies, dense greens, crushed shadows.",
+   "notes": "Saturated landscape slide film: deep skies, dense greens, crushed shadows. Split: magenta-leaning shade.",
    "kind": "colour",
    "hue": [0,0,0,-1,-1,-1,1,2,2,-2,0,0],
    "light": [0,0,0,0,0,0,-2,-2,-1,0,-1,-1],
@@ -29,6 +31,12 @@
      "midtones": 0
     },
     "contrast": 2
+   },
+   "split": {
+    "sh_color": 4,
+    "sh": 1,
+    "hl_color": 0,
+    "hl": 0
    }
   },
   {
@@ -89,7 +97,7 @@
   },
   {
    "name": "Classic Neg",
-   "notes": "Superia-style negative: teal-green cast, punchy mids, light skies.",
+   "notes": "Superia-style negative: teal-green cast, punchy mids, light skies; cyan-green shadows, magenta highlights.",
    "kind": "colour",
    "hue": [0,-1,0,0,7,6,-4,-3,6,7,5,0],
    "light": [-2,-3,-3,-2,-1,1,1,1,-1,-3,-5,-4],
@@ -113,6 +121,12 @@
      "midtones": 1
     },
     "contrast": 2
+   },
+   "split": {
+    "sh_color": 9,
+    "sh": 1,
+    "hl_color": 4,
+    "hl": 1
    }
   },
   {
@@ -176,7 +190,7 @@
   },
   {
    "name": "Eterna",
-   "notes": "Cinema negative: flat, open shadows, quiet teal-leaning colour.",
+   "notes": "Cinema negative: flat, open shadows, quiet teal-leaning colour. Split: cyan shadows, warm highlights.",
    "kind": "colour",
    "hue": [0,3,2,0,0,0,-2,-6,-4,0,-1,-2],
    "light": [-1,-1,-2,-3,-3,-2,-2,-1,-1,-1,-1,-1],
@@ -200,11 +214,17 @@
      "midtones": 0
     },
     "contrast": -2
+   },
+   "split": {
+    "sh_color": 8,
+    "sh": 1,
+    "hl_color": 1,
+    "hl": 1
    }
   },
   {
    "name": "Bleach Byp.",
-   "notes": "Silver-retained cinema look: near-monochrome, harsh contrast.",
+   "notes": "Silver-retained cinema look: near-monochrome, harsh contrast. Split: steely blue-cyan shadows.",
    "kind": "colour",
    "hue": [0,0,-2,-3,0,0,-3,-7,-5,0,0,0],
    "light": [-2,-3,-4,-5,-4,-3,-1,-1,-1,-2,-3,-2],
@@ -228,20 +248,23 @@
      "midtones": 0
     },
     "contrast": 2
+   },
+   "split": {
+    "sh_color": 7,
+    "sh": 1,
+    "hl_color": 0,
+    "hl": 0
    }
   },
   {
    "name": "Kodachrome64",
-   "notes": "Rich deep reds, golden yellows, dense cyan-blue skies, olive greens.",
+   "notes": "Rich deep reds, golden yellows, dense cyan-blue skies, olive greens. Split: warm highlights, slightly cool shadows.",
    "kind": "colour",
    "hue": [0,0,0,0,1,0,-1,-2,-1,1,-1,-1],
    "light": [-1,-2,-2,-2,-1,-1,-2,-1,-1,-1,-2,-2],
    "sat": [1,1,2,2,0,-1,1,1,0,-1,-1,0],
    "grain": "fine",
-   "wb": {
-    "a_b": 1,
-    "g_m": 0
-   },
+   "wb": null,
    "effect": null,
    "vignette": 0,
    "art_effect": "off",
@@ -259,24 +282,26 @@
      "midtones": 0
     },
     "contrast": 2
+   },
+   "split": {
+    "sh_color": 7,
+    "sh": 1,
+    "hl_color": 1,
+    "hl": 1
    }
   },
   {
    "name": "Portra 400",
-   "notes": "Warm pastel portrait negative: glowing skin, soft contrast.",
+   "notes": "Warm pastel portrait negative: glowing skin, soft contrast. Split: peachy highlights.",
    "kind": "colour",
    "hue": [1,1,0,0,0,0,1,0,0,0,-2,-2],
    "light": [1,1,1,0,0,0,-1,0,0,0,0,0],
    "sat": [-1,0,0,-1,-1,-2,-2,-2,-2,-3,-3,-2],
    "grain": "fine",
-   "wb": {
-    "a_b": 1,
-    "g_m": 0
-   },
+   "wb": null,
    "effect": {
     "type": "bloom",
-    "strength": 1,
-    "tint": "warm"
+    "strength": 1
    },
    "vignette": 0,
    "art_effect": "off",
@@ -294,11 +319,17 @@
      "midtones": 1
     },
     "contrast": -1
+   },
+   "split": {
+    "sh_color": 0,
+    "sh": 0,
+    "hl_color": 1,
+    "hl": 1
    }
   },
   {
    "name": "Ektar 100",
-   "notes": "Ultra-vivid fine-grain negative: saturated reds and blues.",
+   "notes": "Ultra-vivid fine-grain negative: saturated reds and blues. Split: warm highlights, blue deep shadows.",
    "kind": "colour",
    "hue": [0,0,0,1,0,0,0,1,1,0,0,0],
    "light": [0,0,-1,-1,0,0,-2,-2,-1,0,0,0],
@@ -322,24 +353,29 @@
      "midtones": 0
     },
     "contrast": 2
+   },
+   "split": {
+    "sh_color": 6,
+    "sh": 1,
+    "hl_color": 1,
+    "hl": 1
    }
   },
   {
    "name": "Gold 200",
-   "notes": "Golden consumer negative: sunny yellows, muted cyan skies.",
+   "notes": "Golden consumer negative: sunny yellows, muted cyan skies. Split: yellow-tinted whites.",
    "kind": "colour",
    "hue": [0,0,0,0,0,0,0,0,0,0,-2,-2],
    "light": [2,1,0,0,0,0,0,0,0,0,0,0],
    "sat": [4,2,0,0,-1,-1,-2,-2,-3,-2,0,2],
    "grain": "fine",
    "wb": {
-    "a_b": 2,
+    "a_b": 1,
     "g_m": 0
    },
    "effect": {
     "type": "bloom",
-    "strength": 1,
-    "tint": "amber"
+    "strength": 1
    },
    "vignette": 0,
    "art_effect": "off",
@@ -356,20 +392,23 @@
      "shadows": 0,
      "midtones": 1
     }
+   },
+   "split": {
+    "sh_color": 0,
+    "sh": 0,
+    "hl_color": 0,
+    "hl": 1
    }
   },
   {
    "name": "Ektachrome",
-   "notes": "Clean, cool slide film: neutral skin, bright saturated blues.",
+   "notes": "Clean, cool slide film: neutral skin, bright saturated blues. Split: blue shade.",
    "kind": "colour",
    "hue": [0,0,0,0,0,0,1,0,1,0,0,0],
    "light": [0,0,0,0,0,0,-1,-1,0,0,0,0],
    "sat": [0,-1,0,0,2,3,4,4,3,1,1,0],
    "grain": "off",
-   "wb": {
-    "a_b": -1,
-    "g_m": 0
-   },
+   "wb": null,
    "effect": null,
    "vignette": 0,
    "art_effect": "off",
@@ -387,18 +426,24 @@
      "midtones": 0
     },
     "contrast": 1
+   },
+   "split": {
+    "sh_color": 6,
+    "sh": 1,
+    "hl_color": 0,
+    "hl": 0
    }
   },
   {
    "name": "CineStill800",
-   "notes": "Tungsten cinema film: cool cast, red bloom (bloom + bloom_tint red: the glow's Cr spreads far more than its luma, docs/HALATION_RED.md section 8) plus red/orange light.",
+   "notes": "Tungsten cinema film: cool cast, red bloom (bloom_tint red: the glow's Cr spreads far more than its luma, docs/HALATION_RED.md section 8) plus red/orange light. Split: cyan shadows, warm highlights.",
    "kind": "colour",
    "hue": [0,0,-1,0,0,0,0,-2,-2,0,2,0],
    "light": [0,0,2,2,0,0,-1,0,0,0,0,0],
    "sat": [-1,0,2,3,0,0,2,2,2,-1,-2,-2],
    "grain": "film",
    "wb": {
-    "a_b": -3,
+    "a_b": -2,
     "g_m": 0
    },
    "effect": {
@@ -421,20 +466,23 @@
      "shadows": 2,
      "midtones": 0
     }
+   },
+   "split": {
+    "sh_color": 8,
+    "sh": 1,
+    "hl_color": 1,
+    "hl": 1
    }
   },
   {
    "name": "Pro 400H",
-   "notes": "Airy pastel negative: minty greens, light cyan skies.",
+   "notes": "Airy pastel negative: minty greens, light cyan skies. Split: green-cyan shade.",
    "kind": "colour",
    "hue": [0,0,0,0,0,0,0,0,0,2,3,3],
    "light": [0,0,0,0,0,0,1,1,1,1,1,0],
    "sat": [-2,-2,-2,-2,-2,-2,0,1,1,0,-1,-2],
    "grain": "fine",
-   "wb": {
-    "a_b": -1,
-    "g_m": 0
-   },
+   "wb": null,
    "effect": {
     "type": "bloom",
     "strength": 1
@@ -455,11 +503,17 @@
      "midtones": 2
     },
     "contrast": -1
+   },
+   "split": {
+    "sh_color": 9,
+    "sh": 1,
+    "hl_color": 0,
+    "hl": 0
    }
   },
   {
    "name": "Faux IR",
-   "notes": "Infrared-inspired false colour (golden/orange foliage, deep blue skies). Not true Aerochrome: the hue range can't turn green red. Sat advice: strong (+3..+5).",
+   "notes": "Infrared-inspired false colour (golden/orange foliage, deep blue skies). Not true Aerochrome: the hue range can't turn green red. Sat advice: strong (+3..+5). Split: blue shadows, orange highlights.",
    "kind": "colour",
    "hue": [-7,3,5,7,7,7,0,3,7,-7,-7,-7],
    "light": [1,2,2,2,0,0,-7,-3,-2,0,2,1],
@@ -483,11 +537,17 @@
      "midtones": 0
     },
     "contrast": 2
+   },
+   "split": {
+    "sh_color": 6,
+    "sh": 1,
+    "hl_color": 1,
+    "hl": 1
    }
   },
   {
    "name": "Kodachrome25",
-   "notes": "Kodachrome 25 slide (GarethB, mu-43): dense, rich reds, muted cyan/green, deep shadows. Advice: contrast +2, H-2 M+3 S-5.",
+   "notes": "Kodachrome 25 slide (GarethB, mu-43): dense, rich reds, muted cyan/green, deep shadows. Advice: contrast +2, H-2 M+3 S-5. Split: slightly cool deep shadows.",
    "kind": "colour",
    "hue": [0,0,0,0,0,0,-1,-1,0,0,-1,-1],
    "light": [0,0,-1,-1,0,0,-1,-1,0,0,-1,-1],
@@ -514,6 +574,12 @@
      "midtones": 3
     },
     "contrast": 2
+   },
+   "split": {
+    "sh_color": 6,
+    "sh": 1,
+    "hl_color": 0,
+    "hl": 0
    }
   },
   {
@@ -546,7 +612,7 @@
   },
   {
    "name": "Fujicolor200",
-   "notes": "Fujicolor C200 (J. Bloomer, om-recipes): warm yellows, fresh greens, soft contrast.",
+   "notes": "Fujicolor C200 (J. Bloomer, om-recipes): warm yellows, fresh greens, soft contrast. Split: green-yellow shadows.",
    "kind": "colour",
    "hue": [0,0,0,0,0,0,0,0,0,0,-1,-1],
    "light": [1,0,0,0,0,0,0,0,0,0,0,0],
@@ -554,7 +620,7 @@
    "grain": "fine",
    "wb": {
     "a_b": 2,
-    "g_m": 1
+    "g_m": 0
    },
    "effect": null,
    "vignette": 0,
@@ -573,18 +639,24 @@
      "midtones": 1
     },
     "contrast": -1
+   },
+   "split": {
+    "sh_color": 11,
+    "sh": 1,
+    "hl_color": 0,
+    "hl": 0
    }
   },
   {
    "name": "Cuban Neg",
-   "notes": "Inspired by Osan's Classic Cuban Neg: warm Classic Neg, golden cast (WB A+4), deep blues/reds, gritty grain, bloom 3. Sat: +2 warm, -2 greens.",
+   "notes": "Inspired by Osan's Classic Cuban Neg: warm Classic Neg, golden cast (WB A+4), deep blues/reds, gritty grain, bloom 3. Sat: +2 warm, -2 greens. Split: golden highlights.",
    "kind": "colour",
    "hue": [0,-1,0,0,7,6,-4,-3,6,7,5,0],
    "light": [-1,-2,-3,-3,-1,0,-1,-2,-2,-3,-5,-4],
    "sat": [2,2,2,2,0,-2,1,1,1,-2,-1,0],
    "grain": "fine",
    "wb": {
-    "a_b": 4,
+    "a_b": 3,
     "g_m": 0
    },
    "effect": {
@@ -607,11 +679,17 @@
      "midtones": 1
     },
     "contrast": 1
+   },
+   "split": {
+    "sh_color": 0,
+    "sh": 0,
+    "hl_color": 0,
+    "hl": 1
    }
   },
   {
    "name": "Cibachrome",
-   "notes": "Cibachrome print (Jay, om-recipes): glossy magenta-reds, deep blues, rich darks.",
+   "notes": "Cibachrome print (Jay, om-recipes): glossy magenta-reds, deep blues, rich darks. Split: cool deep shadows.",
    "kind": "colour",
    "hue": [0,0,0,-1,0,0,0,0,0,0,0,0],
    "light": [0,0,-1,-1,0,0,-1,-1,-1,0,0,0],
@@ -638,20 +716,23 @@
      "midtones": 1
     },
     "contrast": 1
+   },
+   "split": {
+    "sh_color": 6,
+    "sh": 1,
+    "hl_color": 0,
+    "hl": 0
    }
   },
   {
    "name": "UltraMax 400",
-   "notes": "Kodak consumer negative: warm, punchy reds/yellows, olive greens, visible grain.",
+   "notes": "Kodak consumer negative: warm, punchy reds/yellows, olive greens, visible grain. Split: yellow highlights, blue-violet shadows.",
    "kind": "colour",
    "hue": [0,0,0,0,0,0,-1,-1,0,0,-2,-2],
    "light": [1,0,0,-1,0,0,-1,-1,0,0,-1,0],
    "sat": [3,2,2,2,0,-1,0,0,-1,-1,1,2],
    "grain": "film",
-   "wb": {
-    "a_b": 1,
-    "g_m": 0
-   },
+   "wb": null,
    "effect": null,
    "vignette": 0,
    "art_effect": "off",
@@ -669,11 +750,17 @@
      "midtones": 0
     },
     "contrast": 1
+   },
+   "split": {
+    "sh_color": 5,
+    "sh": 1,
+    "hl_color": 0,
+    "hl": 1
    }
   },
   {
    "name": "Agfa Vista",
-   "notes": "Agfa Vista 200: vivid magenta-leaning reds, deep blues, cool cheap-film punch.",
+   "notes": "Agfa Vista 200: vivid magenta-leaning reds, deep blues, cool cheap-film punch. Split: red highlights.",
    "kind": "colour",
    "hue": [0,0,-1,-1,0,0,0,0,0,0,1,0],
    "light": [0,0,-1,-1,0,0,-1,-1,0,0,0,0],
@@ -700,6 +787,12 @@
      "midtones": 0
     },
     "contrast": 1
+   },
+   "split": {
+    "sh_color": 0,
+    "sh": 0,
+    "hl_color": 3,
+    "hl": 1
    }
   },
   {
@@ -739,7 +832,7 @@
   },
   {
    "name": "Vision3 250D",
-   "notes": "Kodak daylight cinema negative: flat, wide latitude, gentle teal/orange separation.",
+   "notes": "Kodak daylight cinema negative: flat, wide latitude, gentle teal/orange separation. Split: cyan shadows, warm highlights.",
    "kind": "colour",
    "hue": [0,1,0,0,0,0,-1,-2,-1,1,1,0],
    "light": [0,0,0,0,0,0,-1,-1,0,0,-1,-1],
@@ -763,25 +856,27 @@
      "midtones": 0
     },
     "contrast": -2
+   },
+   "split": {
+    "sh_color": 8,
+    "sh": 1,
+    "hl_color": 1,
+    "hl": 1
    }
   },
   {
    "name": "Vision3 500T",
-   "notes": "Tungsten cinema negative in daylight: cool teal cast, warm lights, open shadows.",
+   "notes": "Tungsten cinema negative in daylight: cool teal cast, warm lights, open shadows. Split: cyan shadows, warm highlights.",
    "kind": "colour",
    "hue": [0,1,0,0,0,0,0,-2,-2,1,2,0],
    "light": [0,1,1,0,0,0,-1,0,0,0,-1,-1],
    "sat": [-1,0,1,1,-1,-1,1,1,1,-1,-2,-2],
    "grain": "film",
    "wb": {
-    "a_b": -2,
+    "a_b": -1,
     "g_m": 0
    },
-   "effect": {
-    "type": "bloom",
-    "strength": 1,
-    "tint": "red"
-   },
+   "effect": null,
    "vignette": 0,
    "art_effect": "off",
    "tone": {
@@ -798,11 +893,17 @@
      "midtones": 0
     },
     "contrast": -1
+   },
+   "split": {
+    "sh_color": 8,
+    "sh": 1,
+    "hl_color": 1,
+    "hl": 1
    }
   },
   {
    "name": "Polaroid",
-   "notes": "Integral instant film: punchy, narrow dynamic range (bright highlights, deep shadows), warm highlights, cyan-green shadows.",
+   "notes": "Integral instant film: punchy, narrow dynamic range (bright highlights, deep shadows), pink highlights, green shadows.",
    "kind": "colour",
    "hue": [1,1,0,0,0,0,-1,-1,0,1,2,1],
    "light": [1,1,1,0,0,0,1,1,1,1,0,0],
@@ -828,11 +929,17 @@
    },
    "advice": {
     "tone": {
-     "highlights": -3,
-     "shadows": 4,
-     "midtones": 1
+     "highlights": 2,
+     "shadows": -3,
+     "midtones": 0
     },
-    "contrast": -2
+    "contrast": 1
+   },
+   "split": {
+    "sh_color": 10,
+    "sh": 1,
+    "hl_color": 4,
+    "hl": 1
    }
   },
   {
@@ -845,7 +952,7 @@
    "grain": "film",
    "wb": {
     "a_b": 1,
-    "g_m": 2
+    "g_m": 1
    },
    "effect": null,
    "vignette": 0,
@@ -864,20 +971,23 @@
      "midtones": 0
     },
     "contrast": 2
+   },
+   "split": {
+    "sh_color": 0,
+    "sh": 0,
+    "hl_color": 11,
+    "hl": 2
    }
   },
   {
    "name": "Atrophy",
-   "notes": "Inspired by GxAce's Atrophy: urban-decay grade, near-grey base, muted greens/skies, rust and reds kept, gritty clarity. Sat advice: greens/blues -4..-5.",
+   "notes": "Inspired by GxAce's Atrophy: urban-decay grade, near-grey base, muted greens/skies, rust and reds kept, gritty clarity. Sat advice: greens/blues -4..-5. Split: teal-grey shadows, rusty highlights.",
    "kind": "colour",
    "hue": [-2,-1,0,0,2,1,-2,-1,0,2,2,-1],
    "light": [-1,0,-1,-1,-1,-1,-2,-2,-1,-2,-3,-2],
    "sat": [-2,-1,1,1,-3,-4,-4,-4,-4,-5,-5,-5],
    "grain": "fine",
-   "wb": {
-    "a_b": -1,
-    "g_m": 1
-   },
+   "wb": null,
    "effect": {
     "type": "clarity",
     "strength": 3
@@ -898,6 +1008,12 @@
      "midtones": 0
     },
     "contrast": 1
+   },
+   "split": {
+    "sh_color": 9,
+    "sh": 1,
+    "hl_color": 2,
+    "hl": 1
    }
   },
   {

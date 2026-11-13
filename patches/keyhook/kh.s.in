@@ -1,0 +1,166 @@
+/* E-P7 1.1 resident plugin key hook + plugin API v1.1 (ep7-firmware, our own code). docs/PLUGINS.md §7-§9.
+ * Section 5, in the dead `sdk api` debug-shell handlers (docs/CODE_SPACE_SURVEY.md §2; claim in CODE_SPACE_MAP).
+ *
+ *   kh_ret0 <- the `sdk` sub-command words api / starttimer / stoptimer (entered by `calls (a1)`): clr d0; rets.
+ *   kh      <- jmp at the generic CA key handler 0x60ce011a (was `call 0x60cc9a05,[d2],4`, 7 B: jmp + 2 nop).
+ *              Runs on that handler's frame: a3 = CA module, a2 = event record, sp+4..27 = the record copy.
+ *   kh2     <- jmp at the select-state key handler 0x60cebc9a (same call, same copy loop; frame [d2,d3,a2],48,
+ *              entered by `calls` from the state tables or `call 0x60cebc8e` from 0x60cec20a). No CA module there.
+ *              kh_chk (site 0) / kh_chk2 (site 1): ap_P valid, P+{ps} '{rname}', hook word B+{hw} inside the
+ *              cached alias of B -> calls hook(d0 = event (a2), d1 = B (uncached), d2 = site,
+ *              a0 = CA module (site 0) or 0 (site 1), a1 = event record).
+ *              d0 == 1: handled, leave through the handler's own epilogue (`ret [d2,a2,a3],40` / `ret [d2,d3,a2],48`).
+ *              Else (and with no plugin): rebuild the copy loop's registers (a0 = sp+28, a1 = a2+24,
+ *              d0 = (24,sp), d1 = 0), replay `call 0x60cc9a05,[d2],4`, jmp back. MDR differs (dead there).
+ *   kh_api  API table v1.1 (version 1, 7 words). pl_chk's `mov pl_api,a0` is pointed here; +4..+12 as v1.
+ *   ka_sel  calls entry: d0 action ({amin}..{amax}, all class 1 select modes), a0 CA module, a1 event record ->
+ *           the stock select-mode handler 0x60ceb5b6 with its own frame [d2,d3,a2,a3],68. Other d0: -1.
+ *   ka_get  calls entry: d0 key, d1 index -> d0 (prop_get 0x6005e971 with a0 = 0 and its 4 B slot).
+ *   ka_rep  calls entry: a1 event record (Fn press in a select state) -> the stock "other key" exit of 0x60cebc89
+ *           (0x60cebcf9..0x60cebd1d): v = record+4 (kmap's result for a Fn press), 0x60cd2330(v), request 158 at
+ *           record+32, 0x61fb0ddc = 0x61fb0dd8 = v, so the select state's exit replays v as a new key event. d0 = 0.
+ *   Stage mark (docs/PLUGINS.md §12): on every Fn press ({evfn}) at either site, kh_chk sets the .bss pad byte
+ *           {stage}: bits 0-1 site (1 = 0x60ce0108 shooting, 2 = 0x60cebc89 select state), bits 2-3 plugin
+ *           decision (0 not called, 1 stock, 2 handled), bits 4-7 Fn presses seen, mod 16. Cached alias, CA task only.
+ * Stores: the stack, the stage byte, and in ka_rep record+32 / 0x61fb0ddc / 0x61fb0dd8. No mul/div/setlb, no fb forms.
+ */
+ .am33_2
+ .section .kh,"ax"
+ .global _start
+_start:
+kh_ret0:
+ clr d0
+ rets
+
+kh:
+ call kh_chk,[d2,d3,a2,a3],24
+ cmp 1,d0
+ bne kh_miss
+ ret [d2,a2,a3],40
+kh_miss:
+ mov sp,a0
+ add 28,a0
+ mov a2,a1
+ add 24,a1
+ mov (24,sp),d0
+ clr d1
+ call ep7_kmap,[d2],4
+ jmp ep7_kback
+
+kh2:
+ call kh_chk2,[d2,d3,a2,a3],24
+ cmp 1,d0
+ bne kh2_miss
+ ret [d2,d3,a2],48
+kh2_miss:
+ mov sp,a0
+ add 28,a0
+ mov a2,a1
+ add 24,a1
+ mov (24,sp),d0
+ clr d1
+ call ep7_kmap,[d2],4
+ jmp ep7_kback2
+
+kh_chk2:                          /* site 1: no CA module */
+ mov 0,a3
+ mov 1,d2
+ bra k_go
+kh_chk:                           /* site 0: a2 = record, a3 = CA (both kept for the caller by this frame) */
+ clr d2
+k_go:                             /* d2 = site, a3 = CA or 0: ap_P keeps both (frame [d2]) */
+ call ep7_ap_p,[d2],8
+ cmp 1,d0
+ bne k_no
+ mov ({ps},a0),d0
+ cmp {rmagic},d0
+ bne k_no
+ mov ({pb},a0),d1                 /* B, uncached */
+ mov d1,a0
+ mov ({hw},a0),d3                 /* hook word */
+ cmp 0,d3
+ beq k_no
+ mov d3,d0
+ sub d1,d0
+ add {cneg},d0                    /* hook - (B - 0x40000000 + 32): offset from the first code byte, cached alias */
+ cmp {span},d0
+ bcc k_no                         /* hook outside B's code bytes */
+ mov a3,a0
+ mov a2,a1
+ mov d3,a3
+ mov (a1),d0
+ calls (a3)
+ mov 1,d3                         /* decision: stock */
+ cmp 1,d0
+ bne k_st
+ mov 2,d3                         /* handled */
+ bra k_st
+k_no:
+ clr d3                           /* plugin not called */
+k_st:
+ mov (a2),d0
+ cmp {evfn},d0
+ bne k_end
+ movbu ({stage}),d0               /* stage: count + 1 in bits 4-7, decision, site + 1 */
+ and 240,d0
+ add 16,d0
+ mov d3,d1
+ asl2 d1
+ or d1,d0
+ mov d2,d1
+ inc d1
+ or d1,d0
+ movbu d0,({stage})
+k_end:
+ clr d0
+ cmp 2,d3
+ bne k_out
+ mov 1,d0
+k_out:
+ ret [d2,d3,a2,a3],24
+
+ka_sel:
+ cmp {amin},d0
+ bcs s_bad
+ cmp {amax1},d0
+ bcc s_bad
+ movm [d2,d3,a2,a3],(sp)
+ add -52,sp
+ jmp ep7_selmode
+s_bad:
+ mov -1,d0
+ rets
+
+ka_get:
+ add -8,sp
+ mov 0,a0
+ call ep7_getter,[d2,d3],12
+ add 8,sp
+ rets
+
+ka_rep:
+ movm [d2,d3,a2,a3],(sp)
+ add -8,sp
+ mov a1,a2
+ mov (4,a2),d2                    /* v = kmap(Fn press) = record+4 */
+ mov d2,d0
+ call ep7_d2330,[d2],12           /* stock: last key = v (and its trace) */
+ mov 158,d0
+ mov d0,(32,a2)
+ mov d2,(ep7_ddc)
+ mov d2,(ep7_dd8)
+ clr d0
+ ret [d2,d3,a2,a3],24
+
+ .balign 4
+kh_api:
+ .hword 1, {api_n}
+ .long ep7_fw_text                /* +4  wide string, the Caduceus version */
+ .long ep7_getter                 /* +8  raw prop_get (frame [d2,d3],12) */
+ .long ep7_setter                 /* +12 raw text setter (frame [d2,d3,a2,a3],24) */
+ .long ka_sel                     /* +16 calls: select mode */
+ .long ka_get                     /* +20 calls: prop_get */
+ .long {features}                 /* +24 bit 0: key hook word at B+{hw}; bit 1: select-state site, d2 = site; bit 2: +32 */
+ .long ep7_selw                   /* +28 read-only: u32 open select mode's action; +4 opening key; +8 key-held flag */
+ .long ka_rep                     /* +32 calls: exit the select state and replay the Fn press (a1 record) */
+kh_end:

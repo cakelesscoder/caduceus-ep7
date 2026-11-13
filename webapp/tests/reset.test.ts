@@ -5,7 +5,7 @@ import { exportable, parsePack } from '../src/pack';
 import { decodeLookCode, encodeLookCode } from '../src/sharecode';
 import { fromLibrary, lookFingerprint, migratePack, replaceRetiredLooks, resetLook, standardPack } from '../src/reset';
 import { blankLook, toneIsZero, zeroTone } from '../src/pack';
-import libraryJson from '../src/data/library.json';
+import libraryJson from '../src/data/packs/standard-1.0.json';
 import { releaseLooksWithHalation } from './halation-fixture';
 
 const LIB = parsePack(libraryJson);

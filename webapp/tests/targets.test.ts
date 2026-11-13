@@ -5,7 +5,7 @@ import { encodeLooksBin } from '../src/format';
 import { SECTORS, blankLook, parsePack } from '../src/pack';
 import { DEFAULT_TARGET, TARGETS, targetById } from '../src/targets';
 import { recipeCard } from '../src/targets/recipe';
-import libraryJson from '../src/data/library.json';
+import libraryJson from '../src/data/packs/standard-1.0.json';
 
 const LIB = parsePack(libraryJson);
 const hex = (b: Uint8Array | string) => Buffer.from(b as Uint8Array).toString('hex');

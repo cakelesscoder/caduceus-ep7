@@ -1,0 +1,160 @@
+/* E-P7 1.1 SD-card plugin layer v1: the resident loader, API table v1 and the Firmware-screen text hook (ep7-firmware,
+ * our own code). docs/PLUGINS.md.
+ *
+ *   pl_ap  <- ap_post's `call ap_load,[d2,d3,a2,a3],24` (same frame; a2 = the real P). ap_post makes that call once per
+ *             power-on, on the first half-press, after mv_trig's LOOKS.BIN / MOVIE.BIN loads and after it has set
+ *             P+{atr} '{atname}', so this is the last loader step and runs at most once. It runs ap_load first,
+ *             exactly as before, then:
+ *             malloc({bsize}) = B (class 2: uncached, fresh), fopen C:\EP7MOD\PLUGIN.BIN "r", fseek END / ftell:
+ *             {minsz} <= size <= {bsize}, fseek SET, fread == size, fclose, header (magic, ABI, firmware id, size,
+ *             CRC-32 of bytes 8..size-1), then init(a0 = pl_api, d0 = B) at file offset 32 through the cached alias
+ *             B - 0x40000000 + 32. init returns d0 0 to accept: P+{pb} = B, then P+{ps} = '{rname}' last.
+ *             From the init call on, B is never freed (it has been code). Any failure before it: B freed, no
+ *             plugin code runs, P+{ps} / P+{pb} untouched.
+ *   pl_fw  <- the Firmware screen's two Body value setter calls (were fw_val, same frame 88): a non-empty value and a
+ *             ready plugin (real P via ap_P, P+{ps} '{rname}') with a non-zero hook word B+28 -> the setter gets that
+ *             wide string; else jmp fw_val (registers as found).
+ * Stores: P+{ps}, P+{pb} (the real P), the stack. No absolute stores, no mul/div/setlb.
+ */
+ .am33_2
+/* call d16 to an absolute (defsym) target: cd d16 f0 imm (regs d2,d3,a2,a3) or cd d16 80 imm ([d2]); the build checks the bytes */
+ .macro CALL16 tgt, regs, imm
+ .byte 0xcd
+ .hword \tgt - . + 1
+ .byte \regs, \imm
+ .endm
+
+ .section .pla,"ax"
+ .global _start
+_start:
+pl_ap:                            /* frame of `call ap_load,[d2,d3,a2,a3],24`: (0) return slot of inner calls, (4) handle */
+ CALL16 ep7_ap_load, 0xf0, 24      /* call ap_load,[d2,d3,a2,a3],24 */
+ mov {bsize},d0
+ call ep7_malloc,[],4
+ mov a0,a3                        /* a3 = B */
+ cmp 0,a3
+ beq a_out
+ mov pl_path,a0
+ mov ep7_fm_mode,a1               /* "r" (fm_core data) */
+ call ep7_fopen,[],4
+ cmp 0,a0
+ beq a_free                       /* no file */
+ mov a0,(4,sp)
+ clr d0
+ mov 1,d1                         /* END */
+ call ep7_fseek,[d2,d3,a2,a3],20
+ cmp 0,d0
+ bne a_close
+ mov (4,sp),a0
+ call ep7_ftell,[d2,a2,a3],16
+ mov d0,d2                        /* d2 = size (kept by every file call frame below) */
+ cmp {minsz},d2
+ bcs a_close
+ cmp {bsize1},d2
+ bcc a_close
+ mov (4,sp),a0
+ clr d0
+ mov 2,d1                         /* SET */
+ call ep7_fseek,[d2,d3,a2,a3],20
+ cmp 0,d0
+ bne a_close
+ mov a3,a0
+ mov 1,d0
+ mov d2,d1
+ mov (4,sp),a1
+ call ep7_fread,[d2,d3,a2,a3],24
+ mov (4,sp),a0
+ mov d0,(4,sp)                    /* bytes read into the handle slot (fclose keeps d2, not d3) */
+ call ep7_fclose,[d2,a2,a3],16
+ mov (4,sp),d0
+ cmp d2,d0
+ bne a_free
+ jmp pl_chk
+a_close:
+ mov (4,sp),a0
+ call ep7_fclose,[d2,a2,a3],16
+a_free:
+ mov a3,a0
+ call ep7_free,[],4
+a_out:
+ ret [d2,d3,a2,a3],24
+
+ .balign 4
+pl_api:                           /* API table v1 (read-only). docs/PLUGINS.md */
+ .hword {abi_ver}, {api_n}        /* ABI version, number of words after this one */
+ .long ep7_fw_text                /* +4  wide string: the Caduceus version ("0.32") */
+ .long ep7_getter                 /* +8  prop_get: d0 key, d1 index, a0 0, 4 B arg slot; frame [d2,d3],12 -> d0 */
+ .long ep7_setter                 /* +12 text_set: a0 widget, a1 wide string; frame [d2,d3,a2,a3],24 */
+pl_path:
+ .asciz "C:\\EP7MOD\\PLUGIN.BIN"
+pla_end:
+
+ .section .plb,"ax"
+pl_chk:                           /* a2 = P, a3 = B (d2 bytes of PLUGIN.BIN) */
+ mov (a3),d0
+ cmp {pmagic},d0
+ bne b_free
+ mov (8,a3),d0                    /* u16 ABI, u16 flags 0 */
+ cmp {abi},d0
+ bne b_free
+ mov (12,a3),d0
+ cmp {fwid},d0
+ bne b_free
+ mov (16,a3),d0
+ cmp d2,d0
+ bne b_free
+ mov -1,d0                        /* CRC-32 of bytes 8..size-1 */
+ mov a3,a0
+ add 8,a0
+ mov d2,d1
+ add -8,d1
+ call ep7_fm_crc,[d2,d3],8
+ not d0
+ mov (4,a3),d1
+ cmp d1,d0
+ bne b_free
+ mov a3,d0
+ add {entry},d0                   /* B - 0x40000000 + 32: init in the cached alias */
+ mov d0,a1
+ mov pl_api,a0
+ mov a3,d0
+ calls (a1)                       /* init(a0 api, d0 B) -> d0 0 accept. B is kept from here on */
+ cmp 0,d0
+ bne b_out
+ mov a3,({pb},a2)
+ mov {rmagic},d0
+ mov d0,({ps},a2)
+b_out:
+ ret [d2,d3,a2,a3],24
+b_free:
+ mov a3,a0
+ call ep7_free,[],4
+ bra b_out
+
+pl_fw:                            /* frame of `call fw_val,[d2,d3,a2,a3],88`: a0 widget, a1 value */
+ cmp 0,a1
+ beq f_miss
+ movhu (a1),d0
+ cmp 0,d0
+ beq f_miss
+ mov a0,a2
+ CALL16 ep7_ap_p, 0x80, 8          /* call ap_P,[d2],8 */
+ cmp 1,d0
+ bne f_back
+ mov ({ps},a0),d0
+ cmp {rmagic},d0
+ bne f_back
+ mov ({pb},a0),a0
+ mov (28,a0),d0
+ cmp 0,d0
+ beq f_back
+ mov d0,a1
+ mov a2,a0
+ call ep7_setter,[d2,d3,a2,a3],24
+ ret [d2,d3,a2,a3],88
+f_back:
+ mov a2,a0
+f_miss:
+ jmp ep7_fw_val
+pl_end:
+

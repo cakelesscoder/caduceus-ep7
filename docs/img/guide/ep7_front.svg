@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 420" width="800" height="420" role="img" aria-label="E-P7 front view, line drawing with the profile control switch">
+  <title>E-P7 front view (schematic line drawing)</title>
+  <style>
+    .bg{fill:#f5f3ef}
+    .body{fill:#e4e1db;stroke:#3a3a3a;stroke-width:2.5}
+    .part{fill:#f5f3ef;stroke:#3a3a3a;stroke-width:2}
+    .soft{fill:none;stroke:#8a8780;stroke-width:1.5}
+    .lead{stroke:#d9601a;stroke-width:1.8;fill:none}
+    .ball{fill:#d9601a}
+    .num{fill:#fff;font:700 14px sans-serif;text-anchor:middle;dominant-baseline:central}
+    .cap{fill:#3a3a3a;font:13px sans-serif}
+    .small{fill:#6a6862;font:12px sans-serif}
+  </style>
+  <rect class="bg" width="800" height="420" rx="12"/>
+  <text class="cap" x="24" y="30" font-weight="700">E-P7, front (lens removed)</text>
+  <text class="small" x="24" y="48">Seen from the front, so the grip and shutter are on the left. Schematic, not to scale</text>
+
+  <!-- top plate items seen from the front -->
+  <rect class="part" x="178" y="92" width="50" height="22" rx="4"/>   <!-- rear dial behind -->
+  <rect class="part" x="204" y="100" width="60" height="16" rx="3"/>  <!-- front dial ring -->
+  <rect class="part" x="222" y="90" width="24" height="10" rx="3"/>   <!-- shutter -->
+  <rect class="part" x="300" y="84" width="84" height="32" rx="4"/>   <!-- mode dial -->
+  <rect class="part" x="440" y="100" width="90" height="16" rx="2"/>  <!-- hot shoe -->
+  <rect class="part" x="540" y="96" width="150" height="20" rx="6"/>  <!-- flash -->
+
+  <!-- body -->
+  <rect class="body" x="70" y="116" width="660" height="230" rx="20"/>
+  <!-- grip -->
+  <path class="soft" d="M110 140 Q92 230 110 320"/>
+  <!-- mount -->
+  <circle class="part" cx="400" cy="230" r="88"/>
+  <circle class="soft" cx="400" cy="230" r="66"/>
+  <rect class="soft" x="356" y="200" width="88" height="62" rx="2"/>
+  <!-- lens release button -->
+  <circle class="part" cx="530" cy="250" r="12"/>
+  <!-- profile control switch -->
+  <circle class="part" cx="270" cy="290" r="16"/>
+  <line x1="270" y1="278" x2="270" y2="302" stroke="#3a3a3a" stroke-width="3"/>
+
+  <!-- callout -->
+  <path class="lead" d="M270 306 L270 358"/><circle class="ball" cx="270" cy="370" r="13"/><text class="num" x="270" y="370">1</text>
+
+  <g class="cap">
+    <text x="24" y="404">1 Profile control switch: COLOR / MONO profiles (front, below the grip side of the mount)</text>
+  </g>
+</svg>

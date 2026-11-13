@@ -116,6 +116,8 @@ camera-proven fopen context (test 7b/8):
   - CRC with the v1 rule (own CRC copy);
   - per record: bytes 0..44 against own copies of `sd_lo`/`sd_span`; class/mask/reserved; name 1..15 bytes
     of 0x20..0x7e, no `@`, NUL-padded.
+  - v0.32 (`patches/looks_split`): before fm_check, `ls_chk` moves split bytes at record +61/+62 (name ended by +60) to
+    a stash at L+2568 and zeroes them, so fm_check sees the NUL tail it always did. L is 2640 B from v0.32.
 - Initial cur[k]: the look whose name equals P+544+16k (16-B compare), else "own". So after a saved pick, the
   next power-on resumes on the same look.
 - Publish: L+1408 `EP7L`, L+1412 = P (back-pointer); then P+1016 = L; then P+1020 = `EP7F` (last). On any

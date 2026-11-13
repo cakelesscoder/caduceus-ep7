@@ -250,6 +250,7 @@ Not in this atlas. Every Caduceus claim (section FF tails, dead EVF gamma tables
 | 8 | Getter 0x6005e96f | tools/port_em10iv_map.py, patches/em10iv_vivid | That is the **E-M10 IV** getter; E-P7 is 0x6005e971 (dis-checked). Several `tools/*.py` constants (OSTR 0x601a47b0, FLASH_WRITE 0x600c1ea1, …) are other bodies: check the body before reusing |
 | 10 | LV job state table | LV_ART_PREVIEW §7: table at 0x604e3190, handlers labelled "event 0" | Table starts **0x604e315c** (13 states × 28 events, dispatch 0x6032967e); those handlers are **event 7** (param update). [RE_LIVEVIEW.md](RE_LIVEVIEW.md) |
 | 11 | Watchdog handler | HALATION_RED §18: wdt_expiry_handler 0x60059c20 | Mid-instruction. All faults and WDT enter NMI handler **0x60059a9d**; the WDT case is the branch at **0x60059c63**. [RE_CAPTURE.md](RE_CAPTURE.md) |
+| 12 | Extras overlay hook / Firmware text | EXTRAS_OVERLAY §2.2: +164 "empty in both window classes" (0x60f94820, 0x60fac3f0); PLUGINS §3: "0.32S" readable | 0x60cfe263 is the +164 word of ~400 vtables; those two are one class pair (ctors 0x60cff51e / 0x60d43e80). The only +164 call is 0x60d005ef in 0x60d00506 (v0.32 diag hooks it). "0.32" already clips, so a suffix isn't readable; diag shows "L/O". [PLUGINS.md §10](PLUGINS.md) |
 | 9 | Doc-internal corrections already recorded | SsMenuLv matrix index (AP_CUSTOM b6 → b7, event-major); updater LED meaning (SD_REJECT); .data init delta (MIN_SHUTTER m2); SD loader v1 hook dead (REVIEW_v04) | Use the corrected forms (this atlas does) |
 
 ## 16. Known unknowns, ranked

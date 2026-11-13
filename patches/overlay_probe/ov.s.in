@@ -1,0 +1,176 @@
+/* E-P7 1.1 Extras text-overlay probe (ep7-firmware, our own code). docs/EXTRAS_OVERLAY.md §1-§2.
+ *
+ * Answers, in one camera look, the three questions that block the real Extras text overlay:
+ *   palette/colour (four rows in colour values 1,2,4,6, each printing its value),
+ *   layer + clipping (rows near the edges of the planned area, drawn into the window's own gc),
+ *   clearing/ghosting (row D prints a 4-hex counter that rolls every repaint; any leftover digits show).
+ *
+ * Two hooks, both data-word re-points (no site bytes moved):
+ *   ov_upd  <- Colour Profile editor view vtable +0 (word 0x61155e14, stock body 0x60dec790). Runs the stock body,
+ *             then sets the .bss flag {flag} = 1. Same prologue/epilogue as the body (movm [d2,d3,a2,a3]; add -12;
+ *             ... ret [d2,d3,a2,a3],28), so the caller sees no difference. Entered by `call` (stack return).
+ *   ov_post <- window vtable +164 (words 0x60f94820 / 0x60fac3f0, stock 0x60cfe263 `retf [],0`). Post-paint, entered
+ *             by `calls` (mdr return). If {flag} is 0 it is byte-for-byte the stock empty method (`retf [],0`, only
+ *             d0/a0 touched). If 1, it clears the flag (self-clear) and, with a valid card table P and the editor on
+ *             the Extras page (axis {x_axis}), draws four rows into the window's gc (a1). It saves mdr before any
+ *             nested call and restores it before `retf`, so the +164 return is intact.
+ *
+ * Stores: the .bss flag {flag} and counter {cnt} (uncached alias), and the stack. No store into the loaded image.
+ * No mul/div/setlb, no fb-prefixed forms. Draw helpers: 0x60d075a7 (string), 0x60d0fc05 (gc colour).
+ */
+ .am33_2
+ .text
+ .global _start
+
+/* one hex digit of d0 (counter): (d0 >> sh) & 15 -> ASCII at (boff, a1). Uses d2 (scratch, saved by ov_post). */
+ .macro HEXDIG sh, boff
+ mov d0,d2
+ lsr \sh,d2
+ and 15,d2
+ cmp 10,d2
+ bcs 1f
+ add 0x37,d2
+ bra 2f
+1:
+ add 0x30,d2
+2:
+ movhu d2,(\boff,a1)
+ .endm
+
+/* one row, inlined in ov_post's frame: colour d0 = \c on the gc (40,sp), rect at (32,sp), style at (8,sp),
+   string pointer read from (4,sp) (set by the caller; setcol clobbers d1, so it is loaded after setcol).
+   Nested setcol/drawtext balance their own frames; ov_post's (4)/(8)/(32)/(40) stay valid across them. */
+ .macro ROW c, x0, y0, x1, y1
+ mov \c,d0
+ mov (40,sp),a0
+ call ep7_setcol,[d2,d3,a2,a3],16
+ mov (40,sp),a0
+ mov 2,d0
+ movhu d0,(52,a0)                 /* mode byte gc+0x34 = 2 */
+ mov \x0,d0
+ movhu d0,(32,sp)
+ mov \y0,d0
+ movhu d0,(34,sp)
+ mov \x1,d0
+ movhu d0,(36,sp)
+ mov \y1,d0
+ movhu d0,(38,sp)
+ mov sp,a0
+ add 8,a0
+ mov a0,d0                        /* style = sp+8 (sp -> a-reg -> d-reg; mov sp,dN is not a valid form) */
+ mov (4,sp),d1                    /* string pointer */
+ mov (40,sp),a0                   /* gc */
+ mov sp,a1
+ add 32,a1                        /* rect */
+ call ep7_drawtext,[d2,d3,a2,a3],252
+ .endm
+
+_start:
+
+/* ---- ov_upd: view +0 wrapper (a0 = view). Transparent: same frame/return as the stock body. */
+ov_upd:
+ movm [d2,d3,a2,a3],(sp)
+ add -12,sp                       /* (0) nested-call slot, (4) view, (8) body result */
+ mov a0,(4,sp)
+ mov ep7_upd_body,a2
+ calls (a2)                       /* stock update, a0 = view; restores d2/d3/a2/a3, returns here via stack */
+ mov d0,(8,sp)
+ mov 1,d0
+ mov {flag},a0
+ movbu d0,(a0)                    /* editor painted this frame */
+ mov (8,sp),d0
+ ret [d2,d3,a2,a3],28
+
+/* ---- ov_post: window +164 (a0 = window, a1 = painter gc). */
+ov_post:
+ mov {flag},a0
+ movbu (a0),d0
+ cmp 0,d0
+ beq ov_cold                      /* flag 0: the stock empty method, only d0/a0 touched */
+ clr d1
+ movbu d1,(a0)                    /* self-clear */
+ cmp 0,a1
+ beq ov_cold                      /* no gc */
+ movm [d2,d3,a2,a3],(sp)
+ add -96,sp                       /* (8..31) style, (32..39) rect, (40) gc, (44) saved mdr, (48..) strD */
+ mov mdr,d0
+ mov d0,(44,sp)                   /* save the +164 return (retf uses mdr; nested calls clobber it) */
+ mov a1,(40,sp)                   /* gc */
+ /* P valid, EP7B, editor marker EP7E, axis == {x_axis} (Extras) */
+ movhu ({state}),d3
+ add -1,d3
+ cmp {lim},d3
+ bcc ov_done
+ btst 3,d3
+ bne ov_done
+ mov d3,a2
+ add {pool},a2
+ mov (a2),d3
+ cmp {bmagic},d3
+ bne ov_done
+ mov ({emark},a2),d3
+ cmp {emagic},d3
+ bne ov_done
+ movbu ({axis},a2),d0
+ cmp {x_axis},d0
+ bne ov_done
+ /* style = 24 zero bytes at (8,sp): left/top aligned, no margin */
+ mov sp,a0
+ add 8,a0
+ clr d0
+ mov d0,(a0)
+ mov d0,(4,a0)
+ mov d0,(8,a0)
+ mov d0,(12,a0)
+ mov d0,(16,a0)
+ mov d0,(20,a0)
+ /* rows A, B, C: fixed text, colours 1, 2, 4. String pointer -> (4,sp) before each row. */
+ mov ov_sA,d0
+ mov d0,(4,sp)
+ ROW 1, 40, 40, 380, 96
+ mov ov_sB,d0
+ mov d0,(4,sp)
+ ROW 2, 40, 110, 380, 166
+ mov ov_sC,d0
+ mov d0,(4,sp)
+ ROW 4, 44, 470, 460, 526
+ /* row D: colour 6, near the right edge; "c6 #" + 2 hex of the rolling u8 counter -> ghosting test */
+ mov {cnt},a0
+ movbu (a0),d0
+ inc d0
+ movbu d0,(a0)                    /* counter++ (u8) */
+ extbu d0
+ mov sp,a1
+ add 48,a1                        /* strD buffer */
+ mov 0x63,d1
+ movhu d1,(a1)                    /* 'c' */
+ mov 0x36,d1
+ movhu d1,(2,a1)                  /* '6' */
+ mov 0x20,d1
+ movhu d1,(4,a1)                  /* ' ' */
+ mov 0x23,d1
+ movhu d1,(6,a1)                  /* '#' */
+ HEXDIG 4, 8
+ HEXDIG 0, 10
+ clr d1
+ movhu d1,(12,a1)                 /* terminator (a1 = strD) */
+ mov a1,d0                        /* a1 = sp+48 (strD) */
+ mov d0,(4,sp)                    /* strD pointer */
+ ROW 6, 400, 40, 796, 96
+ov_done:
+ mov (44,sp),d0
+ mov d0,mdr
+ add 96,sp
+ movm (sp),[d2,d3,a2,a3]
+ retf [],0
+ov_cold:
+ retf [],0
+
+ .balign 2
+ov_sA:
+ .short 0x63,0x31,0x20,0x43,0x6c,0x61,0x72,0x69,0x74,0x79,0x20,0x2b,0x32,0
+ov_sB:
+ .short 0x63,0x32,0x20,0x48,0x61,0x6c,0x6f,0x20,0x52,0x65,0x64,0x20,0x33,0
+ov_sC:
+ .short 0x63,0x34,0x20,0x53,0x68,0x61,0x64,0x6f,0x77,0x20,0x54,0x65,0x61,0x6c,0
+ov_end:

@@ -130,6 +130,16 @@
    "source": "docs/FIRMWARE_GUIDE.md §2"
   },
   {
+   "addr": "0x60022782",
+   "name": "malloc",
+   "kind": "func",
+   "subsystem": "mem",
+   "confidence": "V",
+   "sig": "d0 size -> a0; [],4",
+   "notes": "Class by size: <=128 -> 0, <=2048 -> 1, <=16384 -> 2 (0x60022a61); larger: error log 0x60022694, a0 = 0. Class 2 = 43 blocks of 0x4040 B at 0xa1dd8d40",
+   "source": "docs/PLUGINS.md §10"
+  },
+  {
    "addr": "0x600227b4",
    "name": "free",
    "kind": "func",
@@ -168,6 +178,16 @@
    "sig": "9 x {u32 start, u32 logical src, u32 dst}",
    "notes": "Section descriptors ids 1..9",
    "source": "docs/FIRMWARE_GUIDE.md §2, docs/HSL_PORT.md"
+  },
+  {
+   "addr": "0x60027068",
+   "name": "section_table",
+   "kind": "table",
+   "subsystem": "boot",
+   "confidence": "V",
+   "sig": "9 x {start, flash source, destination}",
+   "notes": "Entry 5 = {0x6075a800, 0x40dda800, 0x6075a800}: sec 5 is copied 1:1 (flash = image addr - 0x60020020 + 0x406a0020)",
+   "source": "docs/PLUGINS.md §10"
   },
   {
    "addr": "0x60030000",
@@ -368,6 +388,16 @@
    "sig": "d0 = id (1..9) -> d0 end; else 0",
    "notes": "Jump table 0x60046780 of `mov imm32,d0` stubs",
    "source": "docs/FIRMWARE_GUIDE.md §2"
+  },
+  {
+   "addr": "0x60045786",
+   "name": "section_end",
+   "kind": "func",
+   "subsystem": "boot",
+   "confidence": "V",
+   "sig": "d0 id 1..9 -> d0 end (jump table 0x60046780 of mov imm32 stubs)",
+   "notes": "Sec 5 end 0x60b9e000 (stub 0x600457b4); sec 8 empty (0x613bd000)",
+   "source": "docs/PLUGINS.md §10"
   },
   {
    "addr": "0x600457e7",
@@ -1550,6 +1580,16 @@
    "source": "docs/HSL_PORT.md, docs/SD_UPDATE.md"
   },
   {
+   "addr": "0x6018e1b3",
+   "name": "sec4_ctor_list_runner",
+   "kind": "code",
+   "subsystem": "boot",
+   "confidence": "V",
+   "sig": "d2 = byte count, a2 = list (0x60747f1c), calls each word",
+   "notes": "Section-4 ctor list has count 0, so 0x60747f1c is only a label; the sec-4 FF tail 0x60747f20..0x60748000 has no other live ref",
+   "source": "docs/SPLIT_TONE_G1.md §1.3"
+  },
+  {
    "addr": "0x6018e93b",
    "name": "task_USR_FAST_APP",
    "kind": "func",
@@ -1618,6 +1658,146 @@
    "sig": "jump table (id-2)",
    "notes": "Display task command dispatch from 0x60174667; names table 0x601798d1 (1 FASTBOOT..8 QUALITY..22 COLORTEMP)",
    "source": "docs/LOG_VIEW_ASSIST.md"
+  },
+  {
+   "addr": "0x601df03c",
+   "name": "ap_P",
+   "kind": "func",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": "`call ..,[d2],8` -> d0 1, a0 = the unswapped P (also while P2/P3 is in the state word)",
+   "notes": "Ours (ap_custom). Reads the state word 0x622cbcc2; with movie +960 VM and +964 back-pointer it follows +968 to P",
+   "source": "docs/SPLIT_TONE_G1.md / docs/SPLIT_TONE.md"
+  },
+  {
+   "addr": "0x601df6e5",
+   "name": "ap_post",
+   "kind": "func",
+   "subsystem": "card",
+   "confidence": "V",
+   "sig": "tail-jmp wrapper, event at (32,sp)",
+   "notes": "Half-press 0x02000100, ap_P, P+980 EP7T, P+992 != EP7U -> EP7U, P+984 = 0, call pl_ap (0x601df730); then jmp 0x605b7340",
+   "source": "docs/PLUGINS.md §10"
+  },
+  {
+   "addr": "0x601df6fa",
+   "name": "ap_post_halfpress_block",
+   "kind": "site",
+   "subsystem": "card",
+   "confidence": "V",
+   "sig": "movm [d2,d3,a2,a3],(sp); add -4,sp (5 B)",
+   "notes": "First instruction after the half-press test; d0/d1/a0/a1 are reloaded from (0..12,sp) at 0x601df73a. v0.32 diag: jmp dg_half",
+   "source": "docs/PLUGINS.md §13"
+  },
+  {
+   "addr": "0x601df730",
+   "name": "pl_ap_site",
+   "kind": "hook",
+   "subsystem": "plugins",
+   "confidence": "V",
+   "sig": "`call d16,[d2,d3,a2,a3],24` (5 B)",
+   "notes": "ap_post's only call to ap_load 0x601df7cd, retargeted to pl_ap. Reached once per power-on behind P+992 'EP7U'",
+   "source": "docs/PLUGINS.md §1"
+  },
+  {
+   "addr": "0x601e1a8c",
+   "name": "pl_chk",
+   "kind": "func",
+   "subsystem": "plugins",
+   "confidence": "V",
+   "sig": "a2 P, a3 B, d2 size; tail of pl_ap's frame",
+   "notes": "Header: 'EP7P', u16 ABI 1 + u16 flags 0, firmware id 5dd9af16, size == file size, CRC-32 of 8..size-1 (fm_crc); then init(a0 pl_api, d0 B) at B - 0x40000000 + 32. d0 0 -> P+856 = B, P+852 = 'EP7K'. B never freed after init",
+   "source": "docs/PLUGINS.md §1, §2"
+  },
+  {
+   "addr": "0x601e1af7",
+   "name": "pl_fw",
+   "kind": "func",
+   "subsystem": "plugins",
+   "confidence": "V",
+   "sig": "frame of `call fw_val,[d2,d3,a2,a3],88`; a0 widget, a1 value",
+   "notes": "Non-empty value, ap_P real P with P+852 'EP7K' and hook word B+28 != 0 -> setter(widget, B+28 string); else jmp fw_val with registers as found. Sites 0x60d7f271 / 0x60d7f2cd",
+   "source": "docs/PLUGINS.md §3"
+  },
+  {
+   "addr": "0x601e1c40",
+   "name": "fw_val",
+   "kind": "func",
+   "subsystem": "plugins",
+   "confidence": "V",
+   "sig": "same frame (88)",
+   "notes": "fw_version: non-empty Body value -> L\"0.32\" (string 0x601e1c5a, ends 0x601e1c64); empty passes through",
+   "source": "docs/CODE_SPACE_MAP.md"
+  },
+  {
+   "addr": "0x601e1c68",
+   "name": "pl_ap",
+   "kind": "func",
+   "subsystem": "plugins",
+   "confidence": "V",
+   "sig": "frame of ap_post's ap_load call; a2 = real P",
+   "notes": "ap_load, then malloc 16384 -> B, fopen C:\\EP7MOD\\PLUGIN.BIN \"r\", fseek END / ftell (34..16384), fseek SET, fread == size, fclose -> pl_chk; any miss frees B",
+   "source": "docs/PLUGINS.md §1"
+  },
+  {
+   "addr": "0x601e1d00",
+   "name": "pl_api",
+   "kind": "table",
+   "subsystem": "plugins",
+   "confidence": "V",
+   "sig": "u16 ABI 1, u16 n 3, then n words",
+   "notes": "+4 wide version string (fw_val's L\"0.32\"), +8 prop_get 0x6005e971, +12 text setter 0x60d4c9df. Read-only",
+   "source": "docs/PLUGINS.md §3"
+  },
+  {
+   "addr": "0x601e1d10",
+   "name": "pl_path",
+   "kind": "data",
+   "subsystem": "plugins",
+   "confidence": "V",
+   "sig": "ASCII",
+   "notes": "C:\\EP7MOD\\PLUGIN.BIN",
+   "source": "docs/PLUGINS.md §1"
+  },
+  {
+   "addr": "0x601e2e28",
+   "name": "u_apply",
+   "kind": "func",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": "a0 = L, a2 = P, d3 = k; T = L+2456 (entry 64 + name 16)",
+   "notes": "Ours (film_menu_v2 fm_ui): staging T -> slot k bytes 0..49 only (v0.25 bound 0x601e2e46; +50..63 untouched, so split +62/+63 survives the copy), flags byte last, name P+544+16k, dirty; then jmp lt_post 0x601e233c -> sl_pick",
+   "source": "patches/looks_split"
+  },
+  {
+   "addr": "0x601e37b4",
+   "name": "fm_post",
+   "kind": "func",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": "a2 = P, d3 = k, a3 = parent",
+   "notes": "Ours (lv_art_refresh): after a Film pick, LV art refresh then ed_poke",
+   "source": "patches/looks_split"
+  },
+  {
+   "addr": "0x601e39aa",
+   "name": "sl_pick",
+   "kind": "func",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": "a2 = P, d3 = k, a3 = parent",
+   "notes": "Ours (v0.25 shade): Film-pick tail, library look sets slot +49 (Shading). Its tail jmp 0x601e3a16 -> ls_pick from v0.32 (was fm_post 0x601e37b4)",
+   "source": "patches/looks_split"
+  },
+  {
+   "addr": "0x601e3a16",
+   "name": "sl_pick_tail_jmp",
+   "kind": "site",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": "5 B jmp rel32 (dc ..)",
+   "notes": "Ours: v0.32 -> ls_pick (slot +62/+63 from the LOOKS.BIN stash or the Own snapshot), which ends jmp fm_post 0x601e37b4",
+   "source": "patches/looks_split"
   },
   {
    "addr": "0x601e3b3c",
@@ -1730,6 +1910,16 @@
    "source": "docs/RE_AE.md §0"
   },
   {
+   "addr": "0x602325b4",
+   "name": "rap_block_names",
+   "kind": "table",
+   "subsystem": "capture",
+   "confidence": "V",
+   "sig": "char* x 26",
+   "notes": "RAP_* / VDC_* debug names; RAP_SHADING_SETTING and RAP_CIRCLE_SHD_SETTING (and _2) are front-end blocks",
+   "source": "docs/VIGNETTE_FIX.md"
+  },
+  {
    "addr": "0x6023ff38",
    "name": "osdcontrol_api_names",
    "kind": "table",
@@ -1820,6 +2010,26 @@
    "source": "docs/ATLAS.md §2.1 (descriptor 0x600389d0)"
   },
   {
+   "addr": "0x602a529f",
+   "name": "cap_still_cmd_build",
+   "kind": "func",
+   "subsystem": "capture",
+   "confidence": "V",
+   "sig": "capture command builder",
+   "notes": "Calls 0x6055545e, stores cap+0x1326 / +0x13b0 / +0x15f0 / +0x1650 / +0x384a / +0x13b8 / +0x5da0 pointers at cmd+0x1bc..0x1d8",
+   "source": "docs/VIGNETTE_FIX.md"
+  },
+  {
+   "addr": "0x602a79ef",
+   "name": "lens_shading_fetch",
+   "kind": "func",
+   "subsystem": "capture",
+   "confidence": "V",
+   "sig": "a0 desc (bit 0 -> 0x2000)",
+   "notes": "Reached from R3/R4 when key 0x8c21 == 1. Front-end command with outputs cap+0x1326 (64 u16), cap+0x13b0, +0x15f0, +0x1650, +0x384a, +0x5da0",
+   "source": "docs/VIGNETTE_FIX.md"
+  },
+  {
    "addr": "0x602a7eda",
    "name": "cap_sharp_read",
    "kind": "func",
@@ -1868,6 +2078,16 @@
    "sig": "",
    "notes": "Stills latch orientation into cap+24168 (also 0x602a9d33); copied to +18 at 0x603029b7..cd",
    "source": "docs/VIDEO_ROTATION.md"
+  },
+  {
+   "addr": "0x602ab42d",
+   "name": "cap_still_cmd_shading_b",
+   "kind": "func",
+   "subsystem": "capture",
+   "confidence": "V",
+   "sig": "same contract as 0x6055545e",
+   "notes": "R2 of VIDEO_HIDDEN §5 (call 0x602ab488); +0x10000 always",
+   "source": "docs/VIGNETTE_FIX.md"
   },
   {
    "addr": "0x602af887",
@@ -2660,6 +2880,26 @@
    "source": "docs/RE_LIVEVIEW.md §2"
   },
   {
+   "addr": "0x603397e0",
+   "name": "dev_stage_list",
+   "kind": "func",
+   "subsystem": "pipeline",
+   "confidence": "V",
+   "sig": "a0 ctx",
+   "notes": "Stage builder; 0x60339b8e gates the lens shading stage 0x6039d19a -> 0x6039e54e",
+   "source": "docs/VIGNETTE_FIX.md"
+  },
+  {
+   "addr": "0x60339b8e",
+   "name": "gate_lens_shading",
+   "kind": "func",
+   "subsystem": "pipeline",
+   "confidence": "V",
+   "sig": "a0 ctx -> d0",
+   "notes": "On when ctx+0xc4 == 0 and 0x603b54b0(request) != 0 and byte 1 != 0xff",
+   "source": "docs/VIGNETTE_FIX.md"
+  },
+  {
    "addr": "0x6034667e",
    "name": "isp_desc_write",
    "kind": "func",
@@ -2830,6 +3070,16 @@
    "source": "docs/MOVIE_COLOUR.md"
   },
   {
+   "addr": "0x60355ebe",
+   "name": "job_pre_pass_cb",
+   "kind": "func",
+   "subsystem": "pipeline",
+   "confidence": "V",
+   "sig": "job+0x2c20 callback",
+   "notes": "Set for every key but 12 and 0x01010068/0x01020068 (worklist_build). Returns 0x603a2ec6(...) unless params+5555",
+   "source": "docs/VIGNETTE_FIX.md"
+  },
+  {
    "addr": "0x60355fd4",
    "name": "job_callback",
    "kind": "func",
@@ -2900,6 +3150,26 @@
    "source": "docs/GRAIN_PORT.md"
   },
   {
+   "addr": "0x6035b03f",
+   "name": "creative_shading_mod_body",
+   "kind": "func",
+   "subsystem": "pipeline",
+   "confidence": "V",
+   "sig": "job, request",
+   "notes": "Level job+0x15d4: 0 -> effect 0, gain 0x400 (emulated bank == no mask); 1..5 / -1..-5 -> effect 0x0c00, gain 0x100000/tbl 0x604ec0d8. Copies the mask desc *(job+0x37a0)+0xc -> request+0x214",
+   "source": "docs/VIGNETTE_FIX.md"
+  },
+  {
+   "addr": "0x6035b105",
+   "name": "mask_mod_10000",
+   "kind": "func",
+   "subsystem": "pipeline",
+   "confidence": "V",
+   "sig": "job, request",
+   "notes": "Job flag 0x10000 modifier: mask desc job+0x11c8/+0x1208, effect 0xfe00, gain job+0x1248. 0x10000 is cleared for stills in art_effect_to_flags (0x603eabd0) and never set there",
+   "source": "docs/VIGNETTE_FIX.md"
+  },
+  {
    "addr": "0x6035ca31",
    "name": "sf_blend",
    "kind": "func",
@@ -2960,6 +3230,26 @@
    "source": "docs/BLOOM_HALATION.md"
   },
   {
+   "addr": "0x60366f21",
+   "name": "dev_default",
+   "kind": "func",
+   "subsystem": "pipeline",
+   "confidence": "V",
+   "sig": "default dev entry body (from 0x60356d7b)",
+   "notes": "request+0x668 is set (1 / 0x10101 / 0x20201 / 0x30101 / 0x40201) only when job+0x2c4a != 0 (multi-pass branch); else stays 0",
+   "source": "docs/VIGNETTE_FIX.md"
+  },
+  {
+   "addr": "0x6036b564",
+   "name": "mask_cache_96",
+   "kind": "func",
+   "subsystem": "pipeline",
+   "confidence": "V",
+   "sig": "2 x 92-B objects",
+   "notes": "Key 0x01010076 only: 4 planes 96 x 96 from fixed ROM tables 0x604eb85c.. (0x6036ce3d -> 0x603389c8)",
+   "source": "docs/VIGNETTE_FIX.md"
+  },
+  {
    "addr": "0x6036b635",
    "name": "mask_cache",
    "kind": "func",
@@ -2978,6 +3268,16 @@
    "sig": "",
    "notes": "Movie stream job table fetch (<- 0x6035169b <- 0x60351174); colour route not traced",
    "source": "docs/VIDEO_LOG.md"
+  },
+  {
+   "addr": "0x6039e54e",
+   "name": "stage_lens_shading",
+   "kind": "func",
+   "subsystem": "pipeline",
+   "confidence": "V",
+   "sig": "a0 ctx (+4 request, +0x14 bank)",
+   "notes": "Kind 0: request+0x6fc on -> 64-entry radial gain from request+0x67c into bank+0x404/+0x484, bit 4 of bank+0xc; off -> flat 0x2000. Kind 5: off. Runs only if request+0x668 != 0",
+   "source": "docs/VIGNETTE_FIX.md"
   },
   {
    "addr": "0x6039fe58",
@@ -3050,6 +3350,16 @@
    "source": "docs/VIGNETTE.md"
   },
   {
+   "addr": "0x603a2ec6",
+   "name": "pre_pass_select",
+   "kind": "func",
+   "subsystem": "pipeline",
+   "confidence": "V",
+   "sig": "d0 0, type, key*, ISO, ...",
+   "notes": "ISO bucket tables 0x60505280 (on from bucket 5) / 0x6050528c (all on); key only matters for art 0x0101006d and 0x0200008f/0x020003e8",
+   "source": "docs/VIGNETTE_FIX.md"
+  },
+  {
    "addr": "0x603aaced",
    "name": "stage_dispatch",
    "kind": "func",
@@ -3118,6 +3428,36 @@
    "sig": "a0 stage ctx (+4 request, +12 output O); `call ..,[d2,d3,a2,a3],16`",
    "notes": "From dev_stage_list 0x603b14a6 (2nd stage). gamma_select -> cache check -> rgb_gamma_set 0x603ae995 -> cache store. Split-tone hook G1 at 0x603ae830 (5 B f8923c 5c24)",
    "source": "docs/RE_LIVEVIEW.md §4-5"
+  },
+  {
+   "addr": "0x603ae830",
+   "name": "gamma_stage_after_select",
+   "kind": "site",
+   "subsystem": "pipeline",
+   "confidence": "V",
+   "sig": "5 B `movbu d0,(60,sp); mov (36,sp),a0`; frame add -260,sp",
+   "notes": "(40,sp) request R, (36,sp) output O, (56,sp) ctx, (60,sp) select result, (68/72/76,sp) R/G/B curve pointers; stage returns by ret (MDR dead)",
+   "source": "docs/SPLIT_TONE_G1.md §1.2"
+  },
+  {
+   "addr": "0x603ae861",
+   "name": "gamma_change_cache_ptr",
+   "kind": "code",
+   "subsystem": "pipeline",
+   "confidence": "V",
+   "sig": "d3 = (R+1484) + 5736 when (R+1484) != 0",
+   "notes": "Cache {R*, G*, B*, 12 B, u8 +20}; all three equal and 0x603b5ddc == 4 -> setter skipped (0x603ae8c1..8f0)",
+   "source": "docs/SPLIT_TONE_G1.md §1.2"
+  },
+  {
+   "addr": "0x603aeacd",
+   "name": "gamma_stage_art_reads_g_slot",
+   "kind": "code",
+   "subsystem": "pipeline",
+   "confidence": "V",
+   "sig": "mov (2600,O),a1 -> 0x60335323",
+   "notes": "Only O-slot read in the gamma stage; in the art-key branch (keys 0x01010064..0x01030069) after its own setter",
+   "source": "docs/SPLIT_TONE.md"
   },
   {
    "addr": "0x603af871",
@@ -3248,6 +3588,16 @@
    "sig": "(key, stage, effect)",
    "notes": "Key 12: 0x0901 -> 31, 0x0902 -> 32 (0x603b531a); default path 0x603b539f hash 0x60532e98 (0x0402 -> 11, 0x0403 -> 12); grain hook 0x603b5249",
    "source": "docs/GRAIN_PORT.md"
+  },
+  {
+   "addr": "0x603b54b0",
+   "name": "req_pre_pass_cfg",
+   "kind": "func",
+   "subsystem": "pipeline",
+   "confidence": "V",
+   "sig": "a0 request -> d0",
+   "notes": "Kind 0/16: request+0x668, kind 4: +0x108, kind 5: +0xd8",
+   "source": "docs/VIGNETTE_FIX.md"
   },
   {
    "addr": "0x603b5769",
@@ -4290,6 +4640,26 @@
    "source": "docs/RE_LIVEVIEW.md §1"
   },
   {
+   "addr": "0x6055545e",
+   "name": "cap_still_cmd_shading",
+   "kind": "func",
+   "subsystem": "capture",
+   "confidence": "V",
+   "sig": "d0 capture-mode id, a0 cmd; 5 callers",
+   "notes": "Fifth 0x8c21 reader (call 0x605554bc). Record bit 3 && key == 1 -> cmd+4 |= 0x2000. Twin of 0x602ab42d. v0.25 sc_get covers it",
+   "source": "docs/VIGNETTE_FIX.md"
+  },
+  {
+   "addr": "0x60555739",
+   "name": "cap_mode_record",
+   "kind": "func",
+   "subsystem": "capture",
+   "confidence": "V",
+   "sig": "d0 id -> a0 record or 0",
+   "notes": "45 x 48-B records at 0x6055ca20; +4 bit 3 = shading allowed (still ids 0x1xxxx yes, LV 0x2xxxx and 0x90000 sensor-check no)",
+   "source": "docs/VIGNETTE_FIX.md"
+  },
+  {
    "addr": "0x60557840",
    "name": "task_LENS_FIRM_UP",
    "kind": "func",
@@ -4298,6 +4668,26 @@
    "sig": "task 21 entry",
    "notes": "prio 55, stack 0x400",
    "source": "docs/ATLAS.md §2.1 (descriptor 0x600389d0)"
+  },
+  {
+   "addr": "0x6055ca20",
+   "name": "cap_mode_records",
+   "kind": "table",
+   "subsystem": "capture",
+   "confidence": "V",
+   "sig": "45 x 48 B {u32 id, u16 flags, ...}",
+   "notes": "Id 0x10000/0x110000/0x210000/0x50000/0x1000e/0x10019 ... have flags 0x000b (bit 3)",
+   "source": "docs/VIGNETTE_FIX.md"
+  },
+  {
+   "addr": "0x605b771f",
+   "name": "sd_lo_slot62",
+   "kind": "data",
+   "subsystem": "fileio",
+   "confidence": "V",
+   "sig": "sd_lo[62..63] (sd_lo 0x605b76e1, sd_span 0x605b7721)",
+   "notes": "Loader v3 range check is (s8 byte - s8 lo) <= span unsigned (0x605b75e8..)",
+   "source": "docs/SPLIT_TONE.md"
   },
   {
    "addr": "0x605be54b",
@@ -4478,6 +4868,16 @@
    "sig": "as fread",
    "notes": "",
    "source": "docs/LOOK_EDITOR.md §6"
+  },
+  {
+   "addr": "0x60635041",
+   "name": "fwrite",
+   "kind": "func",
+   "subsystem": "card",
+   "confidence": "I",
+   "sig": "a0 buf, d0 1, d1 len, a1 handle; [d2,d3,a2,a3],24",
+   "notes": "Used by the diag TRACE.TXT dump (fopen \"w\" mode string 0x60a65d37, as stock 0x60765cc8)",
+   "source": "docs/PLUGINS.md §13"
   },
   {
    "addr": "0x6063514b",
@@ -4880,6 +5280,226 @@
    "source": "docs/BUTTONS.md"
   },
   {
+   "addr": "0x607b6430",
+   "name": "kh_ret0",
+   "kind": "func",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": "clr d0; rets",
+   "notes": "sdk sub-command stub (entered by calls (a1) at 0x607adda1)",
+   "source": "docs/PLUGINS.md §9"
+  },
+  {
+   "addr": "0x607b6433",
+   "name": "kh",
+   "kind": "func",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": "jmp target from 0x60ce011a, on ca_key_generic's frame",
+   "notes": "kh_chk -> 1: ret [d2,a2,a3],40; else rebuild registers, call 0x60cc9a05, jmp 0x60ce0121",
+   "source": "docs/PLUGINS.md §9"
+  },
+  {
+   "addr": "0x607b6454",
+   "name": "kh_chk",
+   "kind": "func",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": "call entry [d2,d3,a2,a3],24 -> d0 1 handled",
+   "notes": "ap_P, P+852 EP7K, hook word B+24 inside B's cached code bytes -> calls hook(d0 event, d1 B, a0 CA, a1 record)",
+   "source": "docs/PLUGINS.md §9"
+  },
+  {
+   "addr": "0x607b6497",
+   "name": "ka_sel",
+   "kind": "func",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": "calls entry: d0 action 41..67, a0 CA, a1 record",
+   "notes": "movm [d2,d3,a2,a3] + add -52 -> jmp 0x60ceb5b6; other d0 -> -1",
+   "source": "docs/PLUGINS.md §9"
+  },
+  {
+   "addr": "0x607b64ad",
+   "name": "ka_get",
+   "kind": "func",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": "calls entry: d0 key, d1 index -> d0",
+   "notes": "prop_get 0x6005e971 with a0 = 0 and its 4 B slot",
+   "source": "docs/PLUGINS.md §9"
+  },
+  {
+   "addr": "0x607b64c0",
+   "name": "kh_api",
+   "kind": "table",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": "u16 1, u16 6, fw_text, prop_get, text_set, ka_sel, ka_get, features (bit 0 key hook)",
+   "notes": "Plugin API v1.1; pl_chk passes it to init (mov at 0x601e1ace)",
+   "source": "docs/PLUGINS.md §9"
+  },
+  {
+   "addr": "0x607b8430",
+   "name": "ov_upd",
+   "kind": "func",
+   "subsystem": "ui",
+   "confidence": "I",
+   "sig": "overlay_probe: view +0 wrapper",
+   "notes": "Runs 0x60dec790, then sets the .bss overlay flag (0x622ab792 = 1). Same frame/return as the body",
+   "source": "docs/EXTRAS_OVERLAY.md"
+  },
+  {
+   "addr": "0x607b8450",
+   "name": "ov_post",
+   "kind": "func",
+   "subsystem": "ui",
+   "confidence": "I",
+   "sig": "overlay_probe: window +164",
+   "notes": "Post-paint. Flag 0 -> stock retf. Flag 1 and editor on the Extras page (P valid, EP7E, axis 4) -> draws four text rows via ge_draw_text into the window gc, clears the flag",
+   "source": "docs/EXTRAS_OVERLAY.md"
+  },
+  {
+   "addr": "0x607b8700",
+   "name": "dg_ap",
+   "kind": "func",
+   "subsystem": "card",
+   "confidence": "V",
+   "sig": "jmp from pl_ap, frame [d2,d3,a2,a3],24, a2 = P",
+   "notes": "Plugin loader with stage marks L (0x6203c8bb bits 1-3); clears P+852 first",
+   "source": "docs/PLUGINS.md §10"
+  },
+  {
+   "addr": "0x607b88bc",
+   "name": "dg_fw",
+   "kind": "func",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": "call entry [d2,d3,a2,a3],88: a0 widget, a1 value",
+   "notes": "Firmware Body value \"L/OK\" (K from the keyhook Fn stage byte 0x6203bcb2, PLUGINS §11/§12); empty value -> fw_val",
+   "source": "docs/PLUGINS.md §10"
+  },
+  {
+   "addr": "0x607b898b",
+   "name": "dg_paint",
+   "kind": "func",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": "jmp from 0x60d005ef",
+   "notes": "Stock +164 call, then O2, PT log and dg_draw (current window only) while the profile view is alive (0x622ab792 bit 0)",
+   "source": "docs/PLUGINS.md §10"
+  },
+  {
+   "addr": "0x607b8a58",
+   "name": "dg_draw",
+   "kind": "func",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": "call from dg_pnt [d2,d3,a2,a3],108; a1 = gc = *(painter+8), d3 window",
+   "notes": "Four probe rows on the Extras page: style colour 1/2/4/6; always selects the window default text style (+488 -> 0x60d0fce0), gc+0x34 = 2, draws, releases the font (0x60d10708), restores gc+0x4c / +0x34 (PLUGINS §13); none -> O4",
+   "source": "docs/PLUGINS.md §11"
+  },
+  {
+   "addr": "0x607b8cb0",
+   "name": "dg_logw",
+   "kind": "func",
+   "subsystem": "card",
+   "confidence": "V",
+   "sig": "call [d2,d3,a2,a3],40: d0 tag, d1 w1, a0 w2, a1 w3",
+   "notes": "Ring-log writer: 0x6203bcb3 == 1, ap_P, P+860 inside the class-2 pool -> 16 B at base + (P+864 & 0x3ff0), P+864 += 16",
+   "source": "docs/PLUGINS.md §13"
+  },
+  {
+   "addr": "0x607b8d09",
+   "name": "dg_key0",
+   "kind": "func",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": "jmp from 0x60ce011a",
+   "notes": "Log K0 (event, record+196 state, record+4), kh_chk; handled -> log D0, ret [d2,a2,a3],40; else kh_miss",
+   "source": "docs/PLUGINS.md §13"
+  },
+  {
+   "addr": "0x607b8d3a",
+   "name": "dg_key1",
+   "kind": "func",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": "jmp from 0x60cebc9a",
+   "notes": "As dg_key0 with kh_chk2 / kh2_miss, ret [d2,d3,a2],48",
+   "source": "docs/PLUGINS.md §13"
+  },
+  {
+   "addr": "0x607b8d6b",
+   "name": "dg_twin",
+   "kind": "func",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": "jmp from 0x60ce0190",
+   "notes": "Log KT, rebuild the copy-loop registers, replay call 0x60cc9a05,[d2],4, jmp 0x60ce0197",
+   "source": "docs/PLUGINS.md §13"
+  },
+  {
+   "addr": "0x607b8d8f",
+   "name": "dg_half",
+   "kind": "func",
+   "subsystem": "card",
+   "confidence": "V",
+   "sig": "jmp from 0x601df6fa",
+   "notes": "Below-the-frame call of dg_hc (dump if P+864 != 0; reset only if written), then the relocated prologue",
+   "source": "docs/PLUGINS.md §13"
+  },
+  {
+   "addr": "0x607b8de9",
+   "name": "dg_dump",
+   "kind": "func",
+   "subsystem": "card",
+   "confidence": "V",
+   "sig": "call [d2,d3,a2,a3],56; a2 = P -> d0 1 written / 0 fopen failed",
+   "notes": "EP7MOD/TRACE.TXT: title, header (-1, build id, L/flag/kstage, entries), ring oldest first as hex lines",
+   "source": "docs/PLUGINS.md §13"
+  },
+  {
+   "addr": "0x607d5510",
+   "name": "ls_chk",
+   "kind": "func",
+   "subsystem": "fileio",
+   "confidence": "V",
+   "sig": "jmp from 0x6143a4ed; a3 = L, d3 = size, a2 = P",
+   "notes": "Ours (looks_split, sec-5 dead sdk-api claim 0x607d5500..0x607d5900): ls_sc, then call fm_check, jmp 0x6143a4f2",
+   "source": "patches/looks_split"
+  },
+  {
+   "addr": "0x607d5521",
+   "name": "ls_sc",
+   "kind": "func",
+   "subsystem": "fileio",
+   "confidence": "V",
+   "sig": "[d2,d3,a2,a3],20",
+   "notes": "Ours: CRC first; each record +61/+62 = 0, or +60 = 0 and both split bytes in range; then stash L+2568+2j, zero them in the record, rewrite CRC +16, L+2564 = P, L+2560 EP7W last. Any miss: file untouched (fm_check rejects split bytes after the name NUL)",
+   "source": "patches/looks_split"
+  },
+  {
+   "addr": "0x607d55ef",
+   "name": "ls_pick",
+   "kind": "func",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": "jmp from 0x601e3a16; a2 = P, d3 = k",
+   "notes": "Ours: call ls_pk, jmp fm_post",
+   "source": "patches/looks_split"
+  },
+  {
+   "addr": "0x607d55f9",
+   "name": "ls_pk",
+   "kind": "func",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": "[d2,d3,a2,a3],20",
+   "notes": "Ours: real P (ap_P) + L + EP7W tag: library pos -> stash to slot +62/+63 (0 clears); Own / Stock -> snapshot L+2132+80k +62/+63; else nothing",
+   "source": "patches/looks_split"
+  },
+  {
    "addr": "0x607dd584",
    "name": "sdk_api_osd_cmds",
    "kind": "func",
@@ -5018,6 +5638,16 @@
    "sig": "",
    "notes": "ME parts; entryTAKE_PICTURE_CONT 0x6096a1c7; frame array malloc(20) 0x6091b038 (5-frame hard limit)",
    "source": "docs/LIVE_ND.md"
+  },
+  {
+   "addr": "0x60a9a918",
+   "name": "sdk_subcmd_api_word",
+   "kind": "data",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": "{name*, fn} word: \"api\" -> 0x607b4b25",
+   "notes": "v0.32 keyhook: -> kh_ret0. Also 0x60a9a920 starttimer (0x607dab9f), 0x60a9a928 stoptimer (0x607dac2e)",
+   "source": "docs/PLUGINS.md §9"
   },
   {
    "addr": "0x60acb0dc",
@@ -5680,6 +6310,176 @@
    "source": "docs/BUTTONS.md"
   },
   {
+   "addr": "0x60cc87ac",
+   "name": "action_class",
+   "kind": "func",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": "d0 action -> class",
+   "notes": "Table 0x60f384f8 (92 x {action, class, name}). Class 0 includes 75 LV_CTRL and 76 LV_CTRL_PROFILE",
+   "source": "docs/PLUGINS.md §7"
+  },
+  {
+   "addr": "0x60cc9a05",
+   "name": "ca_event_map",
+   "kind": "func",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": "call entry [d2],4; reads the caller's (4,sp) = event -> d0",
+   "notes": "Pure: reads only the stack and image tables; ends retf (MDR). Result goes to btn_dispatch",
+   "source": "docs/PLUGINS.md §9"
+  },
+  {
+   "addr": "0x60ccf9f3",
+   "name": "ca_get_setting",
+   "kind": "func",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": "d0 sid -> value (3200 on failure)",
+   "notes": "getSetting through interface 0x607f9062 (vtbl +8, a1 = &out). btn_dispatch reads sid 47 here",
+   "source": "docs/PLUGINS.md §7"
+  },
+  {
+   "addr": "0x60cd4830",
+   "name": "start_profile_select",
+   "kind": "func",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": "call entry, frame [d2,d3,a2,a3],92; d0 out, a0/a1 handler context",
+   "notes": "SubAppMdlShootingCmn::startProfileSelect: CANEXEC(76) 0x60cce3dc, then CA state 0x5704 / request 183. Only caller 0x60cd2fff (startMoveToShootingReady, START_PROFILE_NEXT_PROC). The only 76 immediate in CA code 0x60cc0000-0x60d00000",
+   "source": "docs/PLUGINS.md §7"
+  },
+  {
+   "addr": "0x60ce0108",
+   "name": "ca_key_generic",
+   "kind": "func",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": "calls entry; call entry 0x60ce010d",
+   "notes": "Generic key handler (Fn press/release in most shooting states): btn_dispatch, then action class 0x60cc87ac: 2 -> 0x60ce026a, 1 -> 0x60ceb5b6, 0 -> nothing",
+   "source": "docs/PLUGINS.md §7"
+  },
+  {
+   "addr": "0x60ce011a",
+   "name": "ca_key_generic_kmap_call",
+   "kind": "site",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": "call 0x60cc9a05,[d2],4 (7 B)",
+   "notes": "First call after the 6-word record copy. Fixed registers there: a0 = sp+28, a1 = a2+24, d0 = (24,sp), d1 = 0; a3 = CA module, a2 = event record. No branch into +1..+7. v0.32 keyhook: jmp kh + 2 nop",
+   "source": "docs/PLUGINS.md §9"
+  },
+  {
+   "addr": "0x60ce017e",
+   "name": "ca_key_generic_twin",
+   "kind": "func",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": "frame [d2,d3,a2,a3],44; a0 CA, a1 record; same 24-B copy loop",
+   "notes": "Unhooked twin of 0x60ce0108 (CA state 0x5704). kmap call 0x60ce0190 (7 B), resume 0x60ce0197; nothing branches into +1..+6. v0.32 diag: jmp dg_twin",
+   "source": "docs/PLUGINS.md §13"
+  },
+  {
+   "addr": "0x60ce05ab",
+   "name": "ca_key_release",
+   "kind": "func",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": "calls entry, frame 48",
+   "notes": "One of the Fn release (0x0100002f) handlers; release never reaches ca_key_generic 0x60ce0108",
+   "source": "docs/PLUGINS.md §9"
+  },
+  {
+   "addr": "0x60ce2d84",
+   "name": "ca_multi_function_press",
+   "kind": "func",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": "class-2 action 18 EVF_FN (Multi Function) handler",
+   "notes": "Request 174, CA state 0x590d (Fn held). The popup opens on the release",
+   "source": "docs/PLUGINS.md §12"
+  },
+  {
+   "addr": "0x60ce2da0",
+   "name": "ca_multi_function_release",
+   "kind": "func",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": "state 0x590d handler for Fn release 0x0100002f",
+   "notes": "Sub-function action = 0x60cc8929 (sid 437 -> table 0x60f38d8c: 6 -> 49 colour/mono profile, 3 -> 50 aspect); 49 -> call 0x60ceb5b6 -> state 0x5800",
+   "source": "docs/PLUGINS.md §12"
+  },
+  {
+   "addr": "0x60ceb5b6",
+   "name": "ca_select_mode",
+   "kind": "func",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": "call entry [d2,d3,a2,a3],68; d0 action, a0 CA module, a1 event record",
+   "notes": "Class-1 action handler (stock popup + dials), CANEXEC 0x60cce3dc inside; entered from ca_key_generic for class 1. Action 50 = SELECT_MODE_MULTI_ASPECT",
+   "source": "docs/PLUGINS.md §9"
+  },
+  {
+   "addr": "0x60ceb952",
+   "name": "sel_exit",
+   "kind": "func",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": "select state exit",
+   "notes": "Reads and clears 0x61fb0dd8; Fn (in list 0x60f39e08, a press) -> 0x60cebd8b -> 0x60cebdeb: record+176 = key, +184 = 1 (re-posted key event)",
+   "source": "docs/PLUGINS.md §12"
+  },
+  {
+   "addr": "0x60cebce9",
+   "name": "sel_other_key_exit",
+   "kind": "site",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": "0x60cebc89 jump-table case 26",
+   "notes": "0x60cd2330(key), request 158, ddc = key, dd8 = key when its function != the open mode: exit and replay",
+   "source": "docs/PLUGINS.md §12"
+  },
+  {
+   "addr": "0x60cebd3d",
+   "name": "sel_fn_same_mode_close",
+   "kind": "site",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": "0x60cebc89 jump-table case 18",
+   "notes": "Multi Function key in its own popup: request 158, ddc = key, no dd8 (close, no replay)",
+   "source": "docs/PLUGINS.md §12"
+  },
+  {
+   "addr": "0x60cf30b5",
+   "name": "ca_handler_calls",
+   "kind": "site",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": "calls (a2): a0 = (CA+164), a1 = event record",
+   "notes": "The handler return value is ignored (the matcher returns a3 = matched)",
+   "source": "docs/PLUGINS.md §9"
+  },
+  {
+   "addr": "0x60cf5b2c",
+   "name": "ca_dispatch",
+   "kind": "func",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": "a0 CA module, a1 event record, d0 event code",
+   "notes": "Prefilter 0x60cf6473, then sub-state table, state table (0x60cf6824: state id -> image list), default table 0x60f6ad58 (124). Records {u32 event, 1, 1, fn}, matched by 0x60cf304c, fn by `calls`. All tables are in the loaded image",
+   "source": "docs/PLUGINS.md §7"
+  },
+  {
+   "addr": "0x60cf6824",
+   "name": "ca_state_table",
+   "kind": "func",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": "d0 state id (0x50xx..0x5exx) -> table, count",
+   "notes": "Jump table 0x60f6b9fc by id>>8; per-group lists {u32 id, u32 table, u32 n} in the image (group 0x51 at 0x60f59668)",
+   "source": "docs/PLUGINS.md §7"
+  },
+  {
    "addr": "0x60cfd311",
    "name": "gui_WinMain",
    "kind": "func",
@@ -5690,6 +6490,26 @@
    "source": "docs/RE_DRAW_PLUGIN.md §2.4"
   },
   {
+   "addr": "0x60cfe263",
+   "name": "win_empty_method",
+   "kind": "func",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": "retf [],0",
+   "notes": "+164 word of about 400 window vtables (0x60f94628 .. 0x611104b8); re-pointing one vtable covers one class only",
+   "source": "docs/PLUGINS.md §10"
+  },
+  {
+   "addr": "0x60cfe263",
+   "name": "ge_window_postpaint",
+   "kind": "func",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": "retf [],0",
+   "notes": "The empty vtable +164 method, shared by both window classes (words 0x60f94820, 0x60fac3f0). overlay_probe re-points these to ov_post",
+   "source": "docs/EXTRAS_OVERLAY.md"
+  },
+  {
    "addr": "0x60cfec91",
    "name": "gui_db_get",
    "kind": "func",
@@ -5698,6 +6518,76 @@
    "sig": "(id, size, buf)",
    "notes": "244 callers; set 0x60cfeca9(id, size, buf, flag)",
    "source": "docs/RE_UI.md §5.1"
+  },
+  {
+   "addr": "0x60d00506",
+   "name": "ge_paint_window",
+   "kind": "func",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": "a0 window, a1 gc or 0 (then window+72); frame [d2,d3,a2,a3],32",
+   "notes": "One caller 0x60d3907e. Early out if u16 window+1372 == 0. Calls vtable +708, +680, then +164 (0x60d005ef) and +160, then paint end 0x60d0658a / 0x60d06468",
+   "source": "docs/PLUGINS.md §10"
+  },
+  {
+   "addr": "0x60d00506",
+   "name": "ge_window_paint",
+   "kind": "func",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": "a0 window, a1 painter; ret [d2,d3,a2,a3],32",
+   "notes": "Window paint: draws the child widgets (0x60d0f3aa / 0x60d06530 / 0x60d0642a), then vtbl +164 (0xa4) then +160 (0xa0), then ge_paint_end (present). *(window+72) and a1 are the painter; gc = *(painter+8) (0x60d060e3, PLUGINS §11)",
+   "source": "docs/EXTRAS_OVERLAY.md"
+  },
+  {
+   "addr": "0x60d005ef",
+   "name": "ge_paint_post164_site",
+   "kind": "site",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": "mov (164,a2),a2; calls (a2) (6 B); a0 window, a1 = (4,sp) gc",
+   "notes": "The only +164 call. a0/a1/a2 reloaded at 0x60d005f5; nothing branches into +1..+5. v0.32 diag: jmp dg_paint + nop",
+   "source": "docs/PLUGINS.md §10"
+  },
+  {
+   "addr": "0x60d00f90",
+   "name": "win_default_text_style",
+   "kind": "func",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": "window vtable +488; a0 window -> d0 u16 window+108",
+   "notes": "Both window classes. Ctor sets 0. Used by the generic GE text draw 0x60d06bb7 before 0x60d0fce0",
+   "source": "docs/PLUGINS.md §11"
+  },
+  {
+   "addr": "0x60d060e3",
+   "name": "painter_gc",
+   "kind": "func",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": "a0 painter -> a0 gc = *(painter+8); [],0",
+   "notes": "The +164 argument and *(window+72) are the painter; the drawer needs this gc (PLUGINS §11)",
+   "source": "docs/PLUGINS.md §11"
+  },
+  {
+   "addr": "0x60d0642a",
+   "name": "ge_paint_begin",
+   "kind": "func",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": "a0 gc, a1 window+1200, d0 window+1392; [d2,d3,a2,a3],20",
+   "notes": "DC clip from window+1200 (0x60d0f8e3), gc+12 = window+1200, update region (36 B) -> gc+168",
+   "source": "docs/PLUGINS.md §11"
+  },
+  {
+   "addr": "0x60d06468",
+   "name": "ge_paint_end_single",
+   "kind": "func",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": "a0 gc; [d2,d3,a2,a3],48",
+   "notes": "ge_present(gc+8), then each gc+168 rect -> 0x60d0ed81 (sync front -> back through DC +8)",
+   "source": "docs/PLUGINS.md §11"
   },
   {
    "addr": "0x60d06468",
@@ -5720,6 +6610,46 @@
    "source": "docs/RE_DRAW_PLUGIN.md §2.4"
   },
   {
+   "addr": "0x60d0695c",
+   "name": "ge_draw_label_generic",
+   "kind": "func",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": "GE text draw (caller 0x60d0691b)",
+   "notes": "Colour = window +504, text style = window +488 -> 0x60d0fce0 (skips if a0 0), 0x60d0fd83(2), 0x60d0758f",
+   "source": "docs/PLUGINS.md §11"
+  },
+  {
+   "addr": "0x60d0758f",
+   "name": "ge_draw_text_res",
+   "kind": "func",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": "d0 resource string id, d1 style*, a0 gc, a1 rect; [d2,a2,a3],16",
+   "notes": "String id -> 0x60d10bf2, then ge_draw_text",
+   "source": "docs/PLUGINS.md §11"
+  },
+  {
+   "addr": "0x60d075a7",
+   "name": "ge_draw_text",
+   "kind": "func",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": "d0 style*, d1 wchar*, a0 gc, a1 rect{x0,y0,x1,y1 s16}; frame [d2,d3,a2,a3],252",
+   "notes": "High-level string drawer: per-glyph through DC +28 / drawFont. Returns early if string 0 or gc+0x4c 0. Style 24 B (PLUGINS §11): +0 text colour (applied with 0x60d0fc05, overrides any gc colour; saved/restored), +4 / +8 colours (gc+0x28c/+0x290), +12 h-align, +13 v-align, +14 x off, +16 right inset, +18 y off, +20 bottom inset. Callers 0x60d0758f/0x60d455bf/0x60d4728a/0x60d473db",
+   "source": "docs/EXTRAS_OVERLAY.md"
+  },
+  {
+   "addr": "0x60d0ed79",
+   "name": "ge_present",
+   "kind": "func",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": "[],4",
+   "notes": "-> 0x60d125af: if 0x61fb2939 set, gpiUpdateDisplay(0) (whole-buffer flip), 0x61fb2938 ^= 1, clear 0x61fb2939",
+   "source": "docs/PLUGINS.md §11"
+  },
+  {
    "addr": "0x60d0ed79",
    "name": "ge_present",
    "kind": "func",
@@ -5728,6 +6658,76 @@
    "sig": "`call 0x60d125af,[],4; ret [],4`",
    "notes": "Callers 0x60d06475 (single-layer paint end 0x60d06468), 0x60d065d4 (multi-layer 0x60d0658a). Proposed overlay hook site",
    "source": "docs/RE_DRAW_PLUGIN.md §2.4, §4.1"
+  },
+  {
+   "addr": "0x60d0f530",
+   "name": "region_count",
+   "kind": "func",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": "a0 region -> d0 (24,a0)",
+   "notes": "Update region: 36 B, rects at +0 (8 B each), count +24; 0x60d0f529 clears the count, 0x60d0f539 copies 36 B",
+   "source": "docs/PLUGINS.md §11"
+  },
+  {
+   "addr": "0x60d0fb40",
+   "name": "gc_set_colour3",
+   "kind": "func",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": "d0 colour, a0 gc; ret [a2],8",
+   "notes": "gc+0x290. ge_draw_text calls it with style +8",
+   "source": "docs/PLUGINS.md §11"
+  },
+  {
+   "addr": "0x60d0fb5d",
+   "name": "gc_set_colour2",
+   "kind": "func",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": "d0 colour, a0 gc; ret [a2],8",
+   "notes": "gc+0x28c (converted if gc+0x294/295 == 1). ge_draw_text calls it with style +4",
+   "source": "docs/PLUGINS.md §11"
+  },
+  {
+   "addr": "0x60d0fc05",
+   "name": "gc_set_colour",
+   "kind": "func",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": "d0 colour, a0 gc; retf [d2,d3,a2,a3],16",
+   "notes": "Writes gc+0x24 and gc+0x280; if gc+0x294/295 set, remaps the colour through gc+0x296..298 shifts and gc+0x274/278/27c masks. ge_draw_text overwrites it from style +0, so set the colour in the style (PLUGINS §11). 8-bit palette index; 0 = transparent",
+   "source": "docs/EXTRAS_OVERLAY.md"
+  },
+  {
+   "addr": "0x60d0fce0",
+   "name": "gc_set_font",
+   "kind": "func",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": "d0 text-style id, a0 gc; ret [a2],8 -> a0 font or 0",
+   "notes": "Text-style id (74-B record at *(0x61fc15bc+4*bank)+74*id), not a font index; sets gc+0x4c via 0x60d0fd74. Stock calls it before every text draw (PLUGINS §11)",
+   "source": "docs/EXTRAS_OVERLAY.md"
+  },
+  {
+   "addr": "0x60d0fd83",
+   "name": "gc_set_mode34",
+   "kind": "func",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": "a0 gc, d0 -> u16 gc+0x34; retf",
+   "notes": "All three stock callers pass 2 right before a text draw",
+   "source": "docs/PLUGINS.md §13"
+  },
+  {
+   "addr": "0x60d0fd83",
+   "name": "gc_set_mode",
+   "kind": "func",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": "d0 value, a0 gc; retf [],0",
+   "notes": "Writes gc+0x34. Stock sets it to 2 before a list text draw",
+   "source": "docs/EXTRAS_OVERLAY.md"
   },
   {
    "addr": "0x60d0ffb4",
@@ -5760,6 +6760,26 @@
    "source": "docs/RE_UI.md §2.3"
   },
   {
+   "addr": "0x60d10708",
+   "name": "gc_font_release",
+   "kind": "func",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": "a0 font (from 0x60d0fce0); [],4",
+   "notes": "calls (0x61fb2614)(font) if both non-zero. Every stock 0x60d0fce0 user calls it after its draw (0x60d4c638, 0x60d457a5, 0x60d0695c); the gc+0x4c it leaves behind is a released font",
+   "source": "docs/PLUGINS.md §13"
+  },
+  {
+   "addr": "0x60d10b88",
+   "name": "osd_text_style",
+   "kind": "func",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": "d0 style id -> d0 74-B record",
+   "notes": "(0x61fc15bc)[bank] + 74*id: the text-style records gc_set_font 0x60d0fce0 reads",
+   "source": "docs/I18N_ZH.md"
+  },
+  {
    "addr": "0x60d10ba1",
    "name": "osd_bitmap_get",
    "kind": "func",
@@ -5768,6 +6788,26 @@
    "sig": "id -> &table[id] (0 -> NULL)",
    "notes": "No bounds check",
    "source": "docs/FIRMWARE_GUIDE.md §5"
+  },
+  {
+   "addr": "0x60d10bf2",
+   "name": "osd_string_get",
+   "kind": "func",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": "d0 string id -> a0 wchar*; [d2],8",
+   "notes": "a0 = (*(0x61fc1530 + 4*bank))[id]; bank = 0x60d10c09. Behind ge_draw_text_res 0x60d0758f and 9 other callers",
+   "source": "docs/I18N_ZH.md"
+  },
+  {
+   "addr": "0x60d10c09",
+   "name": "osd_lang_bank",
+   "kind": "func",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": "-> d0 = (u8)(0x61fb2818); retf",
+   "notes": "Index into the per-bank string-table and text-style pointer arrays 0x61fc1530 / 0x61fc15bc",
+   "source": "docs/I18N_ZH.md"
   },
   {
    "addr": "0x60d113d1",
@@ -5818,6 +6858,16 @@
    "sig": "(event, ., ctx) -> index or 0xffff",
    "notes": "Linear scan of the descriptor event map",
    "source": "docs/RE_UI.md §2.1"
+  },
+  {
+   "addr": "0x60d115c2",
+   "name": "hsm_desc",
+   "kind": "func",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": "a0 ctx -> a0 descriptor",
+   "notes": "descriptor = (*(u32 **)(ctx + 4))[ss - 1]. The ss table pointer is read only through ctx+4 (0x611317c4 has one reference, the init at 0x60dd4b21)",
+   "source": "docs/PLUGINS.md §7"
   },
   {
    "addr": "0x60d115c2",
@@ -6020,6 +7070,16 @@
    "source": "docs/RE_DRAW_PLUGIN.md §2.3"
   },
   {
+   "addr": "0x60d15503",
+   "name": "gpi_platform_fn",
+   "kind": "func",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": "d0 id (0xc..0x89) -> a0 fn",
+   "notes": "Platform function lookup (open hash 0x60f96578, 32 slots). Registered by 0x60d0eec0 into DAT_61fb2588.. (font metric 0x34, draw 0x8a, etc.)",
+   "source": "docs/EXTRAS_OVERLAY.md"
+  },
+  {
    "addr": "0x60d1a6a0",
    "name": "key_logical_map",
    "kind": "func",
@@ -6028,6 +7088,26 @@
    "sig": "",
    "notes": "Also 0x60d1a73e; logical key 10 -> 0x9016",
    "source": "docs/LOOK_EDITOR.md"
+  },
+  {
+   "addr": "0x60d3379b",
+   "name": "ge_current_window",
+   "kind": "func",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": "-> a0 = *(0x61fb3138); retf",
+   "notes": "Set by 0x60d337a4 from the window ctor 0x60cff51e and 0x60cfd455. 893 callers",
+   "source": "docs/PLUGINS.md §11"
+  },
+  {
+   "addr": "0x60d4c434",
+   "name": "label_widget_draw",
+   "kind": "func",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": "widget draw method, frame [d2,d3,a2,a3]; gc (24,sp), rect (28,sp); ref 0x60faeeb4",
+   "notes": "Stock text-label draw: 0x60d0fce0(gc, widget+128 text style), 0x60d0fd83(gc, 2), then inline text (widget+174 == 1) -> 0x60d075a7(style = widget+132); no gc colour call",
+   "source": "docs/PLUGINS.md §11"
   },
   {
    "addr": "0x60d4c9df",
@@ -6058,6 +7138,16 @@
    "sig": "-> 0",
    "notes": "Matrix default in every Ss: unmapped events are dropped",
    "source": "docs/RE_UI.md §2.1, §5"
+  },
+  {
+   "addr": "0x60dd4ba9",
+   "name": "gui_key_sink",
+   "kind": "func",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": "vtbl[0] of the object at (0x61fc18c0); vtable 0x611401c4",
+   "notes": "CA -> GUI key forwarder: send-key id -> GUI event, post. Registered in CA at 0x60cc7352 (0x60cfccc8: sub-object +32)",
+   "source": "docs/PLUGINS.md §7"
   },
   {
    "addr": "0x60dd5067",
@@ -6198,6 +7288,36 @@
    "sig": "",
    "notes": "Picture-mode rows: 15272==1646 -> 8 rows 0x61152c80; else by sid 26 25 rows 0x61151f90 (string ref 0x60de47c0)",
    "source": "docs/LOOK_MENUS.md"
+  },
+  {
+   "addr": "0x60dec4d4",
+   "name": "profile_view_new",
+   "kind": "func",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": "a0 parent -> new 148 B view (0x60a4ec03), ctor 0x60dec4f4 [d2,d3,a2,a3],88",
+   "notes": "Ctor stores vtable 0x61155e14 and registers listener 111 through 0x607f9062 -> +8",
+   "source": "docs/PLUGINS.md §10"
+  },
+  {
+   "addr": "0x60dec697",
+   "name": "profile_view_dtor",
+   "kind": "func",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": "vtable +4; movm [a2,a3] prologue; a0 view",
+   "notes": "Restores vtable 0x61155e14, unregisters listener 111. v0.32 diag: word 0x61155e18 -> dg_dtor",
+   "source": "docs/PLUGINS.md §10"
+  },
+  {
+   "addr": "0x60dec790",
+   "name": "colprof_view_update",
+   "kind": "func",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": "a0 view; movm [d2,d3,a2,a3]; add -12; ... ret [d2,d3,a2,a3],28",
+   "notes": "Rebuilds the view state (GUI data 175) via the facade; reads ALL state 0x61fc3804, picture mode 111, cursor settings 1091/1096/1097/1686",
+   "source": "docs/EXTRAS_OVERLAY.md"
   },
   {
    "addr": "0x60decabd",
@@ -6410,6 +7530,16 @@
    "source": "docs/MONO_PRESETS.md"
   },
   {
+   "addr": "0x60e4ba62",
+   "name": "sscommon_fn_noop",
+   "kind": "func",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": "clr d0; retf",
+   "notes": "SsCommon state 8 (StCaReqDisp, shooting) handler for 0x9057, handler word 57 of the ss-1 descriptor 0x611992c4, used by no other (event, state)",
+   "source": "docs/PLUGINS.md §7"
+  },
+  {
    "addr": "0x60e4c9a0",
    "name": "IGui_Controler_ctor",
    "kind": "func",
@@ -6580,6 +7710,16 @@
    "source": "docs/RE_UI.md §2.3"
   },
   {
+   "addr": "0x60eac6f2",
+   "name": "gui_load_language",
+   "kind": "func",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": "d0 mode (0/1 load strings, 0 also res type 1)",
+   "notes": "Reads sid 3009 (facade +8 0xbc1), maps it through 0x60eac8a3 / 0x60eac851, loads font (type 0), strings (type 2) and type 1 via facade +0x34; strings \"MODE_LANGUAGE\", \"loadLanguageData\", \"pFontsList\"",
+   "source": "docs/I18N_ZH.md"
+  },
+  {
    "addr": "0x60eac846",
    "name": "osd_bitmap_table_init",
    "kind": "func",
@@ -6588,6 +7728,26 @@
    "sig": "",
    "notes": "Stores bank-0 header +16 in 0x61fc1734",
    "source": "docs/ASPECT.md"
+  },
+  {
+   "addr": "0x60eac851",
+   "name": "lang_to_string_res",
+   "kind": "func",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": "d0 language value -> (a3) u16 resource",
+   "notes": "Table 0x611f0c5c {u32 lang, u16 res}, -0x10000 end: 5 -> 2 (Simplified Chinese), 6 -> 3 (Traditional), 1 -> 8 (English)",
+   "source": "docs/I18N_ZH.md"
+  },
+  {
+   "addr": "0x60eac8a3",
+   "name": "lang_to_font_res",
+   "kind": "func",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": "d0 language value, d1 1 -> u16 resource",
+   "notes": "Table 0x611f0d7c {u32 lang, u16 1, u16 res}: font = string res + 34 (5 -> 36, 6 -> 37)",
+   "source": "docs/I18N_ZH.md"
   },
   {
    "addr": "0x60ef98a4",
@@ -6620,6 +7780,16 @@
    "source": "docs/BUTTONS.md"
   },
   {
+   "addr": "0x60f38d8c",
+   "name": "multi_function_actions",
+   "kind": "table",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": "9 x {u32 sub-function, u32 action}",
+   "notes": "1->48, 3->50, 5->42, 6->49, 2->23, 8->43, 7->44, 9->88, 10->30",
+   "source": "docs/PLUGINS.md §12"
+  },
+  {
    "addr": "0x60f3928c",
    "name": "sendkey_event_table",
    "kind": "table",
@@ -6628,6 +7798,46 @@
    "sig": "+16: 8 UP, 0xb DOWN, 0xe LEFT, 0x11 RIGHT",
    "notes": "Names 0x60f77cb4..",
    "source": "docs/BUTTONS.md §4d"
+  },
+  {
+   "addr": "0x60f3928c",
+   "name": "ca_key_events",
+   "kind": "table",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": "142 x 20 B {u32 ca event, u32 keycode, u32 sub (0 press, 1 release, 2/3), u32 mask, u32 send-key id}",
+   "notes": "Read by 0x60cc9790 (event -> keycode). Fn (keycode 15): 0x0100002e press / 0x0100002f release, send-key 0x57 / 0x58",
+   "source": "docs/PLUGINS.md §7"
+  },
+  {
+   "addr": "0x60f4d230",
+   "name": "select_action_state",
+   "kind": "table",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": "25 x {u32 action, u32 CA state}",
+   "notes": "Read by 0x60ceb5b6; 49 and 50 -> 0x5800",
+   "source": "docs/PLUGINS.md §12"
+  },
+  {
+   "addr": "0x60f9477c",
+   "name": "ge_window_vtable",
+   "kind": "table",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": ">= 712 B vtable",
+   "notes": "Base window class, stored by ctor 0x60cff51e (one caller, 0x60d43e80). +164 at 0x60f94820",
+   "source": "docs/PLUGINS.md §10"
+  },
+  {
+   "addr": "0x60f94820",
+   "name": "win_vtbl_a_164",
+   "kind": "data",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": "u32 = 0x60cfe263",
+   "notes": "Window class A vtable +164 (base 0x60f9477c). overlay_probe -> ov_post",
+   "source": "docs/EXTRAS_OVERLAY.md"
   },
   {
    "addr": "0x60f95f10",
@@ -6648,6 +7858,26 @@
    "sig": "u8[3] = {4, 8, 4}",
    "notes": "Stride = 800*bpp/8 (DC+148)",
    "source": "docs/RE_DRAW_PLUGIN.md §2.3"
+  },
+  {
+   "addr": "0x60fac34c",
+   "name": "ge_window_sub_vtable",
+   "kind": "table",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": ">= 712 B vtable",
+   "notes": "Subclass, ctor 0x60d43e80, made only at 0x60d39f41. +164 at 0x60fac3f0",
+   "source": "docs/PLUGINS.md §10"
+  },
+  {
+   "addr": "0x60fac3f0",
+   "name": "win_vtbl_b_164",
+   "kind": "data",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": "u32 = 0x60cfe263",
+   "notes": "Window class B vtable +164 (base 0x60fac34c). overlay_probe -> ov_post",
+   "source": "docs/EXTRAS_OVERLAY.md"
   },
   {
    "addr": "0x610a3c38",
@@ -6688,6 +7918,16 @@
    "sig": "",
    "notes": "GUI key codes (HFW order). Events: 0x9004/6 step, 0x9008/a sector, 0x900c commit, 0x900e MENU, 0x9010 PLAY, 0x9012 Movie, 0x9014 INFO, 0x9016 Del, 0x903e held OK",
    "source": "docs/LOOK_EDITOR.md, docs/FIRMWARE_GUIDE.md §4"
+  },
+  {
+   "addr": "0x6113e938",
+   "name": "gui_sendkey_map",
+   "kind": "table",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": "{u32 send-key id, u32 GUI event}",
+   "notes": "Send-key id n -> GUI event 0x90nn for the Fn range (0x57 -> 0x9057, 0x58 -> 0x9058); 0x7fff = none. Read by 0x60dd4ba9",
+   "source": "docs/PLUGINS.md §7"
   },
   {
    "addr": "0x611401f4",
@@ -6820,6 +8060,16 @@
    "source": "docs/LOOK_EDITOR.md"
   },
   {
+   "addr": "0x61155e14",
+   "name": "colprof_view_vtbl",
+   "kind": "data",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": "Colour Profile editor view vtable; +0 update 0x60dec790, +4 0x60dec697",
+   "notes": "overlay_probe re-points +0 (update) to ov_upd, which sets the overlay flag each time the editor paints",
+   "source": "docs/EXTRAS_OVERLAY.md"
+  },
+  {
    "addr": "0x61159f08",
    "name": "scp_cell_table",
    "kind": "table",
@@ -6938,6 +8188,36 @@
    "sig": "",
    "notes": "Ctor 0x60e20691/0x60e206a9. Parent: +100 key, +120 child count, +122 cursor, +124 child[]",
    "source": "docs/LOOK_EDITOR.md"
+  },
+  {
+   "addr": "0x6118c818",
+   "name": "lv_grid_value_lists",
+   "kind": "table",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": "18 x 5 x {u32 value, u32 bitmap}, 40 B each",
+   "notes": "Values 8 diagonal, 6 golden, 5 grid, 7 cross, 1 thirds; bitmaps 5996-6126, index 124, 2-px lines (6018: 708x399 thirds)",
+   "source": "docs/SPLIT_TONE_G1.md §2"
+  },
+  {
+   "addr": "0x6118c8e0",
+   "name": "lv_grid_list_179",
+   "kind": "table",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": "5 x {value, bitmap}: 6001 6007 6766 6015 6021",
+   "notes": "Aspect-10 (17:9) lists of the three classes: 0x6118c8e0 / c9d0 / cb10. 6001/6007/6087/6099/6105/6031 are referenced in main only by these lists",
+   "source": "docs/SPLIT_TONE_G1.md §2"
+  },
+  {
+   "addr": "0x6118cc00",
+   "name": "lv_grid_aspect_table_a",
+   "kind": "table",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": "6 x {u32 aspect, u32 list, u32 count}; aspects 1,2,3,4,9,10",
+   "notes": "LV grid selector 0x60e32406 (count `mov 6,a0` at 0x60e326c3). Siblings 0x6118cc48 (state (1020,this) == 1), 0x6118cc90. Row 5 (aspect 10, 17:9) is dead in this function: aspect is 1/3 in movie or GetValue(270), never 10",
+   "source": "docs/SPLIT_TONE_G1.md §2"
   },
   {
    "addr": "0x611992c4",
@@ -7110,6 +8390,26 @@
    "source": "docs/RE_UI.md §4.4"
   },
   {
+   "addr": "0x611f0c5c",
+   "name": "lang_string_res_tab",
+   "kind": "table",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": "34 x {u32 lang, u16 res, u16 pad}",
+   "notes": "Language value (sid 3009) -> OSD string resource 1..34",
+   "source": "docs/I18N_ZH.md"
+  },
+  {
+   "addr": "0x611f0d7c",
+   "name": "lang_font_res_tab",
+   "kind": "table",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": "34 x {u32 lang, u16 1, u16 res}",
+   "notes": "Language value -> OSD font resource 35..68",
+   "source": "docs/I18N_ZH.md"
+  },
+  {
    "addr": "0x6136a854",
    "name": "dcache_range_op",
    "kind": "func",
@@ -7180,6 +8480,46 @@
    "source": "docs/RE_LIVEVIEW.md §1"
   },
   {
+   "addr": "0x6143a410",
+   "name": "fm_load",
+   "kind": "func",
+   "subsystem": "fileio",
+   "confidence": "V",
+   "sig": "CALLS, a2 = P",
+   "notes": "Ours (film_menu_v2 fm_core, sec 9): once per power-on LOOKS.BIN -> L (malloc 2640 from v0.32, was 2560), fm_check, slot resume by name, publish P+1016 / P+1020 EP7F. v0.32: its fm_check call goes through ls_chk (split stash)",
+   "source": "patches/looks_split"
+  },
+  {
+   "addr": "0x6143a4ed",
+   "name": "fm_load_call_fm_check",
+   "kind": "site",
+   "subsystem": "fileio",
+   "confidence": "V",
+   "sig": "5 B `call fm_check,[d2,d3,a2,a3],20` (cd b9 00 f0 14)",
+   "notes": "Ours (film_menu_v2 fm_core). After it: cmp 0,d0 at 0x6143a4f2; size test and 63 / cmp 128 / cmp 2113 at 0x6143a49e..a4b5; malloc 2560 at 0x6143a439",
+   "source": "docs/SPLIT_TONE_G1.md §1.2"
+  },
+  {
+   "addr": "0x6143a5a6",
+   "name": "fm_check",
+   "kind": "func",
+   "subsystem": "fileio",
+   "confidence": "V",
+   "sig": "a3 = L (file), d3 = size -> d0 0 valid; [d2,d3,a2,a3],20",
+   "notes": "Ours (fm_core): header template, CRC (bytes 0..15, 20..end), per-record range table 0..44, class/mask, tint, name rule (NUL tail to +63). Unchanged in v0.32: ls_sc hands it a file whose +61/+62 are already 0",
+   "source": "patches/looks_split"
+  },
+  {
+   "addr": "0x6143a688",
+   "name": "fm_crc",
+   "kind": "func",
+   "subsystem": "fileio",
+   "confidence": "V",
+   "sig": "d0 running CRC, a0 data, d1 length > 0 -> d0; [d2,d3],8; keeps a1",
+   "notes": "Ours (fm_core): bitwise CRC-32 (0xedb88320), no table. Also called by ls_sc and plugin_loader",
+   "source": "patches/looks_split"
+  },
+  {
    "addr": "0x61f9f1c8",
    "name": "trig_state",
    "kind": "data",
@@ -7230,6 +8570,16 @@
    "source": "docs/LIVE_ND.md"
   },
   {
+   "addr": "0x61fb0dd8",
+   "name": "sel_replay_key",
+   "kind": "data",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": "u32 key to replay after the select state exits (+4 0x61fb0ddc last key)",
+   "notes": "Written by the select-state key handlers and keyhook ka_rep",
+   "source": "docs/PLUGINS.md §12"
+  },
+  {
    "addr": "0x61fb2938",
    "name": "gpi_cur_buf",
    "kind": "data",
@@ -7258,6 +8608,36 @@
    "sig": "u16: 0x02 layer 0, 0x10 layer 1, 0x100 layer 2",
    "notes": "Planes hidden at present",
    "source": "docs/RE_DRAW_PLUGIN.md §2.3"
+  },
+  {
+   "addr": "0x61fb3138",
+   "name": "ge_current_window_ptr",
+   "kind": "data",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": "u32 window*",
+   "notes": "Current (last constructed) window",
+   "source": "docs/PLUGINS.md §11"
+  },
+  {
+   "addr": "0x61fc1530",
+   "name": "osd_string_tables",
+   "kind": "data",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": "u32[bank] -> u32 string pointer table",
+   "notes": "Bank 0 = *res (p0 of the loaded string resource), written by 0x60eac6f2",
+   "source": "docs/I18N_ZH.md"
+  },
+  {
+   "addr": "0x61fc15bc",
+   "name": "osd_style_tables",
+   "kind": "data",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": "u32[bank]",
+   "notes": "Bank 0 = res[1] of the loaded string resource (text styles / pFontsList)",
+   "source": "docs/I18N_ZH.md"
   },
   {
    "addr": "0x61fc1c00",
@@ -7308,6 +8688,26 @@
    "sig": "u?",
    "notes": "SYS_WDT enabled flag",
    "source": "docs/HALATION_RED.md §21"
+  },
+  {
+   "addr": "0x6203bcb2",
+   "name": "kh_fn_stage",
+   "kind": "data",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": "u8 Fn stage byte (.bss pad)",
+   "notes": "bits 0-1 site + 1, bits 2-3 plugin decision (0 not called, 1 stock, 2 handled), bits 4-7 Fn presses mod 16; diag readout K",
+   "source": "docs/PLUGINS.md §12"
+  },
+  {
+   "addr": "0x6203bcb3",
+   "name": "dg_logon",
+   "kind": "data",
+   "subsystem": "card",
+   "confidence": "V",
+   "sig": "u8, boot-cleared .bss pad",
+   "notes": "v0.32 diag: 1 = this power-on's 16 KB log block is in P+860 (set by dg_ap only); no stock reference",
+   "source": "docs/PLUGINS.md §13"
   },
   {
    "addr": "0x621caf00",
@@ -7378,6 +8778,26 @@
    "sig": "ptr (handle for key 0x949a, sid 112)",
    "notes": "Siblings: 0x622a0b44 0x9a9a, 0x622a0a60/5c/64 0x30ea/0x30fa/0x310a, 0x622a0bd8 0x8eb9, 0x622a0b00 0x80ba",
    "source": "docs/RE_AE.md §0"
+  },
+  {
+   "addr": "0x622ab792",
+   "name": "ov_flag",
+   "kind": "data",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": ".bss u8 (uncached 0xa22ab792)",
+   "notes": "overlay_probe: set by ov_upd, cleared by ov_post each frame (self-clear on editor close)",
+   "source": "docs/EXTRAS_OVERLAY.md"
+  },
+  {
+   "addr": "0x622ab793",
+   "name": "ov_counter",
+   "kind": "data",
+   "subsystem": "ui",
+   "confidence": "V",
+   "sig": ".bss u8 (uncached 0xa22ab793)",
+   "notes": "overlay_probe: ghosting counter, incremented each draw, shown as 2 hex digits in row D",
+   "source": "docs/EXTRAS_OVERLAY.md"
   },
   {
    "addr": "0x622cbc14",
@@ -7458,6 +8878,16 @@
    "sig": "0x40000 B: {u16 id, u16 cksum, u32 gen}, packed values",
    "notes": "User settings working copy. Storage of each key: docs/settings_catalogue.json",
    "source": "docs/RE_SETTINGS.md §3"
+  },
+  {
+   "addr": "0x62509d7c",
+   "name": "sid3009_language",
+   "kind": "data",
+   "subsystem": "settings",
+   "confidence": "V",
+   "sig": "u8, MODE bank (key 0x85e1)",
+   "notes": "Menu language value; 5 = Simplified Chinese, 6 = Traditional Chinese, 1 = English",
+   "source": "docs/I18N_ZH.md"
   },
   {
    "addr": "0x6266a354",
@@ -7658,6 +9088,16 @@
    "sig": "",
    "notes": "Resources 35-68",
    "source": "docs/OSD.md"
+  },
+  {
+   "addr": "0xa400bac0",
+   "name": "zh_font_cmap",
+   "kind": "data",
+   "subsystem": "ui",
+   "confidence": "I",
+   "sig": "u32[256] page dir -> {u16 w, u16 h, u32 glyph}[256]",
+   "notes": "Font res 36 +0x54580: 636 CJK glyphs (37 px). Second dir +0x54980: 133 Latin / full-width (40 px). tools/zh_glyphs.py. Runtime address via the inferred font base 0xa3fb7540; the structure is verified in flash",
+   "source": "docs/I18N_ZH.md"
   },
   {
    "addr": "0xa407f540",

@@ -11,7 +11,7 @@ stills, and longer video recording.
 
 *Named after the caduceus, the staff of Hermes: messenger between gods and mortals and guide of travellers.*
 
-**Latest release: [v0.31c](https://github.com/cakelesscoder/caduceus-ep7/releases/tag/v0.31c)** ·
+**Latest release: [v0.32](https://github.com/cakelesscoder/caduceus-ep7/releases/tag/v0.32)** ·
 **[Install guide](docs/INSTALL.md)** · **[Changelog](CHANGELOG.md)** · **[Caduceus Control Panel](https://cakelesscoder.github.io/caduceus-ep7/)** (make and share looks in your browser) · The camera's Setup › Firmware screen shows the Caduceus version.
 
 > [!WARNING]
@@ -42,6 +42,10 @@ stills, and longer video recording.
 | **LCD colour fix** | The rear screen no longer looks slightly pink (+8 % green by default), and Monitor Adjust's colour slider becomes a green ↔ magenta slider (−7..+7, about 2.3 % per step) instead of warm/cool. Display only: photos, movies and HDMI are unchanged. | New in v0.20 |
 | **Extras per profile** | Bloom ↔ clarity (one slider), WB amber/blue and green/magenta shift, and Art Effects (Star Light, Pin Hole; Blur removed in v0.21, it could restart the camera). | Camera-tested |
 | **Film grain** | Real film-like grain on colour photos, per COLOR profile: Extras sector 1 **Grain** Off / Low / Med / High. It's added to the finished photo's brightness, so colour is untouched. Photos with grain take a few seconds longer to save; Off costs nothing. Stills only. | **New in v0.27.** RAW+JPEG with grain not yet tested: reports welcome |
+| **Split toning** | Tint the shadows and the highlights separately (12 colours, strength −5..+5 each), per COLOR profile, set on the new **Colour & Light** page or in the Control Panel. Looks carry their own (Standard 1.1 pack), and it shows in live view and photos. Same formula as Caduceus for OM-3. | **New in v0.32** |
+| **Two Extras pages** | INFO past Light gives **Effects** (Grain, Glow/Clarity, Halo, Art, Sharp, NR, VigFix), then **Colour & Light** (WB, Blacks, Whites, shadow and highlight tone). | **New in v0.32** |
+| **Framing lines** | With Displayed Grid on the diagonal grid, live view shows 65:24 and 21:9 frame lines; the Panorama aspect gets a rule-of-thirds grid. | **New in v0.32** |
+| **Simplified Chinese labels** | With the camera in 简体中文, Caduceus's own editor labels show in Chinese ([#46](https://github.com/cakelesscoder/caduceus-ep7/issues/46), review welcome). | **New in v0.32** |
 | **Tinted halation** | A red/orange glow around bright lights, as on CineStill. Extras sector 11 **Halo** Off / Low / Med / High per profile; looks set their own (CineStill 800T Med, a few others Low). White cores stay white; adds 1–2 s to night shots with lights; stills only. | **New in v0.31** |
 | **Sharpening off per profile** | Extras sector 10 **Sharp**: **Camera** (your Sharpness setting) or **Off**, which turns the camera's sharpening fully off for that COLOR profile, for a softer, unsharpened look with no edge halos. Sharpness −2 still leaves about 40% of it on. Stills, and the Movie profile. Set by you, never by a look. | **New in v0.28** |
 | **Noise reduction per profile** | The camera's own noise reduction (Noise Filter) per COLOR profile: Extras sector 9 **NR** Camera / Std / Low / Off (most texture). It applies at each photo and follows a profile switch, without changing the menu setting. | Camera-tested |
@@ -76,8 +80,8 @@ The builder downloads OM's official 1.1 firmware from OM's server, checks it, an
   - Windows: `Build Caduceus (Windows).bat`
   - macOS: `Build Caduceus (Mac).command` (the first time: right-click › **Open**)
   - Linux: `build-caduceus-linux.sh`
-- **Or from a terminal** in that folder: `python3 caduceus.py build --release v0.31c`
-  (Windows: `py caduceus.py build --release v0.31c`).
+- **Or from a terminal** in that folder: `python3 caduceus.py build --release v0.32`
+  (Windows: `py caduceus.py build --release v0.32`).
 
 It creates a folder with:
 
@@ -167,7 +171,8 @@ Saturation stays yours. A `*` after the name means you've changed something sinc
 | Saturation (· All) | stock per-colour saturation (INFO also toggles single colour / all colours) |
 | Hue / Light | shift or brighten/darken one colour sector (pick the sector with the other dial) |
 | Film | choose a look from the library |
-| Extras | sector 1 Grain Off / Low / Med / High · 2 glow ← → clarity · 3 WB amber/blue · 4 WB green/magenta · 5 Art Effect · 6 Blacks · 7 Whites · 8 VigFix Off / Camera (lens vignette correction) · 9 NR Camera / Std / Low / Off (noise reduction) · 10 Sharp Camera / Off (sharpening) |
+| Effects | 1 Grain Off / Low / Med / High · 2 glow ← → clarity · 3 Halo Off / Low / Med / High · 4 Art Effect · 5 Sharp Camera / Off · 6 NR Camera / Std / Low / Off · 7 VigFix Off / Camera (lens vignette correction) |
+| Colour & Light | 1 WB amber/blue · 2 WB green/magenta · 3 Blacks · 4 Whites · 5 Shadow tone colour · 6 Shadow tone strength · 7 Highlight tone colour · 8 Highlight tone strength (v0.32; earlier versions have one Extras page) |
 
 Highlights/Midtones/Shadows are on the camera's normal tone-curve screen; picking a look sets them for you.
 

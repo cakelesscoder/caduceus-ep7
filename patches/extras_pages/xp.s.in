@@ -1,0 +1,683 @@
+/* E-P7 1.1 Extras pages (ep7-firmware, our own code). docs/EXTRAS_MENU_V2.md option B, "Build log".
+ *
+ * The one Extras wheel page (axis X = {x_axis}) becomes two pages, chosen by the sub-page byte P+{sub} (bit 0):
+ *   0 Effects:        1 Grain  2 Glow/Clarity  3 Halo  4 Art  5 Sharp  6 NR  7 VigFix          8-12 empty
+ *   1 Colour & Light: 1 WB A-B  2 WB G-M  3 Blacks  4 Whites  5 Shadow colour  6 Shadow strength
+ *                     7 Highlight colour  8 Highlight strength                                 9-12 empty
+ * INFO (ed_info k_step, first two instructions -> jmp xp_step): Light -> Effects (sub 0) -> Colour & Light (sub 1) ->
+ * Film / Saturation as before.
+ *
+ * Remap front: ahead of the existing chains, an X-page sector id (927..962, 1655..1666; slot k, new sector n) looks up
+ * xp_map[12 sub + n]:
+ *   0..11  an old v0.31 Extras sector: the id is translated to that sector's id, so the old handlers run unchanged;
+ *   0x10+f split tone field f (0 shadow colour, 1 shadow strength, 2 highlight colour, 3 highlight strength), slot
+ *          byte +62 (shadows) / +63 (highlights): low nibble colour 0..11, high nibble strength s4 -5..5 (split_tone's
+ *          own decode: colour >= 12, strength 0 or outside -5..5 = off). Colour list -6..+6 (13 entries, facade
+ *          +24/+28/+36): 0 Off, +1..+6 = colours 0..5, -6..-1 = colours 6..11. Strength -5..+5 (stock list);
+ *          a negative strength is the opposite tint (split_tone multiplies st_k by the signed strength);
+ *   0x20   empty: reads 0, writes nothing.
+ * Movie / AP (P2 / P3 swapped in, ap_xb): the old locks come from ap_xg / ap_xs / ap_gd on the translated id; split
+ * fields read 0 and write nothing (MOVIE.BIN / AP.BIN keep +53..63 at 0).
+ * Guide label: while xp_guide runs the old chain (ap_gd), P+{sub} bits 4..7 hold the cursor the chain should see
+ * (old sector + 1, or 12), and xp_get answers the cursor setting (1091/1096/1097/1686) with it; afterwards the old
+ * label's leading number is replaced by the new sector number, or the label is ours (split / empty).
+ * Stores: heap P (+{sub}, slot +62/+63, dirty +{dirty}), the view's label, the stack. No absolute stores, no mul/div.
+ */
+ .am33_2
+ .text
+ .global _start
+_start:
+xp_ret0:                          /* sdk sub-command words api / starttimer / stoptimer: the shell reaches no claim code */
+ clr d0
+ rets
+
+/* P valid + editor marker + X page: out a2 = P; uses d3, a2. */
+ .macro XPV miss
+ movhu ({state}),d3
+ add -1,d3
+ cmp {lim},d3
+ bcc \miss
+ btst 3,d3
+ bne \miss
+ mov d3,a2
+ add {pool},a2
+ mov (a2),d3
+ cmp {bmagic},d3
+ bne \miss
+ mov ({emark},a2),d3
+ cmp {emagic},d3
+ bne \miss
+ movbu ({axis},a2),d3
+ cmp {x_axis},d3
+ bne \miss
+ .endm
+
+/* xp_find: d0 = id -> d3 = map entry (>= 0) or -1, d2 = 64 slot + n, a2 = P. Keeps d0, d1, a0, a1.
+ * Called as `add -12,sp; call xp_find,[],0; add 12,sp` ((4,sp), (8,sp) are its scratch). */
+xp_find:
+ mov d0,d2
+ exthu d2
+ add -927,d2
+ cmp 12,d2
+ bcs 1f
+ add -12,d2
+ cmp 12,d2
+ bcs 2f
+ add -12,d2
+ cmp 12,d2
+ bcs 3f
+ add -704,d2                      /* id - 1655 */
+ cmp 12,d2
+ bcc f_miss
+ add 64,d2
+3:
+ add 64,d2
+2:
+ add 64,d2
+1:
+ XPV f_miss
+ mov d2,(4,sp)
+ movbu ({sub},a2),d3
+ and 1,d3
+ beq 4f
+ mov 12,d3
+4:
+ and 63,d2
+ add d3,d2
+ mov xp_map,a2
+ movbu (d2,a2),d3
+ mov d3,(8,sp)
+ movhu ({state}),d3               /* P again (validated above) */
+ add -1,d3
+ mov d3,a2
+ add {pool},a2
+ mov (4,sp),d2
+ mov (8,sp),d3
+ retf [],0
+f_miss:
+ mov -1,d3
+ retf [],0
+
+/* xp_sw: -> d0 = 1 when a Movie / AP slot is swapped in (ap_xb on 1655, sector 1 is one it blocks). Keeps d1..a3.
+ * Called as `call xp_sw,[],4` (the caller's (0,sp) is free). */
+xp_sw:
+ mov 1655,d0
+ call ep7_xb,[d2,d3,a2],16
+ ret [],4
+
+/* xp_sv: split value. a2 = P, d2 = 64 slot + n, d3 = entry 0x10..0x13 -> d0. Uses d0, d2, a2. */
+xp_sv:
+ mov d2,d0
+ and 0xc0,d0
+ add d0,a2
+ mov d3,d0
+ and 2,d0
+ lsr 1,d0
+ add d0,a2
+ movbu (94,a2),d0                 /* P + 32 + 64 slot + 62 / 63 */
+ mov d0,d2
+ and 15,d2                        /* colour */
+ cmp 12,d2
+ bcc 8f
+ asl 24,d0
+ asr 28,d0                        /* strength s4 */
+ cmp 0,d0
+ beq 9f
+ cmp -5,d0
+ blt 8f
+ cmp 5,d0
+ bgt 8f
+ btst 1,d3
+ bne 9f                           /* strength field */
+ mov d2,d0                        /* colour: 0..5 -> +1..+6, 6..11 -> -6..-1 */
+ cmp 6,d0
+ bcs 1f
+ add -13,d0
+1:
+ inc d0
+ retf [],0
+8:
+ clr d0
+9:
+ retf [],0
+
+xp_get:                           /* facade +8 GetValue (CALLS: d0 id, a1 out; (0,sp) = return = MDR) */
+ cmp 0,a1
+ beq g_next
+ movm [d2,d3,a2],(sp)
+ add -12,sp
+ call xp_find,[],0
+ add 12,sp
+ cmp 0,d3
+ blt g_cur
+ cmp 12,d3
+ bcs g_old
+ cmp 0x20,d3
+ beq g_zero
+ add -4,sp
+ call xp_sw,[],4
+ add 4,sp
+ cmp 1,d0
+ beq g_zero
+ add -4,sp
+ call xp_sv,[],0
+ add 4,sp
+ mov (12,sp),d2                   /* the wheel polygon (ed_poly) gets -5..+5 */
+ cmp {poly_ret},d2
+ bne g_val
+ cmp -5,d0
+ bge 1f
+ mov -5,d0
+1:
+ cmp 5,d0
+ ble g_val
+ mov 5,d0
+ bra g_val
+g_cur:                            /* cursor setting while xp_guide runs the old chain */
+ mov d0,d2
+ exthu d2
+ cmp 1091,d2
+ beq 2f
+ cmp 1096,d2
+ beq 2f
+ cmp 1097,d2
+ beq 2f
+ cmp 1686,d2
+ bne g_miss
+2:
+ XPV g_miss
+ movbu ({sub},a2),d2
+ lsr 4,d2
+ cmp 0,d2
+ beq g_miss
+ mov d2,d0
+ bra g_val
+g_old:                            /* id of the old sector */
+ and 63,d2
+ sub d2,d0
+ add d3,d0
+ bra g_miss
+g_zero:
+ clr d0
+g_val:
+ mov d0,(a1)
+ mov (12,sp),d3
+ mov d3,mdr
+ movm (sp),[d2,d3,a2]
+ clr d0
+ rets
+g_miss:
+ mov (12,sp),d3
+ mov d3,mdr
+ movm (sp),[d2,d3,a2]
+g_next:
+ jmp ep7_get_next
+
+xp_def:                           /* facade +152 GetDefault (CALLS: d0 id, a1 out) */
+ cmp 0,a1
+ beq d_next
+ movm [d2,d3,a2],(sp)
+ add -12,sp
+ call xp_find,[],0
+ add 12,sp
+ cmp 0,d3
+ blt d_miss
+ cmp 12,d3
+ bcc 1f
+ and 63,d2                        /* old sector: its own default */
+ sub d2,d0
+ add d3,d0
+ bra d_miss
+1:
+ clr d0                           /* split (Off / 0) and empty sectors */
+ mov d0,(a1)
+ mov (12,sp),d3
+ mov d3,mdr
+ movm (sp),[d2,d3,a2]
+ rets
+d_miss:
+ mov (12,sp),d3
+ mov d3,mdr
+ movm (sp),[d2,d3,a2]
+d_next:
+ jmp ep7_def_next
+
+/* facade +24 count / +28 value by index / +36 available: the split colour sectors get the list -6..+6 */
+ .macro LHIT miss
+ movm [d2,d3,a2],(sp)
+ add -12,sp
+ call xp_find,[],0
+ add 12,sp
+ cmp 0x10,d3
+ beq 7f
+ cmp 0x12,d3
+ bne \miss
+7:
+ mov (12,sp),d3
+ mov d3,mdr
+ movm (sp),[d2,d3,a2]
+ .endm
+ .macro LMISS next
+ mov (12,sp),d3
+ mov d3,mdr
+ movm (sp),[d2,d3,a2]
+ jmp \next
+ .endm
+
+xp_cnt:                           /* CALLS: d0 id -> d0 count */
+ LHIT 9f
+ mov 13,d0
+ rets
+9:
+ LMISS ep7_cnt
+
+xp_val:                           /* CALLS: d0 id, d1 index, a1 out or 0 -> d0 value */
+ LHIT 9f
+ mov d1,d0
+ exthu d0
+ add -6,d0
+ cmp 0,a1
+ beq 1f
+ mov d0,(a1)
+1:
+ rets
+9:
+ LMISS ep7_val
+
+xp_av:                            /* CALLS: d0 id, d1 value -> d0 1 available */
+ LHIT 9f
+ clr d0
+ cmp -6,d1
+ blt 1f
+ cmp 6,d1
+ bgt 1f
+ mov 1,d0
+1:
+ rets
+9:
+ LMISS ep7_av
+
+xp_set:                           /* `call xp_set,[d2,d3,a2],16` at 0x607fa355: d0 id, d1 value, a0/a1; (16,sp) = return = MDR */
+ add -12,sp
+ call xp_find,[],0
+ add 12,sp
+ cmp 0,d3
+ bge 1f
+ mov (16,sp),d3
+ mov d3,mdr
+ jmp ep7_set_next
+1:
+ add -20,sp                       /* (4) id, (8) a0, (12) a1, (16) value; the site's return is now (36,sp) */
+ mov d0,(4,sp)
+ mov a0,(8,sp)
+ mov a1,(12,sp)
+ mov d1,(16,sp)
+ cmp 12,d3
+ bcc 2f
+ and 63,d2                        /* old sector: the old chain with its id (it writes, marks dirty, runs the manager) */
+ sub d2,d0
+ add d3,d0
+ call ep7_set_next,[d2,d3,a2],16
+ bra s_ref
+2:
+ cmp 0x20,d3
+ beq s_ref                        /* empty */
+ mov (0x61fc3800),d0              /* ALL mode: write nothing */
+ cmp 0,d0
+ bne s_ref
+ mov (0x61fc3804),d0
+ cmp 0,d0
+ bne s_ref
+ call xp_sw,[],4
+ cmp 1,d0
+ beq s_ref                        /* Movie / AP: split stays 0 */
+ mov d2,d0
+ and 0xc0,d0
+ add d0,a2
+ mov d3,d0
+ and 2,d0
+ lsr 1,d0
+ add d0,a2                        /* byte at (94,a2) */
+ mov (16,sp),d1
+ movbu (94,a2),d0
+ btst 1,d3
+ bne 5f
+ cmp -6,d1                        /* colour: -6..+6 */
+ bge 3f
+ mov -6,d1
+3:
+ cmp 6,d1
+ ble 4f
+ mov 6,d1
+4:
+ cmp 0,d1
+ bne 41f
+ and 15,d0                        /* Off: strength 0, the colour nibble stays */
+ cmp 12,d0
+ bcs s_put
+ clr d0
+ bra s_put
+41:
+ bgt 42f
+ add 12,d1                        /* -6..-1 -> 6..11 */
+ bra 43f
+42:
+ add -1,d1                        /* +1..+6 -> 0..5 */
+43:
+ mov d0,d2                        /* keep a valid strength, else +3 */
+ and 15,d2
+ cmp 12,d2
+ bcc 44f
+ asl 24,d0
+ asr 28,d0
+ cmp 0,d0
+ beq 44f
+ cmp -5,d0
+ blt 44f
+ cmp 5,d0
+ ble 45f
+44:
+ mov 3,d0
+45:
+ and 15,d0
+ asl 4,d0
+ or d1,d0
+ bra s_put
+5:
+ cmp -5,d1                        /* strength: -5..+5, a colour >= 12 becomes 0 */
+ bge 6f
+ mov -5,d1
+6:
+ cmp 5,d1
+ ble 7f
+ mov 5,d1
+7:
+ and 15,d0
+ cmp 12,d0
+ bcs 8f
+ clr d0
+8:
+ and 15,d1
+ asl 4,d1
+ or d1,d0
+s_put:
+ movbu d0,(94,a2)
+ movhu ({state}),d2               /* dirty: the editor saves the card on the next half-press */
+ add -1,d2
+ mov d2,a2
+ add {pool},a2
+ mov 1,d2
+ movbu d2,({dirty},a2)
+s_ref:                            /* the manager with the id's unchanged S value: its listeners redraw this sector */
+ mov (4,sp),d0
+ call ep7_sget,[],4
+ mov d0,d1
+ mov (4,sp),d0
+ mov (8,sp),a0
+ mov (12,sp),a1
+ add 20,sp
+ mov (16,sp),d2
+ mov d2,mdr
+ jmp ep7_manager
+
+/* xp_step: ed_info k_step's first two instructions (a2 = P, a3 = parent) */
+xp_step:
+ movbu ({axis},a2),d0
+ cmp {x_axis},d0
+ bne 1f
+ movbu ({sub},a2),d1
+ and 1,d1
+ bne 2f                           /* Colour & Light: on to Film / Saturation as before */
+ mov 1,d1
+ movbu d1,({sub},a2)
+ mov {x_axis},d1
+ jmp ep7_k_set
+1:
+ cmp 1,d0                         /* Light -> Effects */
+ bne 2f
+ clr d1
+ movbu d1,({sub},a2)
+2:
+ mov 2,d1
+ jmp ep7_k_back
+
+xp_guide:                         /* guide part word 0x6025aa98 (CALLS, a0 = view) */
+ movm [d2,d3,a2,a3],(sp)
+ add -16,sp                       /* (0) call slot, (4) facade out, (8) entry or -1, (12) 64 slot + n */
+ mov a0,a3
+ mov -1,d0
+ mov d0,(8,sp)
+ XPV q_run
+ call ep7_facade,[],4             /* picture mode (111) -> cursor setting and slot */
+ mov (a0),a2
+ mov (8,a2),a2
+ mov sp,a1
+ add 4,a1
+ mov 111,d0
+ calls (a2)
+ cmp 0,d0
+ bne q_run
+ mov (4,sp),d0
+ mov 1091,d3
+ clr d1
+ cmp 54,d0
+ beq 1f
+ mov 1096,d3
+ mov 64,d1
+ cmp 55,d0
+ beq 1f
+ mov 1097,d3
+ mov 128,d1
+ cmp 56,d0
+ beq 1f
+ mov 1686,d3
+ mov 192,d1
+ cmp 64,d0
+ bne q_run
+1:
+ mov d1,(12,sp)
+ call ep7_facade,[],4
+ mov (a0),a2
+ mov (8,a2),a2
+ mov sp,a1
+ add 4,a1
+ mov d3,d0
+ calls (a2)
+ cmp 0,d0
+ bne q_run
+ mov (4,sp),d2                    /* cursor 1..12 */
+ add -1,d2
+ cmp 12,d2
+ bcc q_run
+ mov (12,sp),d0
+ or d2,d0
+ mov d0,(12,sp)
+ XPV q_run
+ movbu ({sub},a2),d0
+ and 1,d0
+ mov d0,d1                        /* d1 = sub */
+ beq 2f
+ mov 12,d0
+2:
+ add d2,d0
+ mov xp_map,a0
+ movbu (d0,a0),d0
+ mov d0,(8,sp)
+ cmp 12,d0                        /* the cursor the old chain sees: old sector + 1, else 12 */
+ bcs 3f
+ mov 11,d0
+3:
+ inc d0
+ asl 4,d0
+ or d1,d0
+ movbu d0,({sub},a2)
+q_run:
+ mov a3,a0
+ calls ep7_guide_in               /* ap_gd -> ex_guide -> ed_guide -> stock */
+ mov d0,d2
+ mov (8,sp),d0
+ cmp 0,d0
+ blt q_out
+ XPV q_out
+ movbu ({sub},a2),d0
+ and 1,d0
+ mov d0,d1                        /* d1 = sub */
+ movbu d0,({sub},a2)              /* cursor override off */
+ movhu (44,a3),d0
+ cmp 5,d0
+ bne q_out
+ mov (8,sp),d0
+ cmp 12,d0
+ bcs q_num
+ mov (0x61fc3800),d3              /* ALL on: keep the old chain's "no All" text */
+ cmp 0,d3
+ bne q_out
+ mov (0x61fc3804),d3
+ cmp 0,d3
+ bne q_out
+ cmp 0x20,d0
+ bne 4f
+ mov xp_t_e0,a2                   /* empty */
+ cmp 0,d1
+ beq q_put1
+ mov xp_t_e1,a2
+ bra q_put1
+4:
+ mov xp_t_lock,a2
+ call xp_sw,[],4
+ cmp 1,d0
+ beq q_put1
+ movhu ({state}),d3               /* split value from P */
+ add -1,d3
+ mov d3,a2
+ add {pool},a2
+ mov (12,sp),d2
+ mov (8,sp),d3
+ call xp_sv,[],0                  /* d0 = value, colour -6..6 / strength -5..5 */
+ mov (8,sp),d3
+ mov d3,d1
+ and 15,d1                        /* field 0..3 */
+ asl2 d1
+ mov xp_pre,a2
+ add d1,a2
+ mov (a2),a2                      /* prefix */
+ btst 1,d3
+ bne 5f
+ add 6,d0                         /* colour: 0 Off, +n colour n-1, -n colour 12-n */
+ mov xp_col,a0
+ bra 6f
+5:
+ add 5,d0                         /* strength */
+ mov xp_num,a0
+6:
+ asl2 d0
+ add d0,a0
+ mov (a0),a0                      /* suffix */
+ bra q_put2
+q_num:                            /* old sector label: leading number -> new sector number */
+ movhu (52,a3),d0
+ add -48,d0
+ cmp 10,d0
+ bcc q_out
+ movhu (54,a3),d0
+ cmp 32,d0
+ beq 8f
+ add -48,d0
+ cmp 10,d0
+ bcc q_out
+ movhu (56,a3),d0
+ cmp 32,d0
+ bne q_out
+ mov a3,a0                        /* two digits -> one: shift the text left by one unit */
+ add 54,a0
+ mov 31,d1
+7:
+ movhu (2,a0),d0
+ movhu d0,(a0)
+ add 2,a0
+ add -1,d1
+ bne 7b
+8:
+ mov (12,sp),d0
+ and 63,d0
+ add 49,d0                        /* '1' + n */
+ movhu d0,(52,a3)
+ bra q_out
+q_put1:
+ mov 0,a0
+q_put2:                           /* kind 5 text: a2 then a0, at most 16 characters */
+ mov 5,d0
+ movhu d0,(44,a3)
+ mov a3,a1
+ add 52,a1
+ mov 33,d3
+ clr d0
+1:
+ movhu d0,(a1)
+ add 2,a1
+ add -1,d3
+ bne 1b
+ mov a3,a1
+ add 52,a1
+ mov 16,d3
+2:
+ movbu (a2),d0
+ cmp 0,d0
+ bne 3f
+ cmp 0,a0
+ beq q_out
+ mov a0,a2
+ mov 0,a0
+ bra 2b
+3:
+ movhu d0,(a1)
+ inc a2
+ add 2,a1
+ add -1,d3
+ bne 2b
+q_out:
+ mov d2,d0
+ ret [d2,d3,a2,a3],32
+
+ .balign 4
+xp_map:                           /* [sub][n]: old sector index, 0x10 + split field, 0x20 empty */
+ .byte 0, 1, 10, 4, 9, 8, 7, 0x20, 0x20, 0x20, 0x20, 0x20
+ .byte 2, 3, 5, 6, 0x10, 0x11, 0x12, 0x13, 0x20, 0x20, 0x20, 0x20
+xp_pre:
+ .long xp_p0, xp_p1, xp_p2, xp_p3
+xp_col:
+ .long xp_c6, xp_c7, xp_c8, xp_c9, xp_c10, xp_c11, xp_off, xp_c0, xp_c1, xp_c2, xp_c3, xp_c4, xp_c5
+xp_num:
+ .long xp_n0, xp_n1, xp_n2, xp_n3, xp_n4, xp_n5, xp_n6, xp_n7, xp_n8, xp_n9, xp_n10
+xp_p0: .asciz "5 Shadow "
+xp_p1: .asciz "6 Shadow "
+xp_p2: .asciz "7 High "
+xp_p3: .asciz "8 High "
+xp_off: .asciz "Off"
+xp_c0: .asciz "Yellow"
+xp_c1: .asciz "Orange"
+xp_c2: .asciz "Or-Red"
+xp_c3: .asciz "Red"
+xp_c4: .asciz "Magenta"
+xp_c5: .asciz "Violet"
+xp_c6: .asciz "Blue"
+xp_c7: .asciz "Bl-Cyan"
+xp_c8: .asciz "Cyan"
+xp_c9: .asciz "Gr-Cyan"
+xp_c10: .asciz "Green"
+xp_c11: .asciz "Yl-Green"
+xp_n0: .asciz "-5"
+xp_n1: .asciz "-4"
+xp_n2: .asciz "-3"
+xp_n3: .asciz "-2"
+xp_n4: .asciz "-1"
+xp_n5: .asciz "0"
+xp_n6: .asciz "+1"
+xp_n7: .asciz "+2"
+xp_n8: .asciz "+3"
+xp_n9: .asciz "+4"
+xp_n10: .asciz "+5"
+xp_t_e0: .asciz "Effects: 1-7"
+xp_t_e1: .asciz "Colour: 1-8"
+xp_t_lock: .asciz "Split: COLOR 1-4"
+xp_end:

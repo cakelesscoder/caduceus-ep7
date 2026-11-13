@@ -1,0 +1,429 @@
+/* E-P7 1.1 split toning at the gamma stage (G1), DRAFT: not built, not emulated. docs/SPLIT_TONE_G1.md.
+ * Field meanings = Caduceus for OM-3 v0.26 (webapp/src/split.ts): slot +53 shadow colour 0..11, +54 shadow strength s8
+ * -5..5, +55 highlight colour 0..11, +56 highlight strength s8 -5..5. Per channel c, on the stock gamma output g:
+ * r = 4095 - g, ws = ((g r >> 12) r) >> 12, wh = ((g g >> 12) r) >> 12, out = clamp(g + ((Ks ws + Kh wh) >> 8)),
+ * running max; Ks = st_k[sh_color][c] * sh, Kh = st_k[hl_color][c] * hl.
+ *
+ *   st_g1   <- jmp at 0x603ae830 (gamma stage 0x603ae80d, after gamma_select). Displaced movbu d0,(60,sp);
+ *              mov (36,sp),a0; resume 0x603ae835. Stills COLOR1-4 only (bundles hl job guard), single-curve select
+ *              (d0 = 1, R = G = B), entry from tbl_idx == P+32+64k, split bytes in range, a strength != 0, L carrying
+ *              this P's split block. R/G/B = one of two keyed RAM curve sets in L; the stage's change cache
+ *              (R+1484)+5736 word 0 cleared so the LUT uploads.
+ *   st_trim <- jmp at fm_load's `call fm_check` (0x6143a4ed): LOOKS.BIN v4 extension check/copy, header back to v3.
+ *   st_pick <- sl_pick's tail jmp (0x601e3a16): a library pick copies the look's extension bytes 0..3 to slot +53..+56.
+ * L (malloc 7168): +2560 'EP7S', +2564 P, +2568 n, +2569 last set, +2576 key[2] {source, split word}, +3072 extension
+ *   n x 16, +3584 set 0 (R, G, B x 512), +5120 set 1.
+ * Stores: L, the stack, one word of the stage's change cache. mul with MDR saved (movm other). No div / setlb.
+ */
+ .am33_2
+ .text
+ .global _start
+_start:
+
+ .set FL_MAGIC, {lmagic}
+ .set FF_MAGIC, {fmagic}
+ .set ST_MAGIC, {smagic}
+ .set O, 76                       /* movm [d2,d3,a2,a3,other] (44 B) + 32 B locals below the stage's frame */
+ .set KS, 0
+ .set KH, 4
+ .set MX, 8
+ .set CH, 12
+ .set SPL, 20                     /* split bytes +53..+56 as one word */
+ .set SET, 24
+
+st_g1:
+ movbu d0,(60,sp)                 /* displaced 1 */
+ movm [d2,d3,a2,a3,other],(sp)
+ add -32,sp
+ bra g_go
+g_out:
+ add 32,sp
+ movm (sp),[d2,d3,a2,a3,other]
+ mov (36,sp),a0                   /* displaced 2 */
+ jmp ep7_g1_resume
+g_go:
+ movbu (60+O,sp),d0
+ cmp 1,d0
+ bne g_out
+ mov (72+O,sp),d0
+ cmp 0,d0
+ beq g_out
+ mov (68+O,sp),d1
+ cmp d0,d1
+ bne g_out
+ mov (76+O,sp),d1
+ cmp d0,d1
+ bne g_out
+ mov (40+O,sp),a1                 /* request: the bundles hl guard */
+ mov (a1),d0
+ cmp {callback},d0
+ bne g_out
+ mov (4,a1),d0
+ mov a1,a0
+ add {rec_off},a0
+ mov {n_rec},d2
+1:
+ cmp a0,d0
+ beq 2f
+ add {stride},a0
+ add -1,d2
+ bne 1b
+g_o2:
+ bra g_out
+2:
+ mov (a0),d1
+ mov a1,a0
+ add -{req_in_job},a0
+ cmp a0,d1
+ bne g_o2
+ movbu ({ext_magic},a0),d0
+ cmp {magic},d0
+ bne g_o2
+ movbu ({ext_mode},a0),d0
+ cmp 11,d0
+ bne g_o2
+ movbu ({ext_profile},a0),d0
+ add -1,d0
+ cmp 4,d0
+ bcc g_o2
+ mov d0,d2
+ call ep7_tbl_idx,[d2,d3],8       /* a0 = entry */
+ movhu ({state}),d3
+ add -1,d3
+ cmp {lim},d3
+ bcc g_o2
+ btst 3,d3
+ bne g_o2
+ mov d3,a2
+ add {pool},a2
+ mov (a2),d3
+ cmp {bmagic},d3
+ bne g_o2
+ asl 6,d2
+ add a2,d2
+ add 32,d2
+ mov a0,d1
+ cmp d2,d1
+ bne g_o2
+ mov a0,a1
+ add 53,a1
+ clr d3
+ mov 3,d2
+3:
+ asl 8,d3
+ movbu (d2,a1),d0                 /* +56, +55, +54, +53 */
+ or d0,d3
+ btst 1,d2
+ beq 4f
+ extb d0
+ add 5,d0
+ cmp 11,d0
+ bra 5f
+4:
+ cmp 12,d0
+5:
+ bcc g_o2
+ add -1,d2
+ bcs 3b
+ mov d3,d0
+ and 0xff00ff00,d0
+ beq g_o2
+ mov d3,(SPL,sp)
+ call st_lv,[],4
+ bne g_o2
+ mov a0,a3
+ mov (68+O,sp),d1
+ movbu (2569,a3),d2
+ and 1,d2
+ call st_key,[],4
+ beq g_use
+ xor 1,d2
+ call st_key,[],4
+ beq g_use
+ clr d0
+ mov d0,(a0)
+ jmp st_build
+g_use:
+ movbu d2,(2569,a3)
+ clr d0
+ cmp 0,d2
+ beq 6f
+ mov 1536,d0
+6:
+ add a3,d0
+ add 3584,d0
+ mov d0,(68+O,sp)
+ add 512,d0
+ mov d0,(72+O,sp)
+ add 512,d0
+ mov d0,(76+O,sp)
+ mov (40+O,sp),a1
+ mov (1484,a1),d0
+ cmp 0,d0
+ beq 7f
+ add 5736,d0
+ mov d0,a1
+ clr d0
+ mov d0,(a1)
+7:
+ jmp g_out
+
+st_key:                           /* a3 = L, d2 = set, d1 = source, d3 = split -> a0 = key, Z when equal. Uses d0 */
+ mov d2,d0
+ asl 3,d0
+ add a3,d0
+ add 2576,d0
+ mov d0,a0
+ mov (a0),d0
+ cmp d1,d0
+ bne 1f
+ mov (4,a0),d0
+ cmp d3,d0
+1:
+ ret [],4
+
+st_lv:                            /* a2 = P -> Z and a0 = L with this P's split block. Uses d0, d1 */
+ mov (1020,a2),d0
+ cmp FF_MAGIC,d0
+ bne 1f
+ mov (1016,a2),a0
+ mov a0,d0
+ btst 3,d0
+ bne 1f
+ add {npool},d0
+ cmp {llim},d0
+ bcc 1f
+ mov (2112,a0),d0
+ cmp FL_MAGIC,d0
+ bne 1f
+ mov a2,d1
+ mov (2116,a0),d0
+ cmp d1,d0
+ bne 1f
+ mov (2564,a0),d0
+ cmp d1,d0
+ bne 1f
+ mov (2560,a0),d0
+ cmp ST_MAGIC,d0
+1:
+ ret [],4
+
+ .section .stb,"ax"
+st_build:                         /* a3 = L, d2 = s, (SPL,sp) split word; frame as st_g1 */
+ mov d2,(SET,sp)
+ mov 3584,a1
+ cmp 0,d2
+ beq 1f
+ mov 5120,a1
+1:
+ add a3,a1
+ clr d2
+2:
+ mov d2,(CH,sp)
+ mov st_k,a0
+ movbu (SPL,sp),d0
+ movbu (SPL+1,sp),d1
+ call st_kc,[],4
+ mov d0,(KS,sp)
+ movbu (SPL+2,sp),d0
+ movbu (SPL+3,sp),d1
+ call st_kc,[],4
+ mov d0,(KH,sp)
+ clr d0
+ mov d0,(MX,sp)
+ mov (68+O,sp),a0
+ mov 256,a2
+3:
+ movhu (a0),d0
+ cmp 4096,d0
+ bcs 4f
+ mov 4095,d0
+4:
+ mov 4095,d1
+ sub d0,d1
+ mov d0,d2
+ mul d1,d2
+ lsr 12,d2
+ mul d1,d2
+ lsr 12,d2
+ mov (KS,sp),d3
+ mul d2,d3
+ mov d0,d2
+ mul d0,d2
+ lsr 12,d2
+ mul d1,d2
+ lsr 12,d2
+ mov (KH,sp),d1
+ mul d1,d2
+ add d2,d3
+ asr 8,d3
+ add d0,d3
+ cmp 0,d3
+ bge 5f
+ clr d3
+5:
+ cmp 4096,d3
+ blt 6f
+ mov 4095,d3
+6:
+ mov (MX,sp),d1
+ cmp d1,d3
+ bge 7f
+ mov d1,d3
+7:
+ mov d3,(MX,sp)
+ movhu d3,(a1)
+ add 2,a0
+ add 2,a1
+ add -1,a2
+ cmp 0,a2
+ bne 3b
+ mov (CH,sp),d2
+ inc d2
+ cmp 3,d2
+ bcs 2b
+ mov (SET,sp),d2
+ mov (SPL,sp),d3
+ mov (68+O,sp),d1
+ call st_key,[],4
+ mov d3,(4,a0)
+ mov d1,(a0)
+ jmp g_use
+
+st_kc:                            /* a0 = st_k, d0 colour, d1 strength byte, d2 = c -> d0 = k * s. Uses d3 */
+ mov d0,d3
+ add d3,d3
+ add d3,d0
+ add d2,d0
+ movbu (d0,a0),d0
+ extb d0
+ extb d1
+ mul d1,d0
+ ret [],4
+
+ .balign 4
+st_k:                             /* webapp/src/split.ts SPLIT_K (R, G, B per colour) */
+{k_table}
+
+ .section .stt,"ax"
+st_trim:                          /* a3 = L, d3 = size, a2 = P, d2 = bytes read; keeps d2, a2, a3 */
+ bra t_chk
+t_go:
+ call ep7_fm_check,[d2,d3,a2,a3],20
+ jmp ep7_fm_after
+t_chk:
+ clr d0
+ mov d0,(2560,a3)
+ movhu (4,a3),d0
+ cmp 4,d0
+ bne t_go
+ movhu (24,a3),d1
+ cmp 1,d1
+ bcs t_go
+ cmp 33,d1
+ bcc t_go
+ mov d1,d0
+ asl 6,d0
+ add 64,d0
+ mov d0,a1                        /* a1 = 64 + 64 n */
+ mov d1,d0
+ asl 4,d0
+ add a1,d0
+ cmp d3,d0
+ bne t_go
+ mov (36,a3),d0
+ cmp 16,d0
+ bne t_go
+ mov a1,a0
+ add a3,a0
+ asl 4,d1
+ mov -1,d0
+ call ep7_fm_crc,[d2,d3],8        /* keeps a1 */
+ not d0
+ mov (32,a3),d1
+ cmp d1,d0
+ bne t_go
+ mov a1,a0
+ add a3,a0
+ movhu (24,a3),d1
+1:
+ movbu (0,a0),d0
+ cmp 12,d0
+ bcc t_go
+ movbu (2,a0),d0
+ cmp 12,d0
+ bcc t_go
+ movbu (1,a0),d0
+ extb d0
+ add 5,d0
+ cmp 11,d0
+ bcc t_go
+ movbu (3,a0),d0
+ extb d0
+ add 5,d0
+ cmp 11,d0
+ bcc t_go
+ add 16,a0
+ add -1,d1
+ bne 1b
+ mov a1,a0
+ add a3,a0
+ mov a3,a1
+ add 3072,a1
+ movhu (24,a3),d1
+ asl 4,d1
+2:
+ movbu (a0),d0
+ movbu d0,(a1)
+ inc a0
+ inc a1
+ add -1,d1
+ bne 2b
+ mov 3,d0
+ movhu d0,(4,a3)
+ clr d0
+ mov d0,(32,a3)
+ mov d0,(36,a3)
+ mov d0,(2576,a3)
+ mov d0,(2584,a3)
+ movbu d0,(2569,a3)
+ movhu (24,a3),d0
+ movbu d0,(2568,a3)
+ asl 6,d0
+ add 64,d0
+ mov d0,d3
+ mov a2,(2564,a3)
+ mov ST_MAGIC,d0
+ mov d0,(2560,a3)
+ bra t_go
+
+ .section .stp,"ax"
+st_pick:                          /* a2 = P, d3 = k; uses d0, d1, a0, a1 */
+ cmp 4,d3
+ bcc 9f
+ call st_lv,[],4
+ bne 9f
+ mov a0,a1
+ add d3,a1
+ movbu (2121,a1),d0
+ add -1,d0
+ movbu (2568,a0),d1
+ cmp d1,d0
+ bcc 9f
+ asl 4,d0
+ add d0,a0
+ add 3072,a0
+ mov d3,d0
+ asl 6,d0
+ add a2,d0
+ add 85,d0
+ mov d0,a1
+ clr d1
+1:
+ movbu (d1,a0),d0
+ movbu d0,(d1,a1)
+ inc d1
+ cmp 4,d1
+ bne 1b
+9:
+ jmp ep7_fm_post

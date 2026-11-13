@@ -1,5 +1,4 @@
 import './style.css';
-import libraryJson from './data/library.json';
 import { decodeLooksBin, encodeBundlesBin, hasTone, nameProblem, PackError, validatePack, type Problem, FW_LATEST, firmware, setFirmware, type Fw } from './format';
 import {
   ARTS, HALO_STAGES, HALO_TINTS, MAX_LOOKS, MONO_FILTERS, NAME_MAX, NOTE_MAX, PACK_SCHEMA, SECTORS, SLOT_NAMES, TONE_KEYS, blankLook, cloneLook, lookHalo, setLookHalo,
@@ -7,6 +6,7 @@ import {
 } from './pack';
 import { History } from './history';
 import { fromLibrary, libraryOrigin, migratePack, replaceRetiredLooks, resetLook, standardPack } from './reset';
+import { PRESETS, defaultPreset, legacyPreset, presetById, presetOf, type PresetPack } from './packs';
 import { renderLook } from './preview';
 import { decodeLookCode, decodePackCode, encodeLookCode, encodePackCode, isPackCode } from './sharecode';
 import { makeZip } from './zip';
@@ -18,12 +18,14 @@ import { rrpreset } from './rapidraw';
 import { TARGETS, targetById } from './targets';
 import { recipeCard } from './targets/recipe';
 import { previewToneLut } from './tone';
+import { SPLIT_COLOURS, SPLIT_MAX, hasSplit } from './split';
 
 // ---------------------------------------------------------------- state
-const LIBRARY = parsePack(libraryJson);
+// Standard 1.0 = the built-in library before preset packs: saved packs from then are migrated against it (below).
+const LIBRARY = legacyPreset().pack;
 const STORE = 'caduceus.pack.v2', STORE_V1 = 'caduceus.pack.v1', STORE_LIB = 'caduceus.library';
 // '+m2': forces one more migration pass for packs saved before tone fingerprints were handled
-const LIB_VERSION: string = ((libraryJson as { version?: string }).version ?? 'dev') + '+m2';
+const LIB_VERSION: string = (legacyPreset().stamp ?? 'dev') + '+m2';
 const SAMPLES = [
   { id: 'neon', label: 'Neon' }, { id: 'harbour', label: 'Harbour' }, { id: 'portrait', label: 'Portrait' },
   { id: 'forest', label: 'Forest' }, { id: 'brasserie', label: 'Night' },
@@ -47,7 +49,7 @@ const NR_OPTS: [Grain, string][] = [['off', 'Camera'], ['standard', 'Std'], ['fi
 const SHARP_OPTS: [Sharp, string][] = [['camera', 'Camera'], ['off', 'Off']];
 const HALO_OPTS: [Halo, string][] = [['look', 'Look'], ['off', 'Off'], ['low', 'Low'], ['med', 'Med'], ['high', 'High']];
 
-/** The saved pack brought up to the current built-in library (or the library itself for a first visit). */
+/** The saved pack brought up to the current built-in library (or the default preset pack for a first visit). */
 function startPack(): Pack {
   const stored = loadStored();
   const swap = stored ? replaceRetiredLooks(stored, LIBRARY) : null;
@@ -59,7 +61,7 @@ function startPack(): Pack {
   let prev: { version?: string; names?: string[] } = {};
   try { prev = JSON.parse(localStorage.getItem(STORE_LIB) ?? '{}'); } catch { /* none */ }
   const stamp = () => { try { localStorage.setItem(STORE_LIB, JSON.stringify({ version: LIB_VERSION, names: LIBRARY.looks.map((l) => l.name) })); } catch { /* private mode */ } };
-  if (!saved) { stamp(); return standardPack(LIBRARY); }
+  if (!saved) { stamp(); return standardPack(defaultPreset().pack); }
   if (prev.version === LIB_VERSION) return saved;
   const m = migratePack(saved, LIBRARY, prev.names);
   stamp();
@@ -187,8 +189,9 @@ function shell() {
           h('button', { id: 'undo', class: 'icon', title: 'Undo (Ctrl+Z)', 'aria-label': 'Undo', disabled: true, onclick: () => step('undo') }, '↶'),
           h('button', { id: 'redo', class: 'icon', title: 'Redo (Ctrl+Shift+Z)', 'aria-label': 'Redo', disabled: true, onclick: () => step('redo') }, '↷')),
         menu('New', [
-          ['Reset pack to standard', () => newPack('library')],
-          ['Empty pack', () => newPack('empty')],
+          ...PRESETS.map((p): [string, () => void] => [`Start from ${p.label}${p === defaultPreset() ? ' (default)' : ''}`, () => newPack(p)]),
+          ['Mix looks from packs…', () => libraryPicker()],
+          ['Empty pack', () => newPack(null)],
         ]),
         h('button', { onclick: openFile }, 'Open…'),
         h('button', { onclick: pasteDialog }, 'Paste code'),
@@ -231,6 +234,7 @@ function renderList() {
   const problems = validatePack(p);
   const bad = new Set(problems.map((x) => x.look).filter((x) => x !== undefined));
   const n = p.looks.length;
+  const mixed = new Set(p.looks.map((l) => presetOf(l)?.id).filter(Boolean)).size > 1;   // tag each look with its pack
   el.replaceChildren(
     h('label', { class: 'field' }, h('span', { class: 'lbl' }, 'Pack name'),
       h('input', { type: 'text', value: p.name, maxlength: 60, oninput: (e: Event) => draft(() => { p.name = (e.target as HTMLInputElement).value; save(); }), onchange: checkpoint, onkeydown: enterCommits })),
@@ -253,7 +257,7 @@ function renderList() {
       },
       h('span', { class: 'grip', 'aria-hidden': 'true' }, '⋮⋮'),
       h('span', { class: 'idx' }, String(i + 1)),
-      h('span', { class: 'nm' }, l.name || '(no name)'),
+      h('span', { class: 'nm' }, l.name || '(no name)', mixed && presetOf(l) ? h('span', { class: 'from', title: `From ${presetOf(l)!.label}` }, presetOf(l)!.version) : null),
       l.kind === 'mono' ? h('span', { class: 'kind mono', title: 'Monochrome look' }, 'B&W') : h('span'),
       h('span', { class: 'row-btns' },
         h('button', { class: 'icon', title: 'Move up (Alt+↑)', 'aria-label': 'Move up', disabled: i === 0, onclick: (e: Event) => { e.stopPropagation(); move(i, i - 1); } }, '↑'),
@@ -266,7 +270,7 @@ function renderList() {
       menu('+ Add look', [
         ['Blank colour look', () => addLook(blankLook('colour', uniqueName('New Look')))],
         ['Blank mono look', () => addLook(blankLook('mono', uniqueName('New Mono')))],
-        ['From the built-in library…', libraryPicker],
+        ['From a preset pack…', () => libraryPicker()],
         ['Duplicate selected', () => { const l = cur(); if (l) addLook({ ...cloneLook(l), name: uniqueName(l.name) }); }],
         ['Paste a look code…', pasteDialog],
       ])));
@@ -274,7 +278,17 @@ function renderList() {
 function enterCommits(e: KeyboardEvent) { if (e.key === 'Enter') checkpoint(); }
 function focusSel() { ($('#list li.sel') as HTMLElement | null)?.focus(); }
 
+/** Look names are at most NAME_MAX (12) characters on every camera (LOOKS.BIN v0.32 keeps split toning in the name
+ *  tail). Longer names from files, codes or links are cut; returns how many were cut. */
+function capNames(looks: Look[]): number {
+  let cut = 0;
+  for (const l of looks) if (l.name.length > NAME_MAX) { l.name = l.name.slice(0, NAME_MAX).trimEnd(); cut++; }
+  return cut;
+}
+const capNote = (cut: number) => (cut ? ` ${cut} name${cut > 1 ? 's were' : ' was'} longer than ${NAME_MAX} characters and ${cut > 1 ? 'were' : 'was'} shortened.` : '');
+
 function uniqueName(base: string): string {
+  base = base.length > NAME_MAX ? base.slice(0, NAME_MAX).trimEnd() : base;
   const names = new Set(S.pack.looks.map((l) => l.name.toLowerCase()));
   if (!names.has(base.toLowerCase())) return base;
   for (let k = 2; k < 100; k++) {
@@ -286,9 +300,11 @@ function uniqueName(base: string): string {
 
 function addLook(l: Look) {
   if (S.pack.looks.length >= MAX_LOOKS) { toast(`A pack holds at most ${MAX_LOOKS} looks. Remove one first.`, 'err'); return false; }
+  const cut = capNames([l]);
   S.pack.looks.push(l);
   S.sel = S.pack.looks.length - 1;
   save(); renderAll();
+  if (cut) toast(`Added "${l.name}".${capNote(cut)}`, 'err');
   return true;
 }
 function remove(i: number) {
@@ -320,29 +336,44 @@ function remapSlots(f: (k: number) => number | undefined) {
   }
 }
 
-function newPack(kind: 'library' | 'empty') {
-  if (!confirm(kind === 'library' ? 'Reset the pack to the standard built-in library? Your current pack is replaced (Undo brings it back).'
+function newPack(preset: PresetPack | null) {
+  if (!confirm(preset ? `Start from the ${preset.label} preset pack? Your current pack is replaced (Undo brings it back).`
     : 'Start an empty pack? The current pack is replaced (Undo brings it back).')) return;
-  S.pack = kind === 'library' ? standardPack(LIBRARY) : { schema: PACK_SCHEMA, name: 'My pack', looks: [blankLook('colour', 'My Look')], slots: {} };
+  S.pack = preset ? standardPack(preset.pack) : { schema: PACK_SCHEMA, name: 'My pack', looks: [blankLook('colour', 'My Look')], slots: {} };
   S.sel = 0;
   save(); renderAll();
-  toast(kind === 'library' ? 'Pack reset to the built-in library' : 'Started an empty pack');
+  toast(preset ? `Pack set to ${preset.label}` : 'Started an empty pack');
 }
 
 function resetSelected() {
   const i = S.sel, l = cur();
   if (!l) return;
-  S.pack.looks[i] = resetLook(l, LIBRARY, S.pack.looks.filter((_, k) => k !== i).map((o) => o.name));
+  const lib = presetOf(l)?.pack ?? LIBRARY;
+  S.pack.looks[i] = resetLook(l, lib, S.pack.looks.filter((_, k) => k !== i).map((o) => o.name));
   save(); renderAll();
-  toast(libraryOrigin(l, LIBRARY) ? `"${S.pack.looks[i].name}" restored to the built-in values` : `"${l.name}" reset to neutral`);
+  toast(libraryOrigin(l, lib) ? `"${S.pack.looks[i].name}" restored to its ${presetOf(l)!.label} values` : `"${l.name}" reset to neutral`);
 }
 
+/** Add looks from any preset pack (mix and match): pick a pack, then click looks to add them. */
+let pickerPack = '';
 function libraryPicker() {
-  const have = new Set(S.pack.looks.map((l) => l.name.toLowerCase()));
-  const list = h('div', { class: 'pick-list' }, ...LIBRARY.looks.map((l) => h('button', {
-    class: 'pick', onclick: () => { if (addLook({ ...fromLibrary(l), name: uniqueName(l.name) })) dlg.close(); },
-  }, h('b', {}, l.name), have.has(l.name.toLowerCase()) ? h('span', { class: 'tag' }, 'in pack') : null, h('small', {}, l.notes))));
-  const dlg = modal('Add from the built-in library', list);
+  let p = presetById(pickerPack) ?? defaultPreset();
+  const body = h('div', {});
+  const draw = () => {
+    const src = (l: Look) => presetOf(l);
+    // "in pack" = this pack's look is already there (from this pack, unedited or not)
+    const have = new Set(S.pack.looks.filter((l) => src(l)?.id === p.id).map((l) => libraryOrigin(l, p.pack)?.name));
+    const names = new Set(S.pack.looks.map((l) => l.name.toLowerCase()));
+    body.replaceChildren(
+      seg('Preset pack', PRESETS.map((q) => [q.id, q.label]), p.id, (v) => { p = presetById(v)!; pickerPack = p.id; draw(); }),
+      h('p', { class: 'help' }, p.notes || ' ', ' Click a look to add it to your pack; looks from several packs can be mixed. A name already in use gets a number.'),
+      h('div', { class: 'pick-list' }, ...p.pack.looks.map((l) => h('button', {
+        class: 'pick', onclick: () => { if (addLook({ ...fromLibrary(l, p.id), name: uniqueName(l.name) })) draw(); },
+      }, h('b', {}, l.name), have.has(l.name) ? h('span', { class: 'tag' }, 'in pack')
+        : names.has(l.name.toLowerCase()) ? h('span', { class: 'tag' }, 'name in use') : null, h('small', {}, l.notes)))));
+  };
+  draw();
+  modal('Add from a preset pack', body);
 }
 
 // ---------------------------------------------------------------- editor
@@ -374,7 +405,7 @@ function renderEditor() {
       h('div', { class: 'ed-btns' },
         h('button', {
           class: 'share-btn', onclick: resetSelected,
-          title: libraryOrigin(l, LIBRARY) ? `Restore the built-in "${libraryOrigin(l, LIBRARY)!.name}" values` : 'Set every value to neutral',
+          title: presetOf(l) && libraryOrigin(l, presetOf(l)!.pack) ? `Restore the ${presetOf(l)!.label} "${libraryOrigin(l, presetOf(l)!.pack)!.name}" values` : 'Set every value to neutral',
         }, 'Reset look'),
         h('button', { class: 'share-btn', onclick: () => shareLook(l), title: 'Share this look as a short code' }, 'Share'))),
     ...(!cam().mono && l.kind === 'mono' ? [h('p', { class: 'warn' }, `The ${cam().short} editor is colour only: this look stays in your pack but is left out of the export.`)] : []),
@@ -385,6 +416,7 @@ function renderEditor() {
     })]),
     l.kind === 'colour' ? sectorPanel(l, changed) : monoPanel(l, changed),
     ...(l.kind === 'colour' ? [tonePanel(l, changed)] : []),
+    ...(l.kind === 'colour' ? [splitPanel(l, changed)] : []),
     ...(cam().lookNr ? [h('div', { class: 'group' },
       seg('Noise reduction', [['off', 'Camera'], ['standard', 'Standard'], ['fine', 'Low'], ['film', 'Off (most texture)'], ...(CAM === 'om3' ? [['high', 'High']] as [string, string][] : [])], l.grain, (v) => { l.grain = v as Look['grain']; renderEditor(); changed(); }))] : []),
     effectPanel(l, changed),
@@ -565,6 +597,24 @@ function tonePanel(l: Look, changed: () => void): HTMLElement {
       'they act in COLOR slots, and a look with a tone is COLOR-only (it cannot go in a MONO slot). Needs Caduceus v0.19 or later. ',
       'The graph shows stock → this look (camera tone LUT model); dots mark the Blacks and Whites ends.'),
   );
+}
+
+/** Split toning (the shared `split` field): a shadow and a highlight tint, a wheel colour and a strength each. */
+function splitPanel(l: Look, changed: () => void): HTMLElement {
+  const sp = () => (l.split ??= { sh_color: 0, sh: 0, hl_color: 0, hl: 0 });
+  const tidy = () => { if (l.split && !l.split.sh && !l.split.hl) delete l.split; };
+  const row = (label: string, ck: 'sh_color' | 'hl_color', sk: 'sh' | 'hl') => {
+    const sel = h('select', { 'aria-label': `${label} colour`, onchange: (e: Event) => { sp()[ck] = Number((e.target as HTMLSelectElement).value); tidy(); changed(); } },
+      ...SPLIT_COLOURS.map(([nm], k) => h('option', { value: k, selected: k === (l.split?.[ck] ?? 0) }, nm)));
+    const { inp, out } = slider(-SPLIT_MAX, SPLIT_MAX, l.split?.[sk] ?? 0, (v) => { sp()[sk] = v; tidy(); changed(); }, undefined, `${label} strength`);
+    return h('div', { class: 'srow split' }, h('span', { class: 'sname' }, label), sel, inp, out);
+  };
+  return h('div', { class: 'group' },
+    h('div', { class: 'tone-head' }, h('span', { class: 'lbl' }, 'Split tone'),
+      hasSplit(l) ? h('button', { class: 'link', onclick: () => { delete l.split; renderEditor(); changed(); } }, 'Reset') : null),
+    row('Shadows', 'sh_color', 'sh'), row('Highlights', 'hl_color', 'hl'),
+    h('p', { class: 'help' }, CAM === 'om3' ? 'Saved in LOOKS.BIN (Caduceus for OM-3 v0.26 or later). A minus strength tints toward the opposite colour.'
+      : 'E-P7 v0.32 or later: picking this look on the camera sets the profile\'s split tone (LOOKS.BIN), and COLOR slots of the starter BUNDLES.BIN get it. Older firmware: not written. Look codes leave it out; pack links keep it.'));
 }
 
 function monoPanel(l: Look, changed: () => void): HTMLElement {
@@ -777,11 +827,12 @@ async function onFile(e: Event) {
 }
 
 function replacePack(p: Pack, msg: string) {
+  const cut = capNames(p.looks);
   S.pack = p;
   S.sel = 0;
   save(); renderAll();
   const probs = validatePack(p);
-  toast(probs.length ? `${msg}. ${probs.length} problem(s) to fix before export.` : msg, probs.length ? 'err' : 'ok');
+  toast((probs.length ? `${msg}. ${probs.length} problem(s) to fix before export.` : `${msg}.`) + capNote(cut), probs.length || cut ? 'err' : 'ok');
 }
 
 function shareLook(l: Look) {
@@ -882,6 +933,7 @@ function fullDialog(l: Look) {
     toast(`Replaced "${old}" with "${l.name}"`);
   });
   fresh.addEventListener('click', () => {
+    capNames([l]);
     S.pack = { schema: PACK_SCHEMA, name: 'My pack', looks: [l], slots: {} };
     S.sel = 0;
     save(); renderAll(); dlg.close();
@@ -945,7 +997,8 @@ function installDialog() {
 
 const STORE_FW = 'caduceus.firmware';
 const FW_OPTIONS: [Fw, string, string][] = [
-  [31, 'v0.31 or later', 'Everything works, including Grain, Sharp and Halo for each COLOR profile.'],
+  [32, 'v0.32 or later', 'Everything works, including split toning on COLOR profiles (a Film pick sets it from LOOKS.BIN) and Grain, Sharp and Halo for each profile.'],
+  [31, 'v0.31', 'Files work. Split toning is left out of LOOKS.BIN and BUNDLES.BIN.'],
   [28, 'v0.28 to v0.30', 'Files work. Halo for each profile is left out of BUNDLES.BIN (looks keep their halation).'],
   [27, 'v0.27', 'Files work. Sharp and Halo for each profile are left out of BUNDLES.BIN.'],
   [25, 'v0.25 or v0.26', 'Files work. Grain is left out of BUNDLES.BIN.'],

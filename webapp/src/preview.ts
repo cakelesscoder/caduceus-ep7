@@ -7,6 +7,7 @@
 // v0.19 the Film pick sets the profile's H/S/M from the look's own tone.
 import { FILM_GRAINS, GRAINS, toneIsZero, type FilmGrain, type Look } from './pack';
 import { previewToneLut } from './tone';
+import { bendSplit, hasSplit } from './split';
 
 // Firmware COLOR table (generated/color/ep7_color_table.json, UI order): sector centre / width (0..32767 = 360 deg)
 // and the positive/negative saturation gains.
@@ -180,6 +181,8 @@ export function renderLook(src: ImageData, dst: ImageData, look: Look, opt: Prev
     if (mono) R = G = B = mw[0] * R + mw[1] * G + mw[2] * B;
     img[q] = R; img[q + 1] = G; img[q + 2] = B;
   }
+  // 4b. split toning (shared `split` field): the camera bends its R/G/B gamma curves (src/split.ts, E-P7 v0.32 / OM-3 v0.26)
+  if (!mono && hasSplit(look)) bendSplit(img, n, look.split!);
   // 5. bloom / halation (Soft Focus blend of a 160-px-wide blurred copy) or clarity (large-radius local contrast)
   const e = look.effect;
   if (e && e.strength >= 1) {

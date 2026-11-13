@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 380" width="800" height="380" role="img" aria-label="E-P7 top view, line drawing with numbered controls">
+  <title>E-P7 top view (schematic line drawing)</title>
+  <style>
+    .bg{fill:#f5f3ef}
+    .body{fill:#e4e1db;stroke:#3a3a3a;stroke-width:2.5}
+    .part{fill:#f5f3ef;stroke:#3a3a3a;stroke-width:2}
+    .soft{fill:none;stroke:#8a8780;stroke-width:1.5}
+    .lead{stroke:#d9601a;stroke-width:1.8;fill:none}
+    .ball{fill:#d9601a}
+    .num{fill:#fff;font:700 14px sans-serif;text-anchor:middle;dominant-baseline:central}
+    .cap{fill:#3a3a3a;font:13px sans-serif}
+    .small{fill:#6a6862;font:12px sans-serif}
+  </style>
+  <rect class="bg" width="800" height="380" rx="12"/>
+  <text class="cap" x="24" y="30" font-weight="700">E-P7, top</text>
+  <text class="small" x="24" y="48">Back edge at the top. Schematic, not to scale</text>
+
+  <text class="small" x="400" y="84" text-anchor="middle">back (monitor side)</text>
+  <!-- body -->
+  <rect class="body" x="70" y="96" width="660" height="110" rx="18"/>
+  <!-- lens -->
+  <rect class="part" x="300" y="206" width="160" height="70" rx="6"/>
+  <line class="soft" x1="300" y1="226" x2="460" y2="226"/>
+  <line class="soft" x1="300" y1="250" x2="460" y2="250"/>
+  <text class="small" x="380" y="298" text-anchor="middle">lens (front)</text>
+
+  <!-- flash housing -->
+  <rect class="part" x="96" y="112" width="150" height="72" rx="8"/>
+  <text class="small" x="171" y="152" text-anchor="middle">built-in flash</text>
+  <!-- hot shoe -->
+  <rect class="part" x="296" y="116" width="96" height="70" rx="3"/>
+  <line class="soft" x1="306" y1="128" x2="306" y2="174"/><line class="soft" x1="382" y1="128" x2="382" y2="174"/>
+  <!-- mode dial -->
+  <circle class="part" cx="482" cy="150" r="34"/>
+  <circle class="soft" cx="482" cy="150" r="22"/>
+  <!-- rear dial (back edge) -->
+  <circle class="part" cx="582" cy="128" r="22"/>
+  <circle class="soft" cx="582" cy="128" r="12"/>
+  <!-- front dial ring + shutter (front edge) -->
+  <circle class="part" cx="608" cy="176" r="24"/>
+  <circle class="part" cx="608" cy="176" r="12"/>
+  <!-- Shortcut and Movie buttons, outer end -->
+  <circle class="part" cx="672" cy="146" r="9"/>
+  <circle class="part" cx="672" cy="178" r="9"/>
+
+  <!-- callouts -->
+  <path class="lead" d="M482 116 L482 70"/><circle class="ball" cx="482" cy="58" r="13"/><text class="num" x="482" y="58">1</text>
+  <path class="lead" d="M582 106 L582 70"/><circle class="ball" cx="582" cy="58" r="13"/><text class="num" x="582" y="58">2</text>
+  <path class="lead" d="M608 176 L560 246 L560 292"/><circle class="ball" cx="560" cy="304" r="13"/><text class="num" x="560" y="304">3</text>
+  <path class="lead" d="M628 190 L640 292"/><circle class="ball" cx="640" cy="304" r="13"/><text class="num" x="640" y="304">4</text>
+  <path class="lead" d="M681 146 L760 146"/><circle class="ball" cx="770" cy="146" r="13"/><text class="num" x="770" y="146">5</text>
+  <path class="lead" d="M681 178 L760 178"/><circle class="ball" cx="770" cy="178" r="13"/><text class="num" x="770" y="178">6</text>
+
+  <g class="cap">
+    <text x="24" y="342">1 Mode dial · 2 Rear dial · 3 Shutter button · 4 Front dial (ring around the shutter)</text>
+    <text x="24" y="362">5 Shortcut button · 6 Movie (REC) button</text>
+  </g>
+</svg>

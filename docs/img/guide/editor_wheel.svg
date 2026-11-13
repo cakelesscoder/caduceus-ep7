@@ -1,0 +1,86 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 440" width="800" height="440" role="img" aria-label="Colour Profile editor wheel: sectors, dials and the INFO page cycle">
+  <title>Colour Profile editor (schematic)</title>
+  <style>
+    .bg{fill:#f5f3ef}
+    .sec{fill:#e4e1db;stroke:#3a3a3a;stroke-width:1.5}
+    .hl{fill:#f3d2bd;stroke:#d9601a;stroke-width:2.5}
+    .sn{fill:#3a3a3a;font:600 14px sans-serif;text-anchor:middle;dominant-baseline:central}
+    .hlt{fill:#b44a0e}
+    .part{fill:#f5f3ef;stroke:#3a3a3a;stroke-width:2}
+    .pill{fill:#e4e1db;stroke:#3a3a3a;stroke-width:1.5}
+    .pillhl{fill:#f3d2bd;stroke:#d9601a;stroke-width:2}
+    .lead{stroke:#d9601a;stroke-width:1.8;fill:none}
+    .arrow{stroke:#3a3a3a;stroke-width:1.5;fill:none}
+    .ball{fill:#d9601a}
+    .num{fill:#fff;font:700 14px sans-serif;text-anchor:middle;dominant-baseline:central}
+    .cap{fill:#3a3a3a;font:13px sans-serif}
+    .capc{fill:#3a3a3a;font:13px sans-serif;text-anchor:middle;dominant-baseline:central}
+    .big{fill:#3a3a3a;font:700 22px sans-serif;text-anchor:middle;dominant-baseline:central}
+    .small{fill:#6a6862;font:12px sans-serif}
+  </style>
+  <defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#3a3a3a"/></marker></defs>
+  <rect class="bg" width="800" height="440" rx="12"/>
+  <text class="cap" x="24" y="30" font-weight="700">Colour Profile editor (Caduceus pages)</text>
+  <text class="small" x="24" y="48">Schematic. Sector numbers follow the camera's order (1 = yellow); the drawn orientation is illustrative</text>
+
+  <path class="sec" d="M168.9 74.1 A120 120 0 0 1 231.1 74.1 L211.9 145.6 A46 46 0 0 0 188.1 145.6 Z"/>
+  <text class="sn" x="200.0" y="107.0">1</text>
+  <path class="sec" d="M231.1 74.1 A120 120 0 0 1 284.9 105.1 L232.5 157.5 A46 46 0 0 0 211.9 145.6 Z"/>
+  <text class="sn" x="241.5" y="118.1">2</text>
+  <path class="sec" d="M284.9 105.1 A120 120 0 0 1 315.9 158.9 L244.4 178.1 A46 46 0 0 0 232.5 157.5 Z"/>
+  <text class="sn" x="271.9" y="148.5">3</text>
+  <path class="sec" d="M315.9 158.9 A120 120 0 0 1 315.9 221.1 L244.4 201.9 A46 46 0 0 0 244.4 178.1 Z"/>
+  <text class="sn" x="283.0" y="190.0">4</text>
+  <path class="sec" d="M315.9 221.1 A120 120 0 0 1 284.9 274.9 L232.5 222.5 A46 46 0 0 0 244.4 201.9 Z"/>
+  <text class="sn" x="271.9" y="231.5">5</text>
+  <path class="sec hl" d="M284.9 274.9 A120 120 0 0 1 231.1 305.9 L211.9 234.4 A46 46 0 0 0 232.5 222.5 Z"/>
+  <text class="sn hlt" x="241.5" y="261.9">6</text>
+  <path class="sec" d="M231.1 305.9 A120 120 0 0 1 168.9 305.9 L188.1 234.4 A46 46 0 0 0 211.9 234.4 Z"/>
+  <text class="sn" x="200.0" y="273.0">7</text>
+  <path class="sec" d="M168.9 305.9 A120 120 0 0 1 115.1 274.9 L167.5 222.5 A46 46 0 0 0 188.1 234.4 Z"/>
+  <text class="sn" x="158.5" y="261.9">8</text>
+  <path class="sec" d="M115.1 274.9 A120 120 0 0 1 84.1 221.1 L155.6 201.9 A46 46 0 0 0 167.5 222.5 Z"/>
+  <text class="sn" x="128.1" y="231.5">9</text>
+  <path class="sec" d="M84.1 221.1 A120 120 0 0 1 84.1 158.9 L155.6 178.1 A46 46 0 0 0 155.6 201.9 Z"/>
+  <text class="sn" x="117.0" y="190.0">10</text>
+  <path class="sec" d="M84.1 158.9 A120 120 0 0 1 115.1 105.1 L167.5 157.5 A46 46 0 0 0 155.6 178.1 Z"/>
+  <text class="sn" x="128.1" y="148.5">11</text>
+  <path class="sec" d="M115.1 105.1 A120 120 0 0 1 168.9 74.1 L188.1 145.6 A46 46 0 0 0 167.5 157.5 Z"/>
+  <text class="sn" x="158.5" y="118.1">12</text>
+  <circle class="part" cx="200" cy="190" r="34"/>
+  <text class="big" x="200" y="190">-2</text>
+  <rect class="part" x="80" y="326" width="240" height="30" rx="4"/>
+  <text class="capc" x="200" y="341">guide line: page / look / value</text>
+
+  <!-- callouts on the wheel -->
+  <path class="lead" d="M291 260 L360 300"/><circle class="ball" cx="372" cy="306" r="13"/><text class="num" x="372" y="306">1</text>
+  <path class="lead" d="M231 176 L360 162"/><circle class="ball" cx="372" cy="162" r="13"/><text class="num" x="372" y="162">2</text>
+  <path class="lead" d="M320 341 L360 341"/><circle class="ball" cx="372" cy="341" r="13"/><text class="num" x="372" y="341">3</text>
+
+  <g class="cap">
+    <text x="400" y="110" font-weight="700">Keys</text>
+    <text x="400" y="134">Front dial: move between sectors 1–12</text>
+    <text x="400" y="156">Rear dial: change the value (on Film: next look)</text>
+    <text x="400" y="178">INFO: next page</text>
+    <text x="400" y="200">OK: close the editor (half-press to save)</text>
+    <text x="400" y="250" font-weight="700">Callouts</text>
+    <text x="400" y="274">1 Selected sector (here 6)</text>
+    <text x="400" y="296">2 Value of that sector on this page</text>
+    <text x="400" y="318">3 Guide line, e.g. Film: Portra 400</text>
+  </g>
+
+  <!-- INFO page cycle -->
+  <text class="cap" x="24" y="392" font-weight="700">INFO cycles:</text>
+  <rect class="pillhl" x="118" y="376" width="56" height="28" rx="14"/><text class="capc" x="146.0" y="390">Film</text>
+  <rect class="pill" x="200" y="376" width="92" height="28" rx="14"/><text class="capc" x="246.0" y="390">Saturation</text>
+  <rect class="pill" x="318" y="376" width="118" height="28" rx="14"/><text class="capc" x="377.0" y="390">Saturation·All</text>
+  <rect class="pill" x="462" y="376" width="48" height="28" rx="14"/><text class="capc" x="486.0" y="390">Hue</text>
+  <rect class="pill" x="536" y="376" width="56" height="28" rx="14"/><text class="capc" x="564.0" y="390">Light</text>
+  <rect class="pillhl" x="618" y="376" width="66" height="28" rx="14"/><text class="capc" x="651.0" y="390">Extras</text>
+  <line class="arrow" x1="177" y1="390" x2="197" y2="390" marker-end="url(#ah)"/>
+  <line class="arrow" x1="295" y1="390" x2="315" y2="390" marker-end="url(#ah)"/>
+  <line class="arrow" x1="439" y1="390" x2="459" y2="390" marker-end="url(#ah)"/>
+  <line class="arrow" x1="513" y1="390" x2="533" y2="390" marker-end="url(#ah)"/>
+  <line class="arrow" x1="595" y1="390" x2="615" y2="390" marker-end="url(#ah)"/>
+  <path class="arrow" d="M687 390 L702 390 L702 420 L146.0 420 L146.0 407" marker-end="url(#ah)"/>
+</svg>

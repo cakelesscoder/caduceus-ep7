@@ -1,10 +1,28 @@
 // Resetting looks and packs to the built-in library (or to neutral for looks that did not come from it).
 import { MAX_LOOKS, blankLook, cloneLook, toneIsZero, type Look, type Pack } from './pack';
+import { hasSplit } from './split';
+
+/** A built-in (preset) pack: a Pack plus the id its looks' origins name (src/packs.ts). No id = Standard 1.0. */
+export type Library = Pack & { id?: string };
+/** Looks saved before preset packs (plain `origin` = a look name) came from the old built-in library, now Standard 1.0. */
+export const LEGACY_PACK = 'standard-1.0';
+const PACK_ORIGIN = 'pack:';
+export const libId = (lib: Library) => lib.id ?? LEGACY_PACK;
+/** Where a look came from: `origin` = "Name" (Standard 1.0, as saved before packs) or "pack:<id>:Name". Other origins
+ *  (the OM-3 panel's "film:…") are not preset looks. */
+export function originRef(l: Look): { pack: string; name: string } | undefined {
+  const o = l.origin;
+  if (o === undefined || o.startsWith('film:')) return undefined;
+  if (!o.startsWith(PACK_ORIGIN)) return { pack: LEGACY_PACK, name: o };
+  const k = o.indexOf(':', PACK_ORIGIN.length);
+  return k < 0 ? undefined : { pack: o.slice(PACK_ORIGIN.length, k), name: o.slice(k + 1) };
+}
+const originOf = (name: string, pack: string) => (pack === LEGACY_PACK ? name : `${PACK_ORIGIN}${pack}:${name}`);
 
 /** Fingerprint of what the user can edit in a look (everything but the app-only fields and the advice). */
 export function lookFingerprint(l: Look, withTone = true): string {
   const v = [l.name, l.notes, l.kind, l.hue, l.light, l.sat, l.grain, l.wb, l.effect, l.vignette, l.art_effect,
-    withTone ? l.tone : null, ...(l.lens_correction ? [true] : [])];
+    withTone ? l.tone : null, ...(l.lens_correction ? [true] : []), ...(hasSplit(l) ? [l.split] : [])];
   const s = JSON.stringify(v);
   let h = 0x811c9dc5;
   for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 0x01000193);
@@ -12,12 +30,12 @@ export function lookFingerprint(l: Look, withTone = true): string {
 }
 
 /** A pack copy of library look `src` that remembers where it came from (origin) and its values (lib). */
-export const fromLibrary = (src: Look): Look => ({ ...cloneLook(src), origin: src.name, lib: lookFingerprint(src) });
+export const fromLibrary = (src: Look, pack = LEGACY_PACK): Look => ({ ...cloneLook(src), origin: originOf(src.name, pack), lib: lookFingerprint(src) });
 
 /** A copy of the library pack whose looks remember which library look they are (Look.origin, Look.lib). */
-export function standardPack(library: Pack): Pack {
-  const p: Pack = JSON.parse(JSON.stringify(library));
-  p.looks = p.looks.map(fromLibrary);
+export function standardPack(library: Library): Pack {
+  const { id: _id, ...p }: Library = JSON.parse(JSON.stringify(library));
+  p.looks = p.looks.map((l) => fromLibrary(l, libId(library)));
   return p;
 }
 
@@ -39,24 +57,24 @@ export interface Migration { pack: Pack; updated: number; added: number }
  * standard library, maybe reordered or trimmed by the user) also gets the looks that are new in this library
  * (`previousNames` = the library names the pack was saved with; unknown = add every missing one).
  */
-export function migratePack(saved: Pack, library: Pack, previousNames?: string[]): Migration {
+export function migratePack(saved: Pack, library: Library, previousNames?: string[]): Migration {
   const pack: Pack = JSON.parse(JSON.stringify(saved));
   let updated = 0, added = 0;
   pack.looks = pack.looks.map((l) => {
     const src = libraryOrigin(l, library);
     if (!src || !unmodified(l, src)) return l;
-    const n = fromLibrary(src);
+    const n = fromLibrary(src, libId(library));
     if (lookFingerprint(n) !== lookFingerprint(l) || JSON.stringify(n.advice) !== JSON.stringify(l.advice)) updated++;
     return n;
   });
-  if (pack.looks.length && pack.looks.every((l) => l.origin !== undefined)) {
-    const have = new Set(pack.looks.map((l) => l.origin));
+  if (pack.looks.length && pack.looks.every((l) => originRef(l)?.pack === libId(library))) {
+    const have = new Set(pack.looks.map((l) => originRef(l)!.name));
     const names = new Set(pack.looks.map((l) => l.name.toLowerCase()));
     for (const src of library.looks) {
       if (pack.looks.length >= MAX_LOOKS) break;
       if (have.has(src.name) || names.has(src.name.toLowerCase())) continue;
       if (previousNames?.includes(src.name)) continue;     // in the old library too: the user removed it
-      pack.looks.push(fromLibrary(src));
+      pack.looks.push(fromLibrary(src, libId(library)));
       added++;
     }
   }
@@ -110,9 +128,10 @@ export function replaceRetiredLooks(saved: Pack, library: Pack): { pack: Pack; r
 }
 
 /** The library look `l` came from, if any. */
-export const libraryOrigin = (l: Look, library: Pack): Look | undefined => {
-  if (l.origin === undefined) return undefined;
-  const name = REPLACED_LOOKS[l.origin] ?? l.origin;
+export const libraryOrigin = (l: Look, library: Library): Look | undefined => {
+  const ref = originRef(l);
+  if (!ref || ref.pack !== libId(library)) return undefined;
+  const name = (ref.pack === LEGACY_PACK ? REPLACED_LOOKS[ref.name] : undefined) ?? ref.name;
   return library.looks.find((o) => o.name === name);
 };
 
@@ -120,10 +139,10 @@ export const libraryOrigin = (l: Look, library: Pack): Look | undefined => {
  * `l` reset: a library look gets its shipped values back (and its shipped name, unless another look in the pack
  * now uses it); any other look becomes neutral, keeping its name, kind and notes.
  */
-export function resetLook(l: Look, library: Pack, otherNames: string[] = []): Look {
+export function resetLook(l: Look, library: Library, otherNames: string[] = []): Look {
   const src = libraryOrigin(l, library);
   if (src) {
-    const r: Look = fromLibrary(src);
+    const r: Look = fromLibrary(src, libId(library));
     if (otherNames.some((n) => n.toLowerCase() === src.name.toLowerCase())) r.name = l.name;
     return r;
   }

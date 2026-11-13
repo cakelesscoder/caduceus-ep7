@@ -141,6 +141,7 @@ Keep loader v3 `--names`, the accessor and all readers as they are (camera-prove
 
 **Card files** (desktop: `tools/ep7_looks_bin.py`, written during this session, offline only):
 - `LOOKS.BIN` v3: 64-B header (v1-family CRC rule) + 64-B records (bundle 0..44, class, mask, 0, name[16]).
+  v0.32: names at most 12 characters; record +61/+62 = split toning (docs/PACKS.md "Split tone on the E-P7").
 - `SLOTS.BIN`: `EP7S`, LOOKS CRC, assign[8] (look / 0xFF stock / 0xFE untouched), CRC-32.
 
 `library_v1.json` → 1280 B, 19 looks. `--check` mirrors the camera rules. BUNDLES.BIN (544 or 680 B) is still

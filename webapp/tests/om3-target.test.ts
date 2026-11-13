@@ -1,6 +1,6 @@
 // The E-P7-convention pack -> OM-3 card files translation (src/targets/om3.ts).
 import { describe, expect, it } from 'vitest';
-import libraryJson from '../src/data/library.json';
+import libraryJson from '../src/data/packs/standard-1.0.json';
 import { COLORS, PER, profilesBin, readProfiles, validateBank } from '../src/om3';
 import { blankLook, parseLook, parsePack, type Pack } from '../src/pack';
 import { looksBinToPack, packToBank } from '../src/targets/om3';
@@ -94,11 +94,14 @@ describe('OM-3 export', () => {
     expect((b[o + 37] << 24) >> 24).toBe(5);
   });
 
-  it('the E-P7 ignores the OM-3-only fields; NR High becomes Standard', async () => {
+  it('the E-P7 ignores the OM-3-only fields (split goes to record +61/+62 for v0.32); NR High becomes Standard', async () => {
     const l = om3Look(), plain = { ...om3Look(), grain: 'standard' as const };
     delete (plain as Partial<typeof plain>).film_grain; delete (plain as Partial<typeof plain>).split;
     expect(validateLook(l)).toEqual([]);
-    expect(lookRecord(l)).toEqual(lookRecord(plain));
+    const r = lookRecord(l), s = l.split!;
+    expect([r[61], r[62]]).toEqual([s.sh_color | ((s.sh & 15) << 4), s.hl_color | ((s.hl & 15) << 4)]);
+    r[61] = r[62] = 0;
+    expect(r).toEqual(lookRecord(plain));
     expect(lookRecord(l)[24]).toBe(6);
     expect(encodeLookCode(l)).toBe(encodeLookCode(plain));
     expect(decodeLookCode(encodeLookCode(l)).grain).toBe('standard');

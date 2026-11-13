@@ -15,6 +15,10 @@ compact v3 form the camera keeps in one heap block (at most 32 looks; v0.15: a c
   record 64 B: +0..44 canonical bundle bytes 0..44 (layout.json ABI; bundle bytes 46..63 are always 0),
                +45 class (0 colour, 1 mono), +46 slot mask (bit0 COLOR, bit1 MONO; colour 1 or 3, mono 2),
                +47 bloom_tint 0..4 (test13b; placed at bundle +45; 0 in older files), +48 name[16] (1..15 printable ASCII except '@', NUL-padded, byte 15 NUL)
+  v0.32 split toning (still version 3, same size): names are at most 12 characters, so the name ends by +60 and
+               +61 Shadows / +62 Highlights carry the slot +62/+63 packing (low nibble colour 0..11, high nibble
+               strength s4 -5..5; 0 = none). A Film pick copies them to the profile's slot +62/+63 (0 clears).
+               Firmware before v0.32 rejects a record with +61/+62 non-zero (bytes after the name's NUL).
   v0.19 look tone (still version 3, same size): a COLOR look with "tone" in the library has +32 = 1 (tone flag),
                +33 Blacks, +34 Whites (s8 -5..5), +35 Highlights, +36 Midtones, +37 Shadows (s8 -7..7), +38..44 = 0,
                and slot mask 1 (COLOR only: +33..44 no longer hold MONO saturation advice). A Film pick (v0.19
@@ -183,10 +187,23 @@ def make_slots(lib_crc, assign):
     return b + struct.pack('<I', zlib.crc32(b) & 0xffffffff)
 
 
-def _name_ok(nm):
-    """Camera rule: first byte non-zero, 0..15 chars 0x20..0x7e except '@', then NUL to byte 15."""
+SPLIT_SH, SPLIT_HL = 61, 62                                     # v0.32: record +61/+62 (name bytes 13/14)
+
+
+def split_ok(b):
+    """One split byte as v0.32 fm_load (ls_sc) and the split_tone reader check it."""
+    return (b & 15) < 12 and (((b >> 4) + 5) & 15) < 11
+
+
+def _name_ok(nm, split=True):
+    """Camera rule: first byte non-zero, 0..15 chars 0x20..0x7e except '@', then NUL to byte 15. split (v0.32): with the
+    name ended by byte 12, bytes 13/14 may carry split toning (each split_ok)."""
     if len(nm) != 16 or nm[0] == 0 or nm[15] != 0:
         return False
+    if split and nm[12] == 0 and (nm[13] or nm[14]):
+        if not (split_ok(nm[13]) and split_ok(nm[14])):
+            return False
+        nm = bytes(nm[:13]) + b'\0\0\0'
     seen = False
     for c in nm:
         if c == 0:
@@ -196,8 +213,8 @@ def _name_ok(nm):
     return True
 
 
-def check_file(data):
-    """Python mirror of the camera's pk_check -> list of problems (empty = accepted)."""
+def check_file(data, split=True):
+    """Python mirror of the camera's pk_check -> list of problems (empty = accepted). split=False: firmware before v0.32."""
     p = []
     size = len(data)
     if size < HDR_LEN + REC_LEN or size > HDR_LEN + REC_LEN * MAX_LOOKS or size % REC_LEN:
@@ -222,7 +239,7 @@ def check_file(data):
         cls, mask = r[CLASS_OFF], r[MASK_OFF]
         if not (cls == 0 and mask in (1, 3) or cls == 1 and mask == 2) or r[TINT_OFF] > TINT_MAX:
             p.append(f'look {j} class/mask/tint {cls}/{mask}/{r[TINT_OFF]}')
-        if not _name_ok(r[NAME_OFF:NAME_OFF + 16]):
+        if not _name_ok(r[NAME_OFF:NAME_OFF + 16], split):
             p.append(f'look {j} name')
     return p
 

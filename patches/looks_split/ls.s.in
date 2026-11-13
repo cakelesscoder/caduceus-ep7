@@ -1,0 +1,187 @@
+/* E-P7 1.1 v0.32: split toning in LOOKS.BIN (ep7-firmware, our own code). docs/PACKS.md "Split tone on the E-P7".
+ * Record +61 = Shadows, +62 = Highlights, packed as slot +62/+63 (low nibble colour 0..11, high nibble strength s4
+ * -5..5). They are split bytes only when the name ends by +60 (a name of at most 12 characters, record +60 NUL).
+ *
+ *   ls_chk  <- jmp at fm_load's `call fm_check,[d2,d3,a2,a3],20` (0x6143a4ed): a3 = L (the file), d3 = size, a2 = P.
+ *              ls_sc first: the file's own CRC; every record either has +61/+62 = 0, or +60 = 0 and both bytes in
+ *              range. Then the bytes go to the stash L+2568+2j, the records get 0 there (so every other reader of L,
+ *              and the Movie / AP copies of it, sees a v3 file with a NUL name tail), the header CRC is rewritten for
+ *              the cleaned file, and L+2564 = P, L+2560 = 'EP7W' last. Any miss leaves the file as read, so fm_check
+ *              rules on it exactly as before (non-zero bytes after the name's NUL: rejected). Then the real
+ *              `call fm_check` and `jmp` back to 0x6143a4f2.
+ *   ls_pick <- sl_pick's tail `jmp fm_post` (0x601e3a16): a2 = P, d3 = k, a3 = parent. Only the real P (ap_P, never
+ *              a swapped-in P2 / P3) with its L and the stash tag: a library look (pos 1..n) writes its stash bytes
+ *              to slot +62/+63, 0 included (a look without split clears it); Own and Stock write the slot's own
+ *              snapshot bytes (L+2132+80k +62/+63), i.e. the split the profile had before the Film page touched it.
+ *              Without a snapshot, or any check missing: nothing. Then `jmp fm_post`.
+ * L (malloc 2640, was 2560): +2560 'EP7W', +2564 P, +2568 stash 32 x 2 B (ends 2632).
+ * Stores: L and the record bytes through a3 / a0 / a1 (heap), slot +62/+63 through a1 (heap P), the stack.
+ * No absolute stores, no mul/div, no setlb/Lcc.
+ */
+ .am33_2
+ .text
+ .global _start
+_start:
+
+ .set FL_MAGIC, {lmagic}
+ .set FF_MAGIC, {fmagic}
+ .set LS_MAGIC, {wmagic}
+
+/* d0 = split byte -> branch to bad when its colour is not 0..11 or its strength not -5..5. Uses d0, d1. */
+ .macro NIB bad
+ mov d0,d1
+ and 15,d1
+ cmp 12,d1
+ bcc \bad
+ lsr 4,d0
+ add 5,d0
+ and 15,d0
+ cmp 11,d0
+ bcc \bad
+ .endm
+
+/* CRC-32 of the file at a3 (d3 bytes) as fm_check computes it: bytes 0..15, then 20..size-1 -> d0. Uses d0, d1, a0. */
+ .macro FCRC
+ mov -1,d0
+ mov a3,a0
+ mov 16,d1
+ call ep7_fm_crc,[d2,d3],8
+ mov a3,a0
+ add 20,a0
+ mov d3,d1
+ add -20,d1
+ call ep7_fm_crc,[d2,d3],8
+ not d0
+ .endm
+
+ls_chk:
+ call ls_sc,[d2,d3,a2,a3],20
+ call ep7_fm_check,[d2,d3,a2,a3],20
+ jmp ep7_fm_after
+
+ls_sc:
+ clr d0
+ mov d0,(2560,a3)                 /* no stash until every check passed */
+ FCRC
+ mov (16,a3),d1
+ cmp d1,d0
+ bne s_out                        /* a damaged file: fm_check rejects it */
+ mov d3,d2
+ add -64,d2
+ lsr 6,d2                         /* d2 = n (size is 128..2112, 64 | size: checked by fm_load) */
+ mov a3,a1
+ add 64,a1
+1:
+ movbu (61,a1),d0
+ movbu (62,a1),d1
+ or d0,d1
+ beq 2f
+ movbu (60,a1),d1
+ cmp 0,d1
+ bne s_out                        /* a 13..15 character name: fm_check rules on the file as before */
+ NIB s_out
+ movbu (62,a1),d0
+ NIB s_out
+2:
+ add 64,a1
+ add -1,d2
+ bne 1b
+ mov d3,d2
+ add -64,d2
+ lsr 6,d2
+ mov a3,a1
+ add 64,a1
+ mov a3,a0
+ add 2568,a0
+3:
+ movbu (61,a1),d0
+ movbu d0,(a0)
+ movbu (62,a1),d0
+ movbu d0,(1,a0)
+ clr d0
+ movbu d0,(61,a1)
+ movbu d0,(62,a1)
+ add 2,a0
+ add 64,a1
+ add -1,d2
+ bne 3b
+ FCRC
+ mov d0,(16,a3)                   /* the CRC of the file as L now holds it */
+ mov a2,(2564,a3)
+ mov LS_MAGIC,d0
+ mov d0,(2560,a3)
+s_out:
+ ret [d2,d3,a2,a3],20
+
+ls_pick:
+ call ls_pk,[d2,d3,a2,a3],20
+ jmp ep7_fm_post
+
+ls_pk:                            /* a2 = P, d3 = k */
+ cmp 4,d3
+ bcc 9f
+ call ep7_ap_p,[d2],8             /* d0 1, a0 = the real P */
+ cmp 0,d0
+ beq 9f
+ mov a0,d0
+ mov a2,d1                        /* d1 = P from here on */
+ cmp d1,d0
+ bne 9f
+ mov (1020,a2),d0
+ cmp FF_MAGIC,d0
+ bne 9f
+ mov (1016,a2),a0
+ mov a0,d0
+ btst 3,d0
+ bne 9f
+ add {npool},d0
+ cmp {llim},d0
+ bcc 9f
+ mov (2112,a0),d0
+ cmp FL_MAGIC,d0
+ bne 9f
+ mov (2116,a0),d0
+ cmp d1,d0
+ bne 9f
+ mov (2564,a0),d0
+ cmp d1,d0
+ bne 9f
+ mov (2560,a0),d0
+ cmp LS_MAGIC,d0
+ bne 9f
+ mov d3,d0
+ asl 6,d0
+ add a2,d0
+ mov d0,a1                        /* a1 = P + 64k: slot +62/+63 = (94/95,a1) */
+ mov a0,d0
+ add d3,d0
+ mov d0,a2                        /* a2 = L + k */
+ movbu (2121,a2),d0               /* pos */
+ cmp 0,d0
+ beq 5f                           /* Own */
+ movbu (2120,a0),d1               /* n */
+ cmp d1,d0
+ bhi 5f                           /* Stock (n + 1) */
+ add d0,d0
+ add d0,a0                        /* stash of record pos-1 = L + 2566 + 2 pos */
+ movbu (2566,a0),d0
+ movbu (2567,a0),d1
+ bra 6f
+5:
+ movbu (2125,a2),d0               /* snapshot taken? */
+ cmp 0,d0
+ beq 9f
+ mov d3,d0
+ asl 4,d0
+ mov d0,d1
+ asl 2,d1
+ add d1,d0                        /* 80k */
+ add d0,a0
+ movbu (2194,a0),d0               /* snapshot entry +62/+63 = L + 2132 + 80k + 62 */
+ movbu (2195,a0),d1
+6:
+ movbu d0,(94,a1)
+ movbu d1,(95,a1)
+9:
+ ret [d2,d3,a2,a3],20
+ls_end:

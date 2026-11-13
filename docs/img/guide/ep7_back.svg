@@ -1,0 +1,83 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 470" width="800" height="470" role="img" aria-label="E-P7 back view, line drawing with numbered controls">
+  <title>E-P7 back view (schematic line drawing)</title>
+  <style>
+    .bg{fill:#f5f3ef}
+    .body{fill:#e4e1db;stroke:#3a3a3a;stroke-width:2.5}
+    .part{fill:#f5f3ef;stroke:#3a3a3a;stroke-width:2}
+    .soft{fill:none;stroke:#8a8780;stroke-width:1.5}
+    .knurl{stroke:#8a8780;stroke-width:1.2}
+    .lead{stroke:#d9601a;stroke-width:1.8;fill:none}
+    .ball{fill:#d9601a}
+    .num{fill:#fff;font:700 14px sans-serif;text-anchor:middle;dominant-baseline:central}
+    .cap{fill:#3a3a3a;font:13px sans-serif}
+    .small{fill:#6a6862;font:12px sans-serif}
+  </style>
+  <rect class="bg" width="800" height="470" rx="12"/>
+  <text class="cap" x="24" y="30" font-weight="700">E-P7, back</text>
+  <text class="small" x="24" y="48">Schematic, not to scale</text>
+
+  <!-- flash housing and top plate items, seen from behind -->
+  <rect class="part" x="96" y="92" width="150" height="24" rx="6"/>
+  <rect class="part" x="300" y="98" width="86" height="18" rx="2"/>
+  <line class="soft" x1="310" y1="104" x2="376" y2="104"/>
+  <!-- mode dial -->
+  <rect class="part" x="440" y="74" width="84" height="42" rx="4"/>
+  <g class="knurl"><line x1="452" y1="80" x2="452" y2="112"/><line x1="464" y1="80" x2="464" y2="112"/><line x1="476" y1="80" x2="476" y2="112"/><line x1="488" y1="80" x2="488" y2="112"/><line x1="500" y1="80" x2="500" y2="112"/><line x1="512" y1="80" x2="512" y2="112"/></g>
+  <!-- rear dial -->
+  <rect class="part" x="560" y="86" width="70" height="30" rx="4"/>
+  <g class="knurl"><line x1="572" y1="90" x2="572" y2="112"/><line x1="584" y1="90" x2="584" y2="112"/><line x1="596" y1="90" x2="596" y2="112"/><line x1="608" y1="90" x2="608" y2="112"/><line x1="620" y1="90" x2="620" y2="112"/></g>
+  <!-- shutter cluster behind, further forward -->
+  <rect class="soft" x="642" y="94" width="58" height="22" rx="4"/>
+
+  <!-- body -->
+  <rect class="body" x="60" y="116" width="680" height="290" rx="22"/>
+  <!-- monitor -->
+  <rect class="part" x="88" y="146" width="452" height="236" rx="8"/>
+  <rect class="soft" x="104" y="160" width="420" height="208" rx="3"/>
+  <!-- thumb rest -->
+  <path class="soft" d="M690 150 Q718 200 704 300"/>
+
+  <!-- flash pop-up switch -->
+  <rect class="part" x="104" y="126" width="26" height="12" rx="4"/>
+
+  <!-- right-hand buttons -->
+  <circle class="part" cx="590" cy="178" r="13"/>
+  <circle class="part" cx="590" cy="224" r="13"/>
+  <circle class="part" cx="640" cy="230" r="13"/>
+  <circle class="part" cx="615" cy="292" r="42"/>
+  <circle class="part" cx="615" cy="292" r="17"/>
+  <circle class="part" cx="588" cy="364" r="13"/>
+  <circle class="part" cx="642" cy="364" r="13"/>
+
+  <!-- callouts -->
+  <g>
+    <path class="lead" d="M117 132 L117 72"/><circle class="ball" cx="117" cy="62" r="13"/><text class="num" x="117" y="62">1</text>
+    <path class="lead" d="M482 74 L482 52"/><circle class="ball" cx="482" cy="40" r="13"/><text class="num" x="482" y="40">2</text>
+    <path class="lead" d="M595 86 L595 52"/><circle class="ball" cx="595" cy="40" r="13"/><text class="num" x="595" y="40">3</text>
+  </g>
+  <!-- right side callouts, to the margin -->
+  <g>
+    <path class="lead" d="M603 178 L760 178"/>
+    <path class="lead" d="M603 224 L620 210 L760 210"/>
+    <path class="lead" d="M653 230 L760 242"/>
+    <path class="lead" d="M657 292 L760 274"/>
+    <path class="lead" d="M626 300 L760 306"/>
+    <path class="lead" d="M601 364 L612 400 L760 400"/>
+    <path class="lead" d="M655 364 L760 340"/>
+  </g>
+  <g>
+    <circle class="ball" cx="770" cy="178" r="13"/><text class="num" x="770" y="178">4</text>
+    <circle class="ball" cx="770" cy="210" r="13"/><text class="num" x="770" y="210">5</text>
+    <circle class="ball" cx="770" cy="242" r="13"/><text class="num" x="770" y="242">6</text>
+    <circle class="ball" cx="770" cy="274" r="13"/><text class="num" x="770" y="274">7</text>
+    <circle class="ball" cx="770" cy="306" r="13"/><text class="num" x="770" y="306">8</text>
+    <circle class="ball" cx="770" cy="340" r="13"/><text class="num" x="770" y="340">9</text>
+    <circle class="ball" cx="770" cy="400" r="13"/><text class="num" x="770" y="400">10</text>
+  </g>
+
+  <!-- legend -->
+  <g class="cap">
+    <text x="24" y="432">1 Flash pop-up switch · 2 Mode dial · 3 Rear dial · 4 AEL/AFL · 5 MENU · 6 INFO</text>
+    <text x="24" y="452">7 Arrow pad · 8 OK · 9 Playback · 10 Delete</text>
+  </g>
+</svg>

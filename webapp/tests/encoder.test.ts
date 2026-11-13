@@ -14,7 +14,7 @@ import {
   ARTS, EFFECTS, GRAINS, TINTS, TONE_KEYS, blankLook, cloneLook, parsePack, toneIsZero, toneLimit, zeroTone,
   type Look, type Pack, type Tone,
 } from '../src/pack';
-import committed from '../src/data/library.json';
+import committed from '../src/data/packs/standard-1.0.json';
 import { releaseLooksWithHalation } from './halation-fixture';
 
 const WEBAPP = join(__dirname, '..');
@@ -74,7 +74,7 @@ describe('built-in library', () => {
     expect(hex(encodeLooksBin(back))).toBe(hex(encodeLooksBin(lib)));
   });
 
-  it('src/data/library.json is current (run `npm run gen-library` after changing the library)', () => {
+  it('src/data/packs/standard-1.0.json is current (run `npm run gen-library` after changing the library)', () => {
     expect(committed).toEqual(resolveRepoLibrary(ROOT));
   });
 
@@ -417,5 +417,36 @@ describe('0.31h2 halation: Halo per look, Sharp and Halo per COLOR profile', () 
     expect(parsePack(JSON.parse(JSON.stringify(p))).profiles).toEqual(p.profiles);
     expect((await decodePackCode(await encodePackCode(p))).profiles).toEqual(p.profiles);
     expect(() => parsePack({ ...p, profiles: { COLOR1: { grain: 'off', nr: 'off', halo: 'huge' } } })).toThrow(/halo/);
+  });
+});
+
+describe('v0.32: split toning in LOOKS.BIN record +61/+62', () => {
+  afterEach(() => setFirmware(FW_LATEST));
+  const pk = (l: Look): Pack => ({ schema: 'caduceus-pack/1', name: 'x', looks: [l], slots: {} });
+  const look = () => ({ ...blankLook('colour', 'CineStill800'), split: { sh_color: 3, sh: -2, hl_color: 10, hl: 1 } });
+
+  it('v0.32 target: packed like slot +62/+63, the camera check accepts it, the import keeps it', () => {
+    const d = encodeLooksBin(pk(look())), r = d.subarray(64);
+    expect([r[60], r[61], r[62], r[63]]).toEqual([0, 3 | (14 << 4), 10 | (1 << 4), 0]);
+    expect(checkLooksBin(d)).toEqual([]);
+    expect(checkLooksBin(d, false)).toEqual(['look 0 name']);   // firmware before v0.32 rejects it
+    expect(decodeLooksBin(d).looks[0].split).toEqual(look().split);
+  });
+
+  it('older targets and looks without split write zeros', () => {
+    setFirmware(31);
+    expect([...encodeLooksBin(pk(look())).subarray(64 + 61, 64 + 63)]).toEqual([0, 0]);
+    setFirmware(FW_LATEST);
+    expect([...encodeLooksBin(pk(blankLook('colour', 'Plain'))).subarray(64 + 61, 64 + 63)]).toEqual([0, 0]);
+  });
+
+  it('a bad split byte or split behind a 13-character name is rejected', () => {
+    const d = encodeLooksBin(pk(look()));
+    const bad = Uint8Array.from(d); bad[64 + 61] = 0x0c;
+    new DataView(bad.buffer).setUint32(16, crc32(bad.subarray(0, 16), bad.subarray(20)), true);
+    expect(checkLooksBin(bad)).toEqual(['look 0 name']);
+    const long = Uint8Array.from(d); long.set(new TextEncoder().encode('ABCDEFGHIJKLM'), 64 + 48);
+    new DataView(long.buffer).setUint32(16, crc32(long.subarray(0, 16), long.subarray(20)), true);
+    expect(checkLooksBin(long)).toEqual(['look 0 name']);
   });
 });

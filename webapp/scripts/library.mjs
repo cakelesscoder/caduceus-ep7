@@ -3,7 +3,7 @@
 // patches/bundles/build.py slot_entry() as of the v0.16-era tools (commit e477637): hue/light -7..7, sat -5..5;
 // plus the v0.19 per-look "tone" {highlights, shadows, midtones, blacks, whites} (missing = 0).
 //
-// Used by scripts/gen-library.mjs (writes src/data/library.json at build time) and by the tests.
+// Used by scripts/gen-library.mjs (writes src/data/packs/standard-1.0.json at build time) and by the tests.
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -74,8 +74,11 @@ export function resolveLook(key, look, recipes) {
   };
 }
 
+/** The preset pack this repo library is (frozen since Standard 1.1; docs/PACKS.md). */
+export const STANDARD_1_0 = { id: 'standard-1.0', name: 'Standard', version: '1.0' };
+
 /** Library JSON -> pack file object (schema caduceus-pack/1). */
-export function resolveLibrary(lib, recipes, name = 'Caduceus library') {
+export function resolveLibrary(lib, recipes, meta = STANDARD_1_0) {
   const keys = [];
   const looks = [];
   for (const [k, v] of Object.entries(lib.looks ?? {})) {
@@ -98,8 +101,9 @@ export function resolveLibrary(lib, recipes, name = 'Caduceus library') {
     if (i >= 0 && !(s.startsWith('MONO') && toned)) slots[s] = i;
   }
   // build stamp: the app updates saved library looks when this changes (src/reset.ts migratePack)
-  const version = createHash('sha256').update(JSON.stringify({ looks, slots })).digest('hex').slice(0, 8);
-  return { schema: 'caduceus-pack/1', name, version, looks, slots };
+  // (`stamp`; webapp/src/packs.ts). id / name / version name the preset pack (docs/PACKS.md).
+  const stamp = createHash('sha256').update(JSON.stringify({ looks, slots })).digest('hex').slice(0, 8);
+  return { schema: 'caduceus-pack/1', id: meta.id, name: meta.name, version: meta.version, stamp, looks, slots };
 }
 
 export function resolveRepoLibrary(root, file = 'bundles/library_v3.json') {
