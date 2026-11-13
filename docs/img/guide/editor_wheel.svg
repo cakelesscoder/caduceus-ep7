@@ -70,17 +70,19 @@
   </g>
 
   <!-- INFO page cycle -->
-  <text class="cap" x="24" y="392" font-weight="700">INFO cycles:</text>
-  <rect class="pillhl" x="118" y="376" width="56" height="28" rx="14"/><text class="capc" x="146.0" y="390">Film</text>
-  <rect class="pill" x="200" y="376" width="92" height="28" rx="14"/><text class="capc" x="246.0" y="390">Saturation</text>
-  <rect class="pill" x="318" y="376" width="118" height="28" rx="14"/><text class="capc" x="377.0" y="390">Saturation·All</text>
-  <rect class="pill" x="462" y="376" width="48" height="28" rx="14"/><text class="capc" x="486.0" y="390">Hue</text>
-  <rect class="pill" x="536" y="376" width="56" height="28" rx="14"/><text class="capc" x="564.0" y="390">Light</text>
-  <rect class="pillhl" x="618" y="376" width="66" height="28" rx="14"/><text class="capc" x="651.0" y="390">Extras</text>
-  <line class="arrow" x1="177" y1="390" x2="197" y2="390" marker-end="url(#ah)"/>
-  <line class="arrow" x1="295" y1="390" x2="315" y2="390" marker-end="url(#ah)"/>
-  <line class="arrow" x1="439" y1="390" x2="459" y2="390" marker-end="url(#ah)"/>
-  <line class="arrow" x1="513" y1="390" x2="533" y2="390" marker-end="url(#ah)"/>
-  <line class="arrow" x1="595" y1="390" x2="615" y2="390" marker-end="url(#ah)"/>
-  <path class="arrow" d="M687 390 L702 390 L702 420 L146.0 420 L146.0 407" marker-end="url(#ah)"/>
+  <text class="cap" x="400" y="364" font-weight="700">INFO cycles the pages (then back to Film):</text>
+  <rect class="pillhl" x="24" y="376" width="56" height="28" rx="14"/><text class="capc" x="52.0" y="390">Film</text>
+  <line class="arrow" x1="83" y1="390" x2="103" y2="390" marker-end="url(#ah)"/>
+  <rect class="pill" x="106" y="376" width="92" height="28" rx="14"/><text class="capc" x="152.0" y="390">Saturation</text>
+  <line class="arrow" x1="201" y1="390" x2="221" y2="390" marker-end="url(#ah)"/>
+  <rect class="pill" x="224" y="376" width="118" height="28" rx="14"/><text class="capc" x="283.0" y="390">Saturation·All</text>
+  <line class="arrow" x1="345" y1="390" x2="365" y2="390" marker-end="url(#ah)"/>
+  <rect class="pill" x="368" y="376" width="48" height="28" rx="14"/><text class="capc" x="392.0" y="390">Hue</text>
+  <line class="arrow" x1="419" y1="390" x2="439" y2="390" marker-end="url(#ah)"/>
+  <rect class="pill" x="442" y="376" width="56" height="28" rx="14"/><text class="capc" x="470.0" y="390">Light</text>
+  <line class="arrow" x1="501" y1="390" x2="521" y2="390" marker-end="url(#ah)"/>
+  <rect class="pillhl" x="524" y="376" width="70" height="28" rx="14"/><text class="capc" x="559.0" y="390">Effects</text>
+  <line class="arrow" x1="597" y1="390" x2="617" y2="390" marker-end="url(#ah)"/>
+  <rect class="pillhl" x="620" y="376" width="122" height="28" rx="14"/><text class="capc" x="681.0" y="390">Colour &amp; Light</text>
+  <path class="arrow" d="M745 390 L760 390 L760 420 L52 420 L52 407" marker-end="url(#ah)"/>
 </svg>

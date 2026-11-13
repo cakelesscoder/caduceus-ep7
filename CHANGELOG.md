@@ -7,6 +7,11 @@ were early-development pre-releases. Use at your own risk (see the README).
 
 - **Preset look packs:** pick **Standard 1.1** (new default: split tone where the real stock has a shadow/highlight cast, halation only on rem-jet-free film) or **Standard 1.0** (the previous library, unchanged) from **New**, or mix looks from several packs with **+ Add look › From a preset pack…**. Looks get a **Split tone** editor and the preview shows it. Saved packs and share links work as before. See `docs/PACKS.md`.
 
+## v0.32a — 2026-11-13 (beta)
+
+- **Fewer freezes with grain:** split toning no longer holds one of the camera's shared memory blocks; with a `LOOKS.BIN` on the card it keeps its curves in spare room inside the looks buffer. On v0.32, a profile with split tone plus Grain could occasionally leave the keys (INFO, OK) unresponsive after a shot until a restart. Heavy effect stacks (Grain + Halo + strong glow) can still very occasionally stall the camera; see the README's Quick answers.
+- Firmware screen shows `Caduceus: 0.32a`. Card files unchanged from v0.32.
+
 ## v0.32 — 2026-11-13 (beta)
 
 - **Split toning on COLOR1–4:** each COLOR profile can tint its shadows and its highlights separately, with one of the colour wheel's 12 colours and a strength from −5 to +5 each (for example teal shadows with orange highlights). It uses the same formula and numbers as Caduceus for OM-3, so a look tints the same way on both cameras and in the Control Panel preview. It shows in live view and in photos. Movie, AP colour, MONO and stock profiles are unchanged. Set it in the Control Panel (choose **v0.32 or later** on the Export page): it goes into `BUNDLES.BIN` and into `LOOKS.BIN`, so picking a film on the camera's Film page sets that film's split tone, and a film without one clears it. **Own** and **Stock** bring back the split the profile had before. Look names are now at most 12 characters (the panel shortens longer ones), because `LOOKS.BIN` keeps the split where the end of the name was. Older firmware rejects a `BUNDLES.BIN` or `LOOKS.BIN` that has split toning, so pick your firmware on the Export page.

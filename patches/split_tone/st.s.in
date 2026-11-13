@@ -15,8 +15,9 @@
  * Slot bytes: +62 Shadows, +63 Highlights; low nibble colour 0..11, high nibble strength s4 -5..5. A field with colour
  * >= 12, strength 0 or strength outside -5..5 reads 0 (off).
  *
- * P = ap_P (the unswapped P). RAM: block S (malloc {sbytes} B: class 2, uncached), pointer at heap P+{sptr}, allocated on the first pass that has a
- * split. S+0 'EP7S', S+4 P; set k (0 capture, 1 live view) at S+{set0}+{setsz}k: +0 source curve, +4 word (+62 | +63 << 8),
+ * P = ap_P (the unswapped P). RAM: block S ({sbytes} B), pointer at heap P+{sptr}, placed on the first pass that has a split. v0.32a: S sits
+ * in the unused tail of the LOOKS.BIN block L (L+{loff}; L is a 16-KB class-2 block of which fm_load asks 2640 B), so split toning holds no
+ * pool block of its own; only without a LOOKS.BIN is S a malloc (class 2, uncached), see st_h. docs/GRAIN_HANG.md. S+0 'EP7S', S+4 P; set k (0 capture, 1 live view) at S+{set0}+{setsz}k: +0 source curve, +4 word (+62 | +63 << 8),
  * +16 R, +528 G, +1040 B. A set is rebuilt only when its source or word changes; a pass whose slots already hold its
  * curve stores nothing.
  *
@@ -199,6 +200,8 @@ st_c:
  mov (8,sp),a1
  cmp 0,a1
  bne 1f
+ jmp st_h                         /* no S yet: in L's block (v0.32a), else malloc / wait / skip */
+st_mal:
  mov {sbytes},d0
  call ep7_malloc,[],4             /* -> a0 (uncached class-2 pool) or 0 */
  mov a0,a1
@@ -208,6 +211,7 @@ st_c:
  bcc 3f                           /* 0, or not where the check looks */
  btst 3,d1
  bne 3f
+st_i:                             /* a1 = S: tag, back-pointer, both sets empty, publish */
  mov {smagic},d0
  mov d0,(a1)
  mov (4,sp),a0
@@ -353,8 +357,66 @@ st_kv:
  mul d2,d1
  ret [],4
 
+ .section .sth,"ax"
+/* st_h (v0.32a): where S goes when P+{sptr} holds none. a0 is free, (4,sp) = P, (24,sp) = k.
+ *  - LOOKS.BIN loaded (P+1020 'EP7F', L = P+1016 4-aligned in the class-2 pool with room for S, L+2112 'EP7L',
+ *    L+2116 = P): S = L+{loff}, in the unused tail of L's 16-KB block (fm_load's request ends at L+2640). No malloc.
+ *    L is never freed once published and fm_load runs once per P, so S stays valid for the session.
+ *  - P+1020 'EP7X' (fm_load tried, no valid LOOKS.BIN; or it is still reading, which only live view can overlap:
+ *    the shutter waits for HLS_EVENT): capture mallocs at once; live view counts {nwait} split passes in P+{sptr}
+ *    (tag 0x5354 in the high half, never a valid S) before it mallocs, so a pass during the read never takes a block.
+ *  - otherwise (fm_load not run yet): no split this pass. */
+st_h:
+ mov (4,sp),a0
+ mov (1020,a0),d0
+ cmp {fmagic},d0
+ beq 1f
+ jmp st_w
+1:
+ mov (1016,a0),a1
+ mov a1,d1
+ add -{pool2},d1
+ cmp {liml},d1
+ bcc 8f
+ btst 3,d1
+ bne 8f
+ mov ({ltag},a1),d1
+ cmp {lmagic},d1
+ bne 8f
+ mov ({lback},a1),d1
+ cmp a0,d1
+ bne 8f
+ add {loff},a1
+ jmp st_i
+8:
+ jmp st_x
+
+ .section .sti,"ax"
+st_w:                             /* no valid L: d0 = P+1020, a0 = P */
+ cmp {xmagic},d0
+ bne 8f
+ mov (24,sp),d3
+ cmp 0,d3
+ beq 7f                           /* capture: malloc */
+ mov ({sptr},a0),d1
+ mov d1,d2
+ lsr 16,d2
+ cmp 0x5354,d2
+ beq 6f
+ mov 0x53540000,d1
+6:
+ inc d1
+ mov d1,({sptr},a0)
+ and 0xffff,d1
+ cmp {nwait},d1
+ bcs 8f
+7:
+ jmp st_mal
+8:
+ jmp st_x
+
  .section .stf,"ax"
-st_m:                             /* miss: our curve in the slots -> the base again */
+st_m:                            /* miss: our curve in the slots -> the base again */
  mov (16,sp),d0
  cmp 0,d0
  bge 1f

@@ -32,6 +32,8 @@ def apply(spec, version='0.32', plugins=True, keyhook=True, overlay=True, diag=T
     if extras:
         spec = _load('extras_pages', ROOT / 'patches/extras_pages/build.py').apply(spec, version)
         spec = _load('looks_split', ROOT / 'patches/looks_split/build.py').apply(spec, version)   # LOOKS.BIN split -> Film pick
+        if spec['looks_split']['L']['size'] > 2688:    # v0.32a: split_tone keeps S at L+2688 (docs/GRAIN_HANG.md)
+            raise SystemExit('L request overlaps split_tone S at L+2688')
         spec = _load('i18n_zh', ROOT / 'patches/i18n_zh/build.py').apply(spec, version)  # after every guide-word layer
     spec = _load('lv_grid', ROOT / 'patches/lv_grid/build.py').apply(spec)
     spec = _load('fw_version', ROOT / 'patches/fw_version/build.py').apply(spec, version) or spec

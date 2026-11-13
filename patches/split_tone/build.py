@@ -47,12 +47,15 @@ REGIONS = {                             # v0.32 placement (docs/CODE_SPACE_MAP.m
     '.stg': (0x61378ec0, 0x61378f40),   # sec 7 FF tail after exif_name (ends 0x61378ead) to the load end, reserved for split tone
     '.stc': (0x61378f40, 0x61378fb0),
     '.std': (0x61378fb0, 0x61379000),
+    '.sth': (0x60210e90, 0x60210ef0),   # v0.32a: sec-1 FF (retired v0.4 bloom / aspect-clamp block; guards e80..e90, ef0..f00): S in L's block
+    '.sti': (0x601de740, 0x601de780),   # v0.32a: sec-1 dead EVF gamma table (between live_nd's claim and recview's): the no-LOOKS.BIN fallback
 }
-SEC_OF = {'.sta': 1, '.stf': 1, '.stb': 5, '.ste': 4, '.stg': 7, '.stc': 7, '.std': 7}
-FF_GUARD = {'.stb': (16, 16), '.ste': (16, 0), '.stg': (16, 0), '.stc': (0, 0), '.std': (0, 0)}   # FF regions: guard bytes before / after
+SEC_OF = {'.sta': 1, '.stf': 1, '.stb': 5, '.ste': 4, '.stg': 7, '.stc': 7, '.std': 7, '.sth': 1, '.sti': 1}
+FF_GUARD = {'.stb': (16, 16), '.ste': (16, 0), '.stg': (16, 0), '.stc': (0, 0), '.std': (0, 0), '.sth': (16, 16)}   # FF regions: guard bytes before / after
 FF_REGIONS = tuple(FF_GUARD)
 FALSE_POS = {0x60b99730: 'ccb248b9f9c0bf', 0x60b997f0: 'cdb247b9f9c0bb',   # sec-5 data table bytes decoding as call/jmp
-             0x60a610d2: '387fdc80', 0x60a62125: '387fdc80'}           # 0x80dc7f38 (sec-4 logical uncached alias) inside sec-5 data, dis-checked   # "jmp 0x60b9dfe2" bytes inside sec-5 data (0x60b99728 decodes as jmp 0x476137ce), dis-checked
+             0x60a610d2: '387fdc80', 0x60a62125: '387fdc80',
+             0x60f09dd0: '5de78540'}   # v0.32a .sti: high word of the double 0x4085e75d8bd9bd76 (~700.9) in a sec-6 table of doubles (flash alias of 0x601de75d), dis-checked           # 0x80dc7f38 (sec-4 logical uncached alias) inside sec-5 data, dis-checked   # "jmp 0x60b9dfe2" bytes inside sec-5 data (0x60b99728 decodes as jmp 0x476137ce), dis-checked
 STEP_WORDS = (0x601e3b3c, 0x601e3d80)  # the dead tables' step-table words: the only references allowed into dead EVF space
 
 HOOK, HOOK_FRAME = 0x603b14ff, bytes.fromhex('f048')   # call tone,[d2,d3,a2,a3],72 (7 B, d32)
@@ -64,6 +67,12 @@ SET0, SETSZ = 16, 1552
 SBYTES = SET0 + 2 * SETSZ
 SMAGIC = struct.unpack('<I', b'EP7S')[0]
 SB = 62                                               # slot +62 Shadows, +63 Highlights
+# v0.32a (docs/GRAIN_HANG.md): S lives in the LOOKS.BIN block L when one is loaded (film_menu_v2 fm_load: P+1016 L, P+1020 'EP7F' /
+# 'EP7X', L+2112 'EP7L', L+2116 P; malloc 2640 from v0.32 looks_split, so L+2640.. of the 16448-B block is unused)
+LMAGIC, FMAGIC, XMAGIC = (struct.unpack('<I', m)[0] for m in (b'EP7L', b'EP7F', b'EP7X'))
+LTAG, LBACK, LREQ, LOFF = 2112, 2116, 2640, 2688       # S = L + 2688 (64-aligned, 48 B past fm_load's request)
+BLOCK2 = 0x4040                                       # class-2 block stride (0x60026e34[2])
+NWAIT = 240                                           # live-view split passes with 'EP7X' before a fallback malloc
 SPAN = 0x605b7721                                     # SD loader v3 sd_span[0..63] (sd_lo at 0x605b76e1)
 LO = 0x605b76e1
 BAD = {'mulu', 'div', 'divu', 'setlb', 'llt', 'lne', 'leq', 'lra', 'lcc', 'lcs', 'trap'}   # mul is used, MDR saved
@@ -106,6 +115,8 @@ def subst():
     sub = dict(state=hex(SB3.STATE), lim=hex(SB3.LIM), pool=hex(SB3.POOL), bmagic=hex(SB3.MAGIC), hdr=SB3.HDR_LEN,
                pool2=hex(POOL2), lim2=hex(lim2), sbytes=SBYTES, sptr=SPTR, set0=SET0, setsz=SETSZ, smagic=hex(SMAGIC), sb=SB,
                callback=hex(CALLBACK), rec_off=RECORDS_IN_JOB - REQ_IN_JOB, n_rec=N_REC, stride=REC_STRIDE, req_in_job=REQ_IN_JOB,
+               lmagic=hex(LMAGIC), fmagic=hex(FMAGIC), xmagic=hex(XMAGIC), ltag=LTAG, lback=LBACK, loff=LOFF, nwait=NWAIT,
+               liml=hex(POOL2_END - POOL2 - LOFF - SBYTES + 1),
                ext_magic=EXT_MAGIC, ext_mode=EXT_MODE, ext_profile=EXT_PROFILE, magic=hex(MARKER), prop_profile=hex(PROP_PROFILE))
     s = (HERE / 'st.s.in').read_text()
     for k, v in sub.items():
@@ -233,6 +244,11 @@ def apply(spec, version='0.32'):
         raise SystemExit('P layout differs')
     if spec['ap_custom']['symbols'].get('ap_P') != hex(AP_P) or im[AP_P - BASE:AP_P + 3 - BASE] != bytes.fromhex('fcaec2'):
         raise SystemExit('ap_P is not at 0x601df03c (movhu (state),d2)')
+    if LOFF + SBYTES > BLOCK2 or LOFF < LREQ or LOFF % 16:
+        raise SystemExit('S does not fit in the tail of L\'s block')
+    fm = spec.get('looks_split', {}).get('L', {})
+    if fm and fm.get('size') != LREQ:
+        raise SystemExit(f'L request is {fm.get("size")}, not {LREQ}')
     check_sections(stock)
     check_free(spec, stock, im)
     # loader range bytes +62/+63 (and nothing else of the table) must be lo 0 span 0 now

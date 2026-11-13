@@ -9,7 +9,7 @@ addresses. It consolidates `docs/*.md`, `patches/*/`, `tools/*.py`, `generated/*
 - **Addresses** are E-P7 1.1 main CPU addresses (decoded offset + 0x60020020) unless marked RAM/OSD. **None carry to
   another body** ([FIRMWARE_GUIDE.md](FIRMWARE_GUIDE.md) §12).
 - **Tags** as in FIRMWARE_GUIDE: **V** code/bytes/emulator, **C** camera-proven (a stronger V), **I** inference.
-- **Machine-readable:** [atlas.json](atlas.json) (910 symbols, incl. 137 static tasks).
+- **Machine-readable:** [atlas.json](atlas.json) (927 symbols, incl. 137 static tasks).
   `tools/atlas_annotate.py START STOP` runs `tools/dis.sh` and names every atlas address in the listing.
 - **New in this atlas (checked against the bytes here):** the static task descriptor and name tables (§2.1), the
   mailbox-id table, and the corrected COLOR editor record bases (§4, §15).
@@ -131,6 +131,9 @@ watchdog is kicked only by SYS_WDT; a CPU-bound pass in a higher-priority task s
 | `0x60057440` | wdt_off_on_example | func | V |  | Stock pattern: WDT off, long call 0x60022e96, on. Others 0x600f3141/3161, 0x600f35eb, 0x60105728, 0x60c4972b | docs/HALATION_RED.md §21 |
 | `0x60059aab` | nmi_hook_site | code | V | 6 B fc dc ec 74 07 60 (mov 0x600774ec,a0) | After wdt_hw_set(1) at 0x60059aa4 (reset ~1 s later). No branch target in span. Crash-log hook C1 candidate | docs/RE_CAPTURE.md §4.1 |
 | `0x60059c63` | nmi_wdt_branch | code | V | btst 2,(0x8900) | WATCHDOG_TIMEROVER case inside nmi_handler 0x60059a9d (replaces mis-addressed wdt_expiry_handler 0x60059c20) | docs/RE_CAPTURE.md §4 |
+| `0x60059fcd` | ssc_try | func | V | d0 bit mask, d1 register -> d0 1 got | bset d0,(a0): Z set = was free | docs/GRAIN_HANG.md |
+| `0x60059fdd` | ssc_lock | func | V | d0 id (group = bits 3..5, bit = bits 0..2), d1 0 try / 0xff spin / ms -> d0 | Hardware semaphore bset on 0x8fe00000 + 8*group; spin logs every 0x800000 tries. Used by the phys heap with id 0xa09000a | docs/GRAIN_HANG.md |
+| `0x6005a126` | ssc_unlock | func | V | d0 id | bclr on the group register | docs/GRAIN_HANG.md |
 | `0x6005b232` | wdt_on | func | V |  | `mov 10,d0` at 0x6005b23a (Caduceus: 30). Boot via 0x60044be4 | docs/HALATION_RED.md §22 |
 | `0x6005b287` | SYS_WDT | func | V | task 25 entry, prio 55 | Waits <=3 s on mailbox 0x60040d60 then kicks HW (0x6005b253 -> 0x470008ae). Only kicker | docs/HALATION_RED.md §18, §22 |
 | `0x6005bcb5` | wdt_flashop | func | V |  | Off, run flash op, `mov 10,d0` at 0x6005bcff (Caduceus: 30) | docs/HALATION_RED.md §22 |
@@ -166,6 +169,7 @@ watchdog is kicked only by SYS_WDT; a CPU-bound pass in a higher-priority task s
 | `0x62ae8000` | nmi_frame | data | V | 3 x 0x40 B per CPU: +0 tid, +4 SP, +8 PSW, +0xc PC, +0x10 busmon, +0x20..+0x3c d0..a3 | Outside .bss; not cleared at boot [V scan]; survival through WDT reset unknown | docs/RE_CAPTURE.md §4 |
 | `0x62ae8100` | crashlog_area_cand | data | I | ~2.5 KB in 0x62ae80c0..0x62de0000 | Only static users: ICTLOG debug init/t_init fill (0x613ff19e/0x613ff1c9). Proposed crash record R | docs/RE_CAPTURE.md §4.1 |
 | `0x62de0000` | ictlog_mirror | data | V | 1 MB: +0 checksum, +4 u16 1, +0x400 "log", items from +0x440 | 120 item descriptors at 0x61fb035c (12 B) | docs/RE_CAPTURE.md §4 |
+| `0x8fe00000` | ssc_regs | mmio | V | 8 groups x 8 B | Cross-CPU hardware semaphores (ssc_lock / ssc_unlock) | docs/GRAIN_HANG.md |
 | `0xa1dd8d40` | heap_class2 | data | V | 0xa1dd8d40-0xa1e85800 | <=16384 B pool, blocks 0x4040 apart | docs/FIRMWARE_GUIDE.md §2, docs/LOOK_PICKER.md |
 | `0xa1f8d800` | heap_class1 | data | V | 0xa1f8d800-0xa1f98540 | <=2048 B pool, 44 KB, uncached. Caduceus P = 0xa1f8d7ff + h | docs/FIRMWARE_GUIDE.md §2 |
 | `0xa2682c34` | dbg_put_state | data | V | u32: off/put/sd/serial/sd-serial/reboot | Boot sets 1 (put) at 0x60061797 | docs/RE_CAPTURE.md §4 |
@@ -869,10 +873,13 @@ CPU access to buffers only through the window mapper, lock, flush ([FIRMWARE_GUI
 
 | Address | Name | Kind | Tag | Signature / layout | Notes | Source |
 |---|---|---|---|---|---|---|
+| `0x601de740` | st_w | func | V | d0 = P+1020, a0 = P | Ours (split_tone v0.32a .sti): EP7X (no LOOKS.BIN, or fm_load still reading) -> capture mallocs at once, live view counts 240 split passes in P+848 (tag 0x5354xxxx) first; fm_load not run -> no split | patches/split_tone |
+| `0x60210e90` | st_h | func | V | jmp from st_c; (4,sp) P, (24,sp) kind | Ours (split_tone v0.32a .sth): no S at P+848 -> with LOOKS.BIN (P+1020 EP7F, L valid) S = L+2688 in the unused tail of the LOOKS block, no malloc; else jmp st_w | patches/split_tone |
 | `0x603397e0` | dev_stage_list | func | V | a0 ctx | Stage builder; 0x60339b8e gates the lens shading stage 0x6039d19a -> 0x6039e54e | docs/VIGNETTE_FIX.md |
 | `0x60339b8e` | gate_lens_shading | func | V | a0 ctx -> d0 | On when ctx+0xc4 == 0 and 0x603b54b0(request) != 0 and byte 1 != 0xff | docs/VIGNETTE_FIX.md |
 | `0x6034667e` | isp_desc_write | func | V |  | Copies output words verbatim to hardware descriptors | docs/FINDINGS.md |
 | `0x60346e37` | gamma_lut_upload | func | V | a? window (u32 words), ctx (+12 O, +0x38 owner, +0x6c dirty bits) | R==G==B: window+0x000; else R +0x400, G +0x800, B +0xC00 (bytes), O+2608 -> +0x1000; skipped unless owner changed (0xa27360ec[2]) or ctx+108 bit0. Callers 0x60345f9b, 0x60345fbd (in 0x60345ebe) | docs/RE_LIVEVIEW.md §4 |
+| `0x60346eb4` | gamma_reg_writer | func | V | (4,sp) = O+2596, (16,sp) = stage context | Skips if R slot 0, or if no context change and C+108 bit 0 clear (btst 1 at 0x60346ed0); R = G = B path and a distinct-RGB path, both CPU copies (no DMA). The only consumer of split_tone curves | docs/GRAIN_HANG.md |
 | `0x6034fcd2` | tone_ctrl_scale | func | V | (R+1512, C+64) | Raw -7..7 tone values scaled; spline bend 0x6034ff93 | docs/TONE_ENDS.md |
 | `0x60350334` | pool_first_fit | func | V |  | Free list pool+0x2c; nodes 0x603503ca (<=125 x 16 B) | docs/RE_CAPTURE.md §2 |
 | `0x603504a0` | buf_alloc_core | func | V | size, flags, job, desc -> slot or 48 | 48 records at job+0x19c0; flag 0x20000 pool (0x10000 selects job+0x2ab0 else job+0x2a5c), else 0x6034442b | docs/RE_CAPTURE.md §2 |
@@ -925,6 +932,7 @@ CPU access to buffers only through the window mapper, lock, flush ([FIRMWARE_GUI
 | `0x603ae80d` | gamma_stage | func | V | a0 stage ctx (+4 request, +12 output O); `call ..,[d2,d3,a2,a3],16` | From dev_stage_list 0x603b14a6 (2nd stage). gamma_select -> cache check -> rgb_gamma_set 0x603ae995 -> cache store. Split-tone hook G1 at 0x603ae830 (5 B f8923c 5c24) | docs/RE_LIVEVIEW.md §4-5 |
 | `0x603ae830` | gamma_stage_after_select | site | V | 5 B `movbu d0,(60,sp); mov (36,sp),a0`; frame add -260,sp | (40,sp) request R, (36,sp) output O, (56,sp) ctx, (60,sp) select result, (68/72/76,sp) R/G/B curve pointers; stage returns by ret (MDR dead) | docs/SPLIT_TONE_G1.md §1.2 |
 | `0x603ae861` | gamma_change_cache_ptr | code | V | d3 = (R+1484) + 5736 when (R+1484) != 0 | Cache {R*, G*, B*, 12 B, u8 +20}; all three equal and 0x603b5ddc == 4 -> setter skipped (0x603ae8c1..8f0) | docs/SPLIT_TONE_G1.md §1.2 |
+| `0x603ae9cf` | gamma_skip_clear | site | V | mov (56,sp),a0; add 108,a0; and -2 | gamma_stage skip path (slots unchanged): clears C+108 bit 0. Not a wait flag | docs/GRAIN_HANG.md |
 | `0x603aeacd` | gamma_stage_art_reads_g_slot | code | V | mov (2600,O),a1 -> 0x60335323 | Only O-slot read in the gamma stage; in the art-key branch (keys 0x01010064..0x01030069) after its own setter | docs/SPLIT_TONE.md |
 | `0x603af871` | mono_color_route | func | V |  | Key 12: hash 0x60532510 miss -> desc 0x60530eb8 (table 0x605120ec, ctrl 0xb8f) or 0x60530eec (0x60512cc0, 0x3cf) | docs/WB_AND_MONO.md |
 | `0x603afb94` | color_builder_art | func | V |  | Art tables; bypasses H/L hook | docs/HSL_PORT.md |

@@ -251,7 +251,10 @@ ap_custom, and 0x601e1d78–0x601e1e3c is mostly aspect_scp / halation `.hll`.
 | 0x601e3a17 (4, rel32) | hook | looks_split: sl_pick's tail `jmp fm_post` -> `jmp ls_pick` (ends `jmp fm_post`) |
 | heap L+2560..2631 | heap | looks_split: L+2560 'EP7W' (written last), +2564 P, +2568 split stash 32 × 2 B (record +61/+62). Past the 2560 B that the Movie / AP Film pages copy into L2 / L3, so those copies never carry it |
 
-**Left after v0.32 (sec 1, for #32 Sharpness ~100–130 B and the Extras v2 table):** 0x601de740–0x601de780 (64 B), sec-1
-FF 0x60210e90–0x60210ef0 (96 B, guards e70–e90 / ef0–f00). The dead EVF 0x601e1a8c–0x601e1b3c (176 B) went to plugin_loader
+| 0x60210e90–0x60210ef0 (96 B, sec 1 FF; guards 0x60210e80–e90 / 0x60210ef0–f00 FF) | 1 | **split_tone v0.32a `.sth`** (patches/split_tone, docs/GRAIN_HANG.md): st_h, S placement in the LOOKS.BIN block (78 B) |
+| 0x601de740–0x601de780 (64 B, sec 1 dead EVF) | 1 | **split_tone v0.32a `.sti`**: st_w, the no-LOOKS.BIN fallback (EP7X: capture malloc, live view waits 240 split passes; 59 B). Pinned false positive 0x60f09dd0 (double 0x4085e75d8bd9bd76, flash alias), dis-checked |
+| heap L+2688..5807 | heap | **split_tone v0.32a**: block S (3120 B) in the unused tail of L's 16448-B class-2 block (fm_load requests 2640). `patches/v032/build.py` refuses an L request > 2688 |
+
+**Left after v0.32a (sec 1):** nothing of the two pieces above (both went to split_tone v0.32a). The dead EVF 0x601e1a8c–0x601e1b3c (176 B) went to plugin_loader
 `.plb`; #32 now needs a code-space round too, or can ship as a plugin. Outside sec 1 nothing usable is left except sec 4's 30 B after `.ste`. The Extras v2 table (~0.5 KB) needs a
 code-space round first.

@@ -150,6 +150,36 @@
    "source": "docs/SD_V2_CRASH.md"
   },
   {
+   "addr": "0x60022a61",
+   "name": "alloc_phys_impl",
+   "kind": "func",
+   "subsystem": "mem",
+   "confidence": "V",
+   "sig": "d0 class 0..3 -> a0 block or 0",
+   "notes": "Fixed-block pools: cpu_lock, ssc_lock(0xa09000a, spin), bump index then free stack, bitmap set; on failure \"no more heap\" log + heap_fail_dump 0x60022dcd, returns 0. Pools shared by all CPUs",
+   "source": "docs/GRAIN_HANG.md"
+  },
+  {
+   "addr": "0x60022cc5",
+   "name": "free_phys_impl",
+   "kind": "func",
+   "subsystem": "mem",
+   "confidence": "V",
+   "sig": "d0 class, a0 block",
+   "notes": "Index = (a0 - base) / stride; bad or unallocated pointer logs and dumps; else bitmap clear + push on the free stack",
+   "source": "docs/GRAIN_HANG.md"
+  },
+  {
+   "addr": "0x60022dcd",
+   "name": "heap_fail_dump",
+   "kind": "func",
+   "subsystem": "mem",
+   "confidence": "V",
+   "sig": "",
+   "notes": "Called on alloc/free failure: task id, log line, dump 0x60022e34. Not fatal: the caller still gets 0",
+   "source": "docs/GRAIN_HANG.md"
+  },
+  {
    "addr": "0x60023863",
    "name": "ictlog_add",
    "kind": "func",
@@ -168,6 +198,56 @@
    "sig": "",
    "notes": "Checksum + 0x6005bc79 write to 0x47b00000. Only via 0x602f8a63 from OlyHfwPower::startShutDown 0x607a9c2e",
    "source": "docs/RE_CAPTURE.md §4"
+  },
+  {
+   "addr": "0x60026df4",
+   "name": "phys_pool_base",
+   "kind": "table",
+   "subsystem": "mem",
+   "confidence": "V",
+   "sig": "u32[4] by class",
+   "notes": "Class bases 0xa1bce7c0 / 0xa1f8d800 / 0xa1dd8d40 / 0xa27f3500 (3 = scheap_sharealloc)",
+   "source": "docs/GRAIN_HANG.md"
+  },
+  {
+   "addr": "0x60026e04",
+   "name": "phys_pool_count",
+   "kind": "table",
+   "subsystem": "mem",
+   "confidence": "V",
+   "sig": "u32[4] by class",
+   "notes": "Blocks per class: 178 / 21 / 43 / 100",
+   "source": "docs/GRAIN_HANG.md"
+  },
+  {
+   "addr": "0x60026e14",
+   "name": "phys_pool_freestk",
+   "kind": "table",
+   "subsystem": "mem",
+   "confidence": "V",
+   "sig": "u32[4] by class",
+   "notes": "u16 free-stack arrays 0xa2728f48 / 0xa27290ac / 0xa27290d6 / 0xa272912c",
+   "source": "docs/GRAIN_HANG.md"
+  },
+  {
+   "addr": "0x60026e24",
+   "name": "phys_pool_bitmap",
+   "kind": "table",
+   "subsystem": "mem",
+   "confidence": "V",
+   "sig": "u32[4] by class",
+   "notes": "Allocated bitmaps 0xa27291f4 / 0xa272920c / 0xa2729210 / 0xa2729218",
+   "source": "docs/GRAIN_HANG.md"
+  },
+  {
+   "addr": "0x60026e34",
+   "name": "phys_pool_stride",
+   "kind": "table",
+   "subsystem": "mem",
+   "confidence": "V",
+   "sig": "u32[4] by class",
+   "notes": "Block strides 0xc0 / 0x840 / 0x4040 / 0xc0: one allocation takes a whole block whatever its size",
+   "source": "docs/GRAIN_HANG.md"
   },
   {
    "addr": "0x60027068",
@@ -638,6 +718,36 @@
    "sig": "btst 2,(0x8900)",
    "notes": "WATCHDOG_TIMEROVER case inside nmi_handler 0x60059a9d (replaces mis-addressed wdt_expiry_handler 0x60059c20)",
    "source": "docs/RE_CAPTURE.md §4"
+  },
+  {
+   "addr": "0x60059fcd",
+   "name": "ssc_try",
+   "kind": "func",
+   "subsystem": "rtos",
+   "confidence": "V",
+   "sig": "d0 bit mask, d1 register -> d0 1 got",
+   "notes": "bset d0,(a0): Z set = was free",
+   "source": "docs/GRAIN_HANG.md"
+  },
+  {
+   "addr": "0x60059fdd",
+   "name": "ssc_lock",
+   "kind": "func",
+   "subsystem": "rtos",
+   "confidence": "V",
+   "sig": "d0 id (group = bits 3..5, bit = bits 0..2), d1 0 try / 0xff spin / ms -> d0",
+   "notes": "Hardware semaphore bset on 0x8fe00000 + 8*group; spin logs every 0x800000 tries. Used by the phys heap with id 0xa09000a",
+   "source": "docs/GRAIN_HANG.md"
+  },
+  {
+   "addr": "0x6005a126",
+   "name": "ssc_unlock",
+   "kind": "func",
+   "subsystem": "rtos",
+   "confidence": "V",
+   "sig": "d0 id",
+   "notes": "bclr on the group register",
+   "source": "docs/GRAIN_HANG.md"
   },
   {
    "addr": "0x6005a509",
@@ -1660,6 +1770,16 @@
    "source": "docs/LOG_VIEW_ASSIST.md"
   },
   {
+   "addr": "0x601de740",
+   "name": "st_w",
+   "kind": "func",
+   "subsystem": "pipeline",
+   "confidence": "V",
+   "sig": "d0 = P+1020, a0 = P",
+   "notes": "Ours (split_tone v0.32a .sti): EP7X (no LOOKS.BIN, or fm_load still reading) -> capture mallocs at once, live view counts 240 split passes in P+848 (tag 0x5354xxxx) first; fm_load not run -> no split",
+   "source": "patches/split_tone"
+  },
+  {
    "addr": "0x601df03c",
    "name": "ap_P",
    "kind": "func",
@@ -1908,6 +2028,16 @@
    "sig": "d0 on",
    "notes": "on == 1: ~200 x prop_handle(key) -> 0x622a09a4..0x622a0bfc (e.g. 0x6020d7a6 key 0x949a -> 0x622a0b40, 0x6020da40 0x8eb9 -> 0x622a0bd8, 0x6020d393 0x30ea -> 0x622a0a60); else zero them. Callers 0x6020d011, 0x60421338. No value cache",
    "source": "docs/RE_AE.md §0"
+  },
+  {
+   "addr": "0x60210e90",
+   "name": "st_h",
+   "kind": "func",
+   "subsystem": "pipeline",
+   "confidence": "V",
+   "sig": "jmp from st_c; (4,sp) P, (24,sp) kind",
+   "notes": "Ours (split_tone v0.32a .sth): no S at P+848 -> with LOOKS.BIN (P+1020 EP7F, L valid) S = L+2688 in the unused tail of the LOOKS block, no malloc; else jmp st_w",
+   "source": "patches/split_tone"
   },
   {
    "addr": "0x602325b4",
@@ -2920,6 +3050,16 @@
    "source": "docs/RE_LIVEVIEW.md §4"
   },
   {
+   "addr": "0x60346eb4",
+   "name": "gamma_reg_writer",
+   "kind": "func",
+   "subsystem": "pipeline",
+   "confidence": "V",
+   "sig": "(4,sp) = O+2596, (16,sp) = stage context",
+   "notes": "Skips if R slot 0, or if no context change and C+108 bit 0 clear (btst 1 at 0x60346ed0); R = G = B path and a distinct-RGB path, both CPU copies (no DMA). The only consumer of split_tone curves",
+   "source": "docs/GRAIN_HANG.md"
+  },
+  {
    "addr": "0x6034fcd2",
    "name": "tone_ctrl_scale",
    "kind": "func",
@@ -3448,6 +3588,16 @@
    "sig": "d3 = (R+1484) + 5736 when (R+1484) != 0",
    "notes": "Cache {R*, G*, B*, 12 B, u8 +20}; all three equal and 0x603b5ddc == 4 -> setter skipped (0x603ae8c1..8f0)",
    "source": "docs/SPLIT_TONE_G1.md §1.2"
+  },
+  {
+   "addr": "0x603ae9cf",
+   "name": "gamma_skip_clear",
+   "kind": "site",
+   "subsystem": "pipeline",
+   "confidence": "V",
+   "sig": "mov (56,sp),a0; add 108,a0; and -2",
+   "notes": "gamma_stage skip path (slots unchanged): clears C+108 bit 0. Not a wait flag",
+   "source": "docs/GRAIN_HANG.md"
   },
   {
    "addr": "0x603aeacd",
@@ -8930,6 +9080,16 @@
    "source": "docs/RE_CAPTURE.md §4"
   },
   {
+   "addr": "0x8fe00000",
+   "name": "ssc_regs",
+   "kind": "mmio",
+   "subsystem": "rtos",
+   "confidence": "V",
+   "sig": "8 groups x 8 B",
+   "notes": "Cross-CPU hardware semaphores (ssc_lock / ssc_unlock)",
+   "source": "docs/GRAIN_HANG.md"
+  },
+  {
    "addr": "0x98e00008",
    "name": "bk_regs",
    "kind": "data",
@@ -9038,6 +9198,16 @@
    "sig": "8 KB; head 0xa2728c90, tail 0xa2728c94, mode 0xa2728c98",
    "notes": "Console tail ring (.bss)",
    "source": "docs/RE_CAPTURE.md §4"
+  },
+  {
+   "addr": "0xa2728f28",
+   "name": "phys_pool_bump",
+   "kind": "data",
+   "subsystem": "mem",
+   "confidence": "V",
+   "sig": "u32[4] by class",
+   "notes": "Next never-used block index per class; 0xa2728f38 u32[4] = free-stack depth",
+   "source": "docs/GRAIN_HANG.md"
   },
   {
    "addr": "0xa272e420",

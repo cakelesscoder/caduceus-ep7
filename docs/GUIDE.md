@@ -65,7 +65,8 @@ Until that half-press, or with no `EP7MOD` folder, the colour wheel is stock.
 | Saturation·All | – | all colours at once (stock) |
 | Hue | sector | shift that colour |
 | Light | sector | brighten / darken that colour |
-| Extras | sector 1–11 | the setting in the table below |
+| Effects | sector 1–7 | the setting in the tables below |
+| Colour & Light | sector 1–8 | the setting in the tables below |
 
 4. Close the editor (OK), then **half-press** to save to the card.
 
@@ -75,38 +76,36 @@ Until that half-press, or with no `EP7MOD` folder, the colour wheel is stock.
   Super Control Panel, picture-mode cell on Vivid, press INFO. Same pages; Grain, Glow/Clarity, Art and Halo read
   `…: stills` there.
 
-## 4. The Extras page (v0.31d)
+## 4. The Effects and Colour & Light pages (v0.32)
+
+**Effects**
 
 | Sector | Setting | Values | Set by |
 |---|---|---|---|
 | 1 | Grain | Off / Low / Med / High | **you** (profile) |
 | 2 | Glow ← → Clarity | −5..+5 (− glow, + clarity) | look |
-| 3 | WB amber / blue | −5..+5 | look |
-| 4 | WB green / magenta | −5..+5 | look |
-| 5 | Art Effect | Off / Star Light / Pin Hole | look |
-| 6 | Blacks | −5..+5 | look |
-| 7 | Whites | −5..+5 | look |
-| 8 | VigFix (lens vignette correction) | Off / Camera | look |
-| 9 | NR (noise reduction) | Camera / Std / Low / Off | **you** (profile) |
-| 10 | Sharp (sharpening) | Camera / Off | **you** (profile) |
-| 11 | Halo (tinted halation) | Off / Low / Med / High | look, you can change it after |
-| 12 | – | `Extras: 1-11 only` | – |
+| 3 | Halo (tinted halation) | Off / Low / Med / High | look, you can change it after |
+| 4 | Art Effect | Off / Star Light / Pin Hole | look |
+| 5 | Sharp (sharpening) | Camera / Off | **you** (profile) |
+| 6 | NR (noise reduction) | Camera / Std / Low / Off | **you** (profile) |
+| 7 | VigFix (lens vignette correction) | Off / Camera | look |
 
-Grain and Halo are stills only and add a few seconds to saving.
+**Colour & Light**
 
-> [!NOTE]
-> **Coming in v0.32 (not released; layout may still change).** Extras splits into two pages.
->
-> | Sector | **Effects** | **Colour & Light** |
-> |---|---|---|
-> | 1 | Grain | WB A–B |
-> | 2 | Glow / Clarity | WB G–M |
-> | 3 | Halo | Blacks |
-> | 4 | Art | Whites |
-> | 5 | Sharp | Shadow tone colour |
-> | 6 | NR | Shadow tone strength |
-> | 7 | VigFix | Highlight tone colour |
-> | 8 | – | Highlight tone strength |
+| Sector | Setting | Values | Set by |
+|---|---|---|---|
+| 1 | WB amber / blue | −5..+5 | look |
+| 2 | WB green / magenta | −5..+5 | look |
+| 3 | Blacks | −5..+5 | look |
+| 4 | Whites | −5..+5 | look |
+| 5 | Shadow tone colour | Off / 12 colours | look |
+| 6 | Shadow tone strength | −5..+5 (− = opposite tint) | look |
+| 7 | Highlight tone colour | Off / 12 colours | look |
+| 8 | Highlight tone strength | −5..+5 | look |
+
+Picking a tone colour while its strength is 0 sets it to +3. Grain and Halo are stills only and add a few seconds to
+saving. Split tone is COLOR1–4 only (`Split: COLOR 1-4` on Movie and AP). On v0.31d and earlier these are one Extras
+page: 1 Grain, 2 Glow/Clarity, 3–4 WB, 5 Art, 6 Blacks, 7 Whites, 8 VigFix, 9 NR, 10 Sharp, 11 Halo.
 
 ## 5. Looks vs profile settings
 
@@ -146,6 +145,7 @@ Example: COLOR2 has Grain Med and Sharp Off. Switching COLOR2 from Portra 400 to
 | Files ignored after copying | Eject the card properly and copy again; a cut-short file is skipped |
 | LED blinks fast at once when flashing | The camera rejected the file and wrote nothing. Rebuild and copy again |
 | Edits lost | Half-press after closing the editor; that's when it saves |
+| Keys stop responding or the camera restarts after a shot | Effects are processed on the camera's own CPU; several heavy ones together (Grain + Halo + strong glow) can occasionally stall it. Power off and on, and drop one effect on that profile if it repeats |
 | Effect missing in live view | Grain, Halo, Star Light and some effects show only in the saved photo |
 
 More: [INSTALL.md › troubleshooting and FAQ](INSTALL.md). Bugs: [issues](https://github.com/cakelesscoder/caduceus-ep7/issues).

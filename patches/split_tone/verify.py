@@ -42,7 +42,10 @@ ROW0 = 0x604ede78
 STACK, SP0, FILL = 0x18010000, 0x18011800, 0xa5
 POOL, HANDLE = 0xa1f8d800, 0x41
 P = POOL + HANDLE - 1
-SBLK = 0xa1dd8d40 + 0x4040 * 5
+LBLK = 0xa1dd8d40 + 0x4040 * 5          # LOOKS.BIN block L (fm_load); v0.32a S = L + 2688
+SOFF = STB.LOFF
+SBLK = LBLK + SOFF
+MBLK = 0xa1dd8d40 + 0x4040 * 7          # malloc mock (the no-LOOKS.BIN fallback)
 J = 0x13000000
 R = J + 11364
 C, O = 0x13010000, 0x13020000
@@ -70,7 +73,7 @@ getter:                           /* call ..,[d2,d3],12 */
  ret [d2,d3],12
  .balign 16
 malloc:                           /* call ..,[],4 */
- mov {SBLK if malloc_ok else 0:#x},a0
+ mov {MBLK if malloc_ok else 0:#x},a0
  ret [],4
  .balign 16
 free:
@@ -104,8 +107,12 @@ def bend(src, sh, hl):
 
 
 def fixture(slots=None, handle=HANDLE, magic=b'EP7B', marker=True, profile=1, key=0x000b0000, ptrs=None, o4=0, c108=0x10,
-            S=None, pextra=None):
+            S=None, pextra=None, looks='F', lback=None):
     p = bytearray(1024); p[0:4] = magic
+    p[1020:1024] = {'F': b'EP7F', 'X': b'EP7X', '0': bytes(4)}[looks]   # fm_load: LOOKS.BIN loaded / tried, none / not run
+    struct.pack_into('<I', p, 1016, LBLK)
+    lb = bytearray(0x4040); lb[2112:2116] = b'EP7L'; struct.pack_into('<I', lb, 2116, P if lback is None else lback)
+    lb[0:2112] = bytes((i * 7 + 3) & 255 for i in range(2112)); lb[2120:2640] = bytes((i * 5 + 1) & 255 for i in range(520))
     for k, (a, b) in (slots or {}).items():
         p[32 + 64 * k + 62] = a; p[32 + 64 * k + 63] = b
     if pextra:
@@ -119,7 +126,7 @@ def fixture(slots=None, handle=HANDLE, magic=b'EP7B', marker=True, profile=1, ke
     c = bytearray(256); struct.pack_into('<I', c, 4, R); struct.pack_into('<I', c, 12, O); struct.pack_into('<I', c, 108, c108)
     o = bytearray(2624); struct.pack_into('<I', o, 4, o4)
     struct.pack_into('<III', o, 2596, *(ptrs or (ROW0, ROW0, ROW0)))
-    return dict(p=bytes(p), j=bytes(j), c=bytes(c), o=bytes(o), s=S or bytes(4096), state=struct.pack('<HHI', 0, handle, 0))
+    return dict(p=bytes(p), j=bytes(j), c=bytes(c), o=bytes(o), s=S or bytes(lb), mb=bytes(0x4040), state=struct.pack('<HHI', 0, handle, 0))
 
 
 def run(main, fx, prof=1, malloc_ok=True):
@@ -139,7 +146,8 @@ def run(main, fx, prof=1, malloc_ok=True):
           Region('mocks', 0x13100000, mk, 'rx'),
           Region('state', 0x622cbcc0, fx['state'], 'r'),
           Region('pool', P, fx['p'], 'rw', True),
-          Region('S', SBLK, fx['s'], 'rw', True),
+          Region('S', LBLK, fx['s'], 'rw', True),
+          Region('M', MBLK, fx['mb'], 'rw', True),
           Region('job', J, fx['j'], 'rw', True),
           Region('C', C, fx['c'], 'rw', True),
           Region('O', O, fx['o'], 'rw', True),
@@ -155,7 +163,7 @@ def same(base, new, fx, **kw):
     g0, g1 = r0['registers'], r1['registers']
     sp = g1['sp'] - STACK
     ok = not r0['fault'] and not r1['fault'] and g0['pc'] == TONE == g1['pc'] and all(g0[k] == g1[k] for k in KEEP)
-    ok &= m0['stack'][sp:] == m1['stack'][sp:] and all(m0[k] == m1[k] for k in ('pool', 'S', 'job', 'C', 'O'))
+    ok &= m0['stack'][sp:] == m1['stack'][sp:] and all(m0[k] == m1[k] for k in ('pool', 'S', 'M', 'job', 'C', 'O'))
     return ok, (r1, m1), (r0, m0)
 
 
@@ -171,12 +179,12 @@ def slots_of(m):
 
 
 def curves(m, base_addr):
-    off = base_addr - SBLK
-    return [list(struct.unpack_from('<256H', m['S'], off + 512 * c)) for c in range(3)]
+    reg, off = ('M', base_addr - MBLK) if base_addr >= MBLK else ('S', base_addr - LBLK)
+    return [list(struct.unpack_from('<256H', m[reg], off + 512 * c)) for c in range(3)]
 
 
 def state_from(m, fx):
-    return dict(fx, p=m['pool'], s=m['S'], c=m['C'], o=m['O'], j=m['job'])
+    return dict(fx, p=m['pool'], s=m['S'], mb=m['M'], c=m['C'], o=m['O'], j=m['job'])
 
 
 def t_n(base, new):
@@ -204,13 +212,13 @@ def t_c(base, new):
     got = curves(m, s0)
     ok &= regs_ok(r0, r1) and sl == (s0, s0 + 512, s0 + 1024)
     ok &= got == want and len({tuple(x) for x in got}) == 3 and got[1] != src
-    ok &= struct.unpack_from('<I', m['C'], 108)[0] == 0x11 and m['S'][0:4] == b'EP7S' and struct.unpack_from('<I', m['S'], 4)[0] == P
+    ok &= struct.unpack_from('<I', m['C'], 108)[0] == 0x11 and m['S'][SOFF:SOFF + 4] == b'EP7S' and struct.unpack_from('<I', m['S'], SOFF + 4)[0] == P and m['M'] == fx['mb']
     ok &= struct.unpack_from('<I', m['pool'], 848)[0] == SBLK
     info.append(f'bend {"==" if got == want else "!="} model, max |dR| {max(abs(a - b) for a, b in zip(got[0], src))}')
     # repeat pass: nothing stored
     fx2 = state_from(m, fx)
     r2 = run(new, fx2)
-    ok &= regs_ok(r0, r2) and all(r2[1][k] == fx2[{'pool': 'p', 'S': 's', 'job': 'j', 'C': 'c', 'O': 'o'}[k]] for k in ('pool', 'S', 'job', 'C', 'O'))
+    ok &= regs_ok(r0, r2) and all(r2[1][k] == fx2[{'pool': 'p', 'S': 's', 'M': 'mb', 'job': 'j', 'C': 'c', 'O': 'o'}[k]] for k in ('pool', 'S', 'M', 'job', 'C', 'O'))
     # new word -> rebuild set 0
     p3 = bytearray(m['pool']); p3[32 + 62], p3[32 + 63] = 0x26, 0x13
     fx3 = dict(fx2, p=bytes(p3), c=fx['c'])
@@ -241,13 +249,45 @@ def t_g(base, new):
     cases = [(fixture(slots={0: (0x5c, 0x61)}), {}), (fixture(slots={0: (0x58, 0x51)}, profile=5), {}),
              (fixture(slots={0: (0x58, 0x51)}, profile=0), {}), (fixture(slots={0: (0x58, 0x51)}, o4=0x1000), {}),
              (fixture(slots={0: (0x58, 0x51)}, ptrs=(ROW0, ROW0 + 512, ROW0)), {}), (fixture(slots={0: (0x58, 0x51)}, key=0x01010079), {}),
-             (fixture(slots={0: (0x58, 0x51)}), dict(malloc_ok=False))]
+             (fixture(slots={0: (0x58, 0x51)}, looks='X'), dict(malloc_ok=False))]
     for fx, kw in cases:
         ok, (r1, _), _ = same(base, new, fx, **kw)
         n += 1
         if not ok:
             bad.append((n, r1['fault']))
     return not bad, f'{n} gate cases == v0.31d; bad {bad}'
+
+
+def t_a(base, new):
+    """v0.32a S placement: in L's block with a LOOKS.BIN (no malloc, L's 2688 B untouched); malloc only without one
+    (capture at once, live view after NWAIT split passes); nothing before fm_load ran or with a bad L."""
+    src = list(struct.unpack_from('<256H', new, ROW0 - BASE))
+    info, ok = [], True
+    fx = fixture(slots={0: (0x58, 0x51)})
+    r = run(new, fx); m = r[1]
+    a1 = struct.unpack_from('<I', m['pool'], 848)[0] == SBLK and m['M'] == fx['mb'] and m['S'][:SOFF] == fx['s'][:SOFF]
+    a1 &= slots_of(m)[0] == SBLK + 32 and curves(m, SBLK + 32) == bend(src, 0x58, 0x51)
+    info.append(f'L: S = L+{SOFF} {a1}')
+    fl = fixture(slots={0: (0x58, 0x51)}, marker=False); rl = run(new, fl, prof=1); ml = rl[1]
+    a1l = struct.unpack_from('<I', ml['pool'], 848)[0] == SBLK and ml['M'] == fl['mb'] and slots_of(ml)[0] == SBLK + 32 + 1552
+    info.append(f'L live view {a1l}')
+    fx = fixture(slots={0: (0x58, 0x51)}, looks='X'); r = run(new, fx); m = r[1]
+    a2 = struct.unpack_from('<I', m['pool'], 848)[0] == MBLK and m['M'][:4] == b'EP7S' and m['S'] == fx['s'] and slots_of(m)[0] == MBLK + 32
+    info.append(f'no LOOKS capture -> malloc {a2}')
+    fx = fixture(slots={0: (0x58, 0x51)}, looks='X', marker=False)
+    r1, m1 = run(new, fx, prof=1)
+    a3 = slots_of(m1) == (ROW0, ROW0, ROW0) and struct.unpack_from('<I', m1['pool'], 848)[0] == 0x53540001 and m1['M'] == fx['mb']
+    p2 = bytearray(fx['p']); struct.pack_into('<I', p2, 848, 0x53540000 + STB.NWAIT - 1)
+    r2 = run(new, dict(fx, p=bytes(p2)), prof=1)
+    a3 &= struct.unpack_from('<I', r2[1]['pool'], 848)[0] == MBLK and slots_of(r2[1])[0] == MBLK + 32 + 1552
+    info.append(f'no LOOKS live view waits {STB.NWAIT} then malloc {a3}')
+    a4 = True
+    for f in (fixture(slots={0: (0x58, 0x51)}, looks='0'), fixture(slots={0: (0x58, 0x51)}, looks='0', marker=False),
+              fixture(slots={0: (0x58, 0x51)}, lback=P + 64)):
+        g, _, _ = same(base, new, f)
+        a4 &= g
+    info.append(f'fm_load not run / bad L == v0.31d {a4}')
+    return a1 and a1l and a2 and a3 and a4, '; '.join(info)
 
 
 def t_pkg(base_s, new_s, base, new_p, pkg, rst, disk):
@@ -261,10 +301,11 @@ def t_pkg(base_s, new_s, base, new_p, pkg, rst, disk):
         good &= bytes(exp) == b.payload
     for b in oc.parse(rst):
         good &= b.payload == sb[b.kind].payload
-    srcs = {'patches/scp_name', 'patches/split_tone', 'patches/lv_grid', 'patches/fw_version'}
+    srcs = {'patches/scp_name', 'patches/split_tone', 'patches/extras_pages', 'patches/looks_split', 'patches/i18n_zh', 'patches/lv_grid', 'patches/fw_version'}
+    tags = ('[split_tone', '[extras_pages', '[looks_split', '[i18n_zh', '[scp_name')
     ours = [(int(e['addr'], 16), len(e['new']) // 2) for e in base_s['edits'] if e.get('source') == 'patches/fw_version'] + \
         [(int(e['addr'], 16), len(e['new']) // 2) for e in new_s['edits']
-            if e['kind'] == '0x100' and not e['addr'].startswith('off:') and (e.get('source') in srcs or '[split_tone' in e['why'])]
+            if e['kind'] == '0x100' and not e['addr'].startswith('off:') and (e.get('source') in srcs or any(t in e['why'] for t in tags))]
     nm, bm = new_p[0x100], base[0x100]
     diff = [BASE + i for i in range(len(bm)) if bm[i] != nm[i]]
     stray = [hex(a) for a in diff if not any(s_ <= a < s_ + k for s_, k in ours)]
@@ -282,7 +323,7 @@ def main():
     base, new = bp[0x100], np_[0x100]
     ok = True
     for tag, f in (('N', lambda: t_n(base, new)), ('C', lambda: t_c(base, new)), ('L', lambda: t_l(base, new)),
-                   ('G', lambda: t_g(base, new)), ('P', lambda: t_pkg(base_s, new_s, bp, np_, pkg, rst, disk))):
+                   ('G', lambda: t_g(base, new)), ('A', lambda: t_a(base, new)), ('P', lambda: t_pkg(base_s, new_s, bp, np_, pkg, rst, disk))):
         g, txt = f()
         print(f"{'PASS' if g else 'FAIL'} {tag} {txt}", flush=True)
         ok &= g
