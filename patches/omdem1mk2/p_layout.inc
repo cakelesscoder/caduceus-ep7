@@ -46,6 +46,7 @@
 .equ P_HUE,         56              /* s8[12] hue, UI order (-15..15) */
 .equ P_LIGHT,       68              /* s8[12] light, UI order (-15..15) */
 .equ P_TMP,         81              /* u8 scratch (look_fill multiplier) */
+.equ P_SDTRY,       82              /* u8 LOOKS.BIN open attempts this power-on (v0.4c14; banner " C0.n") */
 .equ P_STR,         80              /* u8 look strength 0..3 = x1, x1.5, x2, x3 (S up to +-10, H/L up to +-15) */
 /* debug_log (v0.4b1). Patch state never goes in the loaded image (FIRMWARE_GUIDE §10 lesson 2). */
 .equ P_LGON,        96              /* u8 0 = DEBUG.TXT not looked for yet, 1 = found, 2 = absent (stop looking) */

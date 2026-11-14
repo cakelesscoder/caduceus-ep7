@@ -861,3 +861,59 @@ Every step, check and decision, newest last. "Verified" = checked by hash or rep
   stock 6/7 none, c13 6668/7086. R's expected screen fixed to 0x39 (it had been changed to 0x3e outside this
   session). All checks PASS. v0.4c13: 226 edits, E1259999.BIN 90addbc0….
 - Owner, c13 on camera: works — the SCP option row shows the 65:24 / 21:9 icons. Lesson recorded in ASPECT.md §6.13.
+
+## 2026-11-13 — halation port: investigation and design (nothing built)
+
+- OM-3 v0.28 halation = its own code after the E-P7 method, different base firmware: port the E-P7 version (same family);
+  OM-3 tuning (h2) as a later candidate. Byte search of the E-P7 bloom / grain / halation / watchdog sites on the E-M1 II:
+  pipeline largely the E-P7's shifted ~+0x3c000 (callback, blend setup, effect selector exact); combiners, CPU-pass
+  route, watchdog need code-shape search. Blocker: code space.
+- Owner decisions: one global Halo stage, remembered in the camera; all colour modes (not Mono / Art); global strength,
+  look's tint. docs/OMD-EM1-II/HALATION.md.
+
+## 2026-11-13 — halation step 1: code-space probe sp1
+
+- Section gaps scanned for code address use: 0x612e7000..0x61300000 (100 KB) and 0x60bc8800..0x60bf1000 (162 KB) are
+  referenced only by their end words; end getter used only by the loader. sp1: section 5 end word 0x60042b6d -> 0x61300000
+  (flash span ends at section 6's source), region = magic + LCG, banner check S+/S!/S0 (patches/omdem1mk2/space_probe).
+- check_loaded reads the release's end words; release builder: EM1_SPACE_PROBE=1. Harness tools/omdem1mk2_emu_space.py
+  E/P/C PASS (first run failed only on the harness's own return-address setup: `call ..,[],4` leaves it at (4,sp)).
+- Build v0.4c13-sp1 (229 edits), E1259999.BIN 40a766dd…; SCP, AF (768), rules, check_loaded PASS.
+- Owner, sp1 on camera: banner "Provia C0 S+ K0009+" after bursts and several modes -> 100 KB region loaded and intact [C].
+
+## 2026-11-13 — sp1 S+ after power cycle and movie; C0 with LOOKS.BIN → v0.4c14 (card loading)
+
+- Owner: still S+ after a power cycle and a movie (100 KB region proven); C0 although LOOKS.BIN is on the card. No camera
+  report ever recorded C1: the card loader never ran. Cause: the gate's four card-state words (guessed) never matched.
+- Fix: no gate; try fopen at each half-press until loaded, 8 attempts, then CF; banner C<state>.<tries> (P+82). Found
+  while emulating: `clr a3` -> extended op f9 68 bb (emulator rejects, stock never uses) -> `mov 0,a3`; audit rule added.
+- New harness tools/omdem1mk2_emu_sdload.py + fixture tools/emu_fixtures/em1_fs_stubs.s: ready3 / none / badcrc PASS,
+  v0.4c13 gate reproduces C0. v0.4c14 = c13 + loader fix (226 edits), E1259999.BIN 3d1dd04e…; SCP, AF (768), rules, check_loaded PASS.
+
+## 2026-11-13 — v0.4c14 on camera: C0.0 → the loader hook site was never reached → v0.4c15 (HLS event loop hook)
+- Owner (v0.4c14): banner `C0.0` after several half-presses: P exists but the try counter is 0, so sd_gate never ran.
+- Cause: 0x6023d0db is the command-256 branch (`clr d0; movhu d0,(0x621e2f6e)`) of an unrelated message loop
+  0x6023d035 (commands 0 / 1 = counter 0x621e2f6c ++/--, 256 / 257 = flag 0x621e2f6e, 512). "TRIG1 half-press
+  classifier" (REA_FIRMWARE_FUNCTIONS_REFERENCE) was never evidenced; "camera-proven" only meant "no crash" (open question
+  already noted 2026-11-11). Every C0 report since v0.1 is explained by this, not (only) by the card-state gate.
+- Found the E-P7 HLS_EVENT loop counterpart: E-P7 0x602c7f5a (called from 0x60770224) ↔ E-M1 II **0x602f7b11** (called from
+  0x607b471a, same wrapper bytes; near the HLS task code 0x607b4235). Same module, offset ≈ +0x2f9b0: receive 0x602c9b6a ↔
+  0x602f93fc, 0x602c7f18 ↔ 0x602f7acf, per-event 0x602c869e ↔ 0x602f8067 (byte-identical shape). The E-P7 calls its
+  half-press tracker 0x602c818c after `clr d0; call 0x602c9cd1`; the E-M1 II keeps that call (0x602f7bf1) but has no
+  tracker (no 0x0204xxxx event constants anywhere). The only half-press constants in the module are the drain
+  0x602f8132's (0x02000100 / 0x02000101 / 0x02010100 / 0x02010101). (0x602f7e78 is a modal wait-for-event routine, not the loop.)
+- Fix: hook **0x602f7bf7** (`mov (52,sp),d0; btst 0x02000000,d0`, 8 B, every event); cave: event & 0xfffeffff ==
+  0x02000100 and (0xa2767afc & 0x1ff) == 0x1ff (sections loaded; fopen is in section 4) → sd_gate; then reload d0 and replay
+  the btst (flags for the beq at 0x602f7bff). d1 / a0 / a1 / MDR dead there (next callees 0x602f7aba / 0x60333884 /
+  0x602f7ca7 take d0 only). Hook and cave both in section 2. 0x6023d0db back to stock. No caller-tid check (0x602f7b11
+  has one caller, in the HLS task code).
+- Emulated (tools/omdem1mk2_emu_sdload.py, now entering at 0x602f7bf7 with the event at (52,sp), breakpoint 0x602f7bff,
+  checks d0 = event, Z = stock btst, sp / d2 / d3 / a2 / a3 kept): ready3 / none / badcrc as c14; 8 non-half-press events
+  (incl. release 0x02000101, 0 and ~0) → no attempt; half-press with a section bit clear → no attempt; dial, 0x02010100,
+  release → one load. PASS. Not emulated: that the camera really delivers 0x02000100 to this loop on a half-press (E-P7
+  analogy + the drain's constants), the real card driver.
+- v0.4c15 = c14 with the hook moved (226 edits), E1259999.BIN 750c89ee…; SCP PASS, AF 768 PASS, offered [1,2,3,4,6,7,9],
+  audit OK, check_loaded OK. (emu_space FAIL is expected: no probe in this build, same as c14.)
+- **Camera (owner, v0.4c15): `C1.1` after a half-press** → LOOKS.BIN loaded from the card on the first attempt; the HLS
+  event loop hook 0x602f7bf7 runs on the half-press (event 0x02000100) [C]. First camera proof that the E-M1 II loads a
+  card file. Still to confirm: look names / colours from the card's looks.

@@ -2,8 +2,14 @@
  * Based on Caduceus v3 event-gated RTOS architecture.
  *
  * Cave location: 0x60580200 (in 71 KB clean 0xFF cave 0x6058018c..0x60591800)
- * Hook site:     0x6023d0db (TRIG1 shutter half-press classifier)
- * Continuation:  0x6023d104
+ * Hook site:     0x602f7bf7 (HLS event loop 0x602f7b11, every received event; v0.4c15)
+ * Continuation:  0x602f7bff
+ *   Until v0.4c14 the hook sat at 0x6023d0db, the cmd-256 branch of an unrelated message loop (0x6023d035), which
+ *   never runs on a half-press: the camera showed " C0.0" (no attempt) on v0.4c14 (owner, 2026-11-13).
+ *   0x602f7b11 is the E-P7 HLS_EVENT loop 0x602c7f5a's counterpart (called from 0x607b471a like the E-P7's 0x60770224;
+ *   same receive 0x602f93fc / 0x602c9b6a and per-event 0x602f8067 / 0x602c869e). The E-P7 hooks its half-press
+ *   tracker right after `clr d0; call 0x602c9cd1`; the E-M1 II has that call (0x602f7bf1) but no tracker, so the
+ *   hook takes the next instruction pair, which every event passes.
  *
  * State: one heap block "P" shared with color_creator_wheel (layout in p_layout.inc).
  *   P's u16 handle lives in the halfword 0x621e24ae: compiler padding between the byte 0x621e24ac
@@ -27,6 +33,8 @@
 .equ LB_MAX,   2112         /* header + 32 looks */
 
 .am33_2
+.equ SD_TRIES, 8                    /* LOOKS.BIN open attempts per power-on */
+
 .text
 .global _start
 .global sd_gate_entry
@@ -47,18 +55,26 @@ sd_gate_entry:
     nop
 .balign 4
 sd_hook:
-    /* Replay displaced instructions from 0x6023d0db:
-     * clr d0; movhu d0,(0x621e2f6e)
-     */
-    clr d0
-    movhu d0,(0x621e2f6e)
-
-    /* Call gate / loader with callee-save frame */
+    /* Replaces 0x602f7bf7: mov (52,sp),d0 ; btst 0x02000000,d0 (8 bytes). (52,sp) = the event just received.
+     * d1 / a0 / a1 / MDR are dead here on every stock path (the next calls take d0 only), d2 d3 a2 a3 are kept.
+     * Half-press = 0x02000100 / 0x02010100 (the codes stock's own drain 0x602f8132 tests; E-P7: 0x02000100).
+     * Card calls only once all sections are loaded (fopen etc. live in section 4): bit (id-1) in 0xa2767afc,
+     * set by the loader at 0x60042c12 (E-P7 gate: 0xa272e420 & 0x1ff). The btst is replayed last for the
+     * stock beq at 0x602f7bff. */
+    mov (52,sp),d0
+    mov d0,d1
+    and 0xfffeffff,d1
+    cmp 0x02000100,d1
+    bne sd_hook_out
+    mov (0xa2767afc),d1
+    and 0x1ff,d1
+    cmp 0x1ff,d1
+    bne sd_hook_out
     call sd_gate,[d2,d3,a2,a3],36
-
-sd_back:
-    clr d0
-    jmp em1_trig1_ret
+    mov (52,sp),d0
+sd_hook_out:
+    btst 0x02000000,d0
+    jmp em1_ev_ret
 
 sd_gate:
     /* Get (or create) P; no P = do nothing this time */
@@ -72,28 +88,24 @@ sd_gate:
     cmp 0,d0
     bne sd_gate_ret
 
-    /* Check if either SD slot is ready or reported mounted (0xf000) */
-    mov (0x61f9deec),d0
-    cmp 0,d0
-    bne sd_go
-    mov (0x61f9def0),d0
-    cmp 0,d0
-    bne sd_go
-    mov (0x61f9dec4),d0
-    cmp 0xf000,d0
-    beq sd_go
-    mov (0x61f9dedc),d0
-    cmp 0xf000,d0
-    beq sd_go
+    /* v0.4c14: no card-ready guess. v0.3-c13 waited for one of four card-state words (0x61f9deec / def0 nonzero,
+     * dec4 / dedc == 0xf000) whose meaning was never confirmed on this body: the camera always showed " C0" with
+     * LOOKS.BIN on the card (owner, 2026-11-13). (v0.4c14's C0.0 then showed the real cause: the hook site
+     * 0x6023d0db never ran at all; see the header. The gate's guess was never tested.) Now every half-press until the file is
+     * loaded tries to open it (fopen on a card that isn't ready just fails). No file: try again next half-press, up to
+     * SD_TRIES attempts, then " CF". A file that opens but is wrong: " CF" at once. */
+    movbu (P_SDTRY,a3),d0
+    cmp SD_TRIES,d0
+    bcc sd_gate_ret
+    inc d0
+    movbu d0,(P_SDTRY,a3)
+    bra sd_go
 
-    /* Neither card is ready/mounted yet.
-     * Leave sd_state == 0 so we retry on the next call.
-     */
 sd_gate_ret:
     ret [d2,d3,a2,a3],36
 
 sd_go:
-    /* Mark attempted (0xffff = failed/no file) until proven loaded */
+    /* Mark attempted (0xffff = failed) until proven loaded; sd_load puts 0 back when no file was found */
     mov 0xffff,d0
     movhu d0,(P_SD_STATE,a3)
     mov a3,a0
@@ -125,7 +137,7 @@ sd_load:
     call em1_fopen,[],4
     mov a0,a3
     cmp 0,a3
-    beq sd_free            /* File not found on either card */
+    beq sd_nofile          /* File not found on either card (or no card ready yet) */
 
 sd_have_file:
     /* File size with fseek(END) / ftell */
@@ -165,7 +177,7 @@ sd_have_file:
 
     mov a3,a0
     call em1_fclose,[d2,a2,a3],16
-    clr a3
+    mov 0,a3               /* not `clr a3`: that assembles to an AM33-2 extended op (f9 68 bb) the stock code never uses */
 
     cmp d3,d2
     bne sd_free            /* Short read */
@@ -187,6 +199,16 @@ sd_have_file:
     mov 1,d0
     movhu d0,(P_SD_STATE,a0)
     bra sd_load_exit
+
+sd_nofile:
+    /* retry on the next half-press unless the attempts are used up (then it stays 0xFFFF = " CF") */
+    mov (16,sp),a0
+    movbu (P_SDTRY,a0),d0
+    cmp SD_TRIES,d0
+    bcc sd_free
+    clr d0
+    movhu d0,(P_SD_STATE,a0)
+    bra sd_free
 
 sd_close:
     mov a3,a0

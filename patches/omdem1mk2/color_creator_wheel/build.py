@@ -19,7 +19,7 @@ for Olympus OM-D E-M1 Mark II (firmware v3.70):
    at `0x60297fb4` (copied at boot to `.data` `0x61fbd4f4`):
    - `0x60297fb4`: `0x60e543d6` -> `cc_guide`
 """
-import json
+import json, os
 import struct
 import subprocess
 import tempfile
@@ -171,8 +171,9 @@ def build():
         spec.loader.exec_module(mlb)
         builtin = mlb.build_builtin_looks()
         assert len(builtin) == 1024
-        subprocess.run([AS, '-I', str(Path(__file__).parent.parent), '-I', str(Path(__file__).parent),
-                        '-o', str(obj), str(src)], check=True)
+        probe = os.environ.get('EM1_SPACE_PROBE') == '1'      # code-space probe sp1 (patches/omdem1mk2/space_probe)
+        subprocess.run([AS, '-I', str(Path(__file__).parent.parent), '-I', str(Path(__file__).parent)]
+                       + (['--defsym', 'SPACE_PROBE=1'] if probe else []) + ['-o', str(obj), str(src)], check=True)
 
         ld_cmd = [LD, '-Ttext', f'{CAVE_ADDR:#x}', '-e', '_start']
         # Shared-state routines live in sd_loader (Section 2); build it first.
@@ -182,6 +183,9 @@ def build():
         ld_cmd.append(f'--defsym=builtin_looks={BUILTIN_ADDR:#x}')
         for k, v in SYMBOLS.items():
             ld_cmd.append(f'--defsym={k}={v:#x}')
+        if probe:
+            sp = json.loads((Path(__file__).parent.parent / 'space_probe' / 'exports.json').read_text())
+            ld_cmd.append(f"--defsym=SPROBE={sp['SPROBE']:#x}")
         ld_cmd.extend(['-o', str(elf), str(obj)])
         subprocess.run(ld_cmd, check=True)
 

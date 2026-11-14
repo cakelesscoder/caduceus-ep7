@@ -13,6 +13,14 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 B = 0x60021020
 D = (ROOT / 'em1mk2/extracted/00_0100_40560020.decoded.bin').read_bytes()
+# Section ends are read from the release's own image, so an edited loaded-end word (code-space probe sp1:
+# patches/omdem1mk2/space_probe) is honoured; the descriptor table and getter layout are still checked below.
+_P = bytearray(D)
+for _e in json.load(open(sys.argv[1]))['edits']:
+    if _e.get('kind', '0x100') == '0x100':
+        _a = int(_e['addr'], 16) - B
+        _P[_a:_a + len(_e['new']) // 2] = bytes.fromhex(_e['new'])
+D = bytes(_P)
 w = lambda a: struct.unpack_from('<I', D, a - B)[0]
 
 # Edits outside section loads that are known to reach RAM another way.

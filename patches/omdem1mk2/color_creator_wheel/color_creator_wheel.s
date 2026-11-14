@@ -496,7 +496,7 @@ guide_page_film:
     call put_hex_digit,[],4
 
 guide_card:
-    /* Card state: " C1" LOOKS.BIN loaded, " C0" not tried yet, " CF" tried and failed/absent */
+    /* Card state: " C1" LOOKS.BIN loaded, " C0" not loaded yet (retrying), " CF" no file after 8 tries or a bad file */
     mov (12,sp),a0
     movhu (P_SD_STATE,a0),d0
     mov 0x20,d1
@@ -507,6 +507,18 @@ guide_card:
     mov d0,d1
     and 15,d1
     call put_hex_digit,[],4
+    /* v0.4c14: "." + LOOKS.BIN open attempts this power-on (0 = the half-press hook never ran) */
+    mov 0x2e,d1
+    movhu d1,(a2)
+    add 2,a2
+    mov (12,sp),a0
+    movbu (P_SDTRY,a0),d1
+    call put_hex_digit,[],4
+
+    /* Code-space probe (built with EM1_SPACE_PROBE=1 only): " S+" / " S!" / " S0" from patches/omdem1mk2/space_probe. */
+.ifdef SPACE_PROBE
+    call SPROBE,[],4
+.endif
 
     /* Pipeline diagnostic: " K" + low 16 bits of the last colour-stage key (hex), "+" once the look
      * was applied to a frame (P_HITS). No key yet = the selector hook has not run. */

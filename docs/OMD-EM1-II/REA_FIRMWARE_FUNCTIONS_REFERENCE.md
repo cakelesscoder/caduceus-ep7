@@ -96,7 +96,8 @@ Sid `0..1624` → `{u16 property key, u16 index}`, same format as the E-P7's `0x
 | **`fseek`** | `0x6063c840` | `call 0x6063c840, [d2, d3, a2, a3], 20`<br>`a0 = FILE *`, `d0 = offset`, `d1 = whence` | Repositions file offset (`1 = SEEK_END`, `2 = SEEK_SET`). |
 | **`ftell`** | `0x6063ce15` | `call 0x6063ce15, [d2, a2, a3], 16`<br>`a0 = FILE *` $\to$ `d0 = position` | Returns current file offset in bytes. |
 | **`fread`** | `0x6063cf0d` | `call 0x6063cf0d, [d2, d3, a2, a3], 24`<br>`a0 = dest`, `d0 = size`, `d1 = count`, `a1 = FILE *` | Reads data blocks from file into destination memory. |
-| **`trig1_hook`** | `0x6023d0db` | `call 0x6023cf7c, [], 4` $\to$ `call 0x60580200, [], 4` | Shutter half-press (`TRIG1`) classifier in `HLS_EVENT` task; calls `sd_loader` gate once per boot. |
+| **`trig1_hook`** (withdrawn) | `0x6023d0db` | `clr d0; movhu d0,(0x621e2f6e)` | **Not** a half-press classifier: command-256 branch of message loop `0x6023d035`; never runs on a half-press (camera v0.4c14 `C0.0`). |
+| **`hls_event_hook`** | `0x602f7bf7` | `mov (52,sp),d0; btst 0x02000000,d0` $\to$ `jmp 0x60580200` | HLS event loop `0x602f7b11` (E-P7 `0x602c7f5a`), every event; sd_loader acts on half-press `0x02000100` (v0.4c15; camera `C1.1` [C]). |
 
 ---
 

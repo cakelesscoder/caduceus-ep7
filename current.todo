@@ -131,6 +131,12 @@ wheel's vividness also stays 0, that is a separate symptom.
 * DONE v0.4c7 on camera: SCP 65:24 and 21:9 (stock 16:9 pointer) both blank; AF same as c6. → cell index miss (emulated).
 * RULE: emulate every change before a camera build (AGENTS.md). Harnesses: tools/omdem1mk2_emu_scp.py, _emu_af.py.
 * DONE v0.4c13 [C]: SCP tile + option row show 65:24 / 21:9; AF selector works (since c8); regular menu works.
+* DONE v0.4c13-sp1 [C]: S+ after bursts / modes -> 0x612e7000..0x61300000 (100 KB) usable. S+ also after a power cycle and a movie.
+* DONE v0.4c14 [C]: C0.0 -> the hook site 0x6023d0db never runs on a half-press (wrong site since v0.1).
+* DONE v0.4c15 [C]: C1.1 after a half-press: LOOKS.BIN loads (hook 0x602f7bf7). To confirm: card look names / colours.
+* NOW: halation step 2: spare remembered setting for the stage; Soft Focus / CPU-pass sites (code-shape search).
+* NEXT FEATURE: halation (E-P7 version), global over any film / colour profile. Plan and owner decisions:
+  docs/OMD-EM1-II/HALATION.md. Step 1 = code space, step 2 = spare remembered setting + Soft Focus / CPU-pass sites.
 * NEXT (aspect, untested): live-view framing, rec-view, power-cycle with 6/7 saved, RAW+JPEG, Live Control strip,
   remaining E-P7 AF sites (tracking/AUTO), grid overlay. Then decide whether to bring debug_log back.
 * Trace later: what uses RAM 0xa3b0e400..0xa3bb7140 after OSD bank 69 (why the append drew blank).

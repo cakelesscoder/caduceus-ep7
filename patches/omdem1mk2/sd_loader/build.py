@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Build declarative edits.json for E-M1 Mark II SD Looks Loader.
 
-Hooks TRIG1 half-press classifier at 0x6023d0db to load LOOKS.BIN from
+Hooks the HLS event loop at 0x602f7bf7 (every received event; half-press gate) to load LOOKS.BIN from
 SD card (Slot 1: C:\EM1MOD\LOOKS.BIN, Slot 2: D:\EM1MOD\LOOKS.BIN) into
 heap memory on the first post-boot shutter press.
 """
@@ -29,8 +29,9 @@ BASE = 0x60021020
 CAVE_ADDR = 0x60580200
 # Section 2 = 0x602ae000..0x60580800 (descriptor table 0x60027450, end getter 0x60042b35); FF tail from 0x6058018c.
 S2_FF_START, S2_LOAD_END = 0x6058018c, 0x60580800
-HOOK_ADDR = 0x6023d0db
-HOOK_STOCK_HEX = '00fc836e2f1e62'  # clr d0; movhu d0,(0x621e2f6e) = 7 bytes
+# v0.4c15: HLS event loop (0x602f7b11), every received event; was 0x6023d0db (never reached on a half-press, camera C0.0)
+HOOK_ADDR = 0x602f7bf7
+HOOK_STOCK_HEX = '5834fcec00000002'  # mov (52,sp),d0; btst 0x02000000,d0 = 8 bytes
 
 SYMBOLS = {
     'em1_malloc': 0x600231fe,
@@ -42,7 +43,7 @@ SYMBOLS = {
     'em1_fread': 0x6062cff9,
     'em1_fseek': 0x6062d0f1,
     'em1_ftell': 0x6062d087,
-    'em1_trig1_ret': 0x6023d104,
+    'em1_ev_ret': 0x602f7bff,       # after the replaced btst (beq 0x602f7c12)
     'em1_getter': 0x6005e6cf,       # property getter (d0 key, d1 index, a0 0), [d2,d3],12
     'em1_sel_color': 0x603ec8a2,    # COLOR selector: add 1816,a3 ... call builder 0x603ec642
     'em1_sel_other': 0x603ec8d3,    # COLOR selector: stock non-11 path
@@ -132,6 +133,7 @@ _start:
 jmp sd_loader_entry
 nop
 nop
+nop
 """)
         subprocess.run([AS, '-o', str(hook_obj), str(hook_src)], check=True)
         subprocess.run([
@@ -142,7 +144,7 @@ nop
         subprocess.run([OBJCOPY, '-O', 'binary', '-j', '.text', str(hook_elf), str(hook_bin)], check=True)
         hook_payload = hook_bin.read_bytes()
 
-    assert len(hook_payload) == 7, f"Hook payload length must be 7, got {len(hook_payload)}"
+    assert len(hook_payload) == 8, f"Hook payload length must be 8, got {len(hook_payload)}"
 
     # 3. Verify against stock binary
     main = get_main_payload()
@@ -157,7 +159,7 @@ nop
 
     # Verify hook site stock bytes
     hook_off = HOOK_ADDR - BASE
-    assert main[hook_off:hook_off + 7].hex() == HOOK_STOCK_HEX, "Hook site mismatch!"
+    assert main[hook_off:hook_off + 8].hex() == HOOK_STOCK_HEX, "Hook site mismatch!"
 
     # 4. Generate edits.json
     edits = {
@@ -175,7 +177,7 @@ nop
                 "addr": f"{HOOK_ADDR:#x}",
                 "expect": HOOK_STOCK_HEX,
                 "new": hook_payload.hex(),
-                "why": "Hook TRIG1 half-press classifier to load LOOKS.BIN from SD card"
+                "why": "Hook HLS event loop (half-press) to load LOOKS.BIN from SD card"
             }
         ]
     }
@@ -191,7 +193,7 @@ nop
 
     out_file = Path(__file__).parent / 'edits.json'
     out_file.write_text(json.dumps(edits, indent=2) + '\n')
-    print(f'Generated {out_file} ({len(cave_payload)} bytes cave routine, 7 bytes hook)')
+    print(f'Generated {out_file} ({len(cave_payload)} bytes cave routine, 8 bytes hook)')
 
 
 if __name__ == '__main__':

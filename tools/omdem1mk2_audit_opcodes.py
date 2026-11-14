@@ -82,11 +82,17 @@ def audit_code(name, vma, code_bytes, stop_addr=None):
     print(f"  absolute stores into the loaded image: {len(store_lines)}")
     for a, i in store_lines:
         print(f"    {a:#x}: {i}")
+    # `clr aN` assembles to an AM33-2 extended op (f9 6x ..) that the stock code never uses and the emulator rejects
+    # (sd_loader 0x605802df, found 2026-11-13; that path had never run on the camera). Use `mov 0,aN`.
+    clr_a = [(a, inst) for a, inst in insns if re.match(r'clr\s+a[0-3]$', inst)]
+    print(f"  clr aN (extended op): {len(clr_a)}")
+    for a, i in clr_a:
+        print(f"    {a:#x}: {i}")
     print(f"  internal call/ret frame mismatches: {len(call_bad)}")
     for a, i, r in call_bad:
         print(f"    {a:#x}: {i}  first ret after target: {r[1] if r else 'none'}" + (f" at {r[0]:#x}" if r else ''))
     global FAILS
-    FAILS += len(fb_lines) + len(mul_div_lines) + len(loop_lines) + len(store_lines) + len(call_bad)
+    FAILS += len(fb_lines) + len(mul_div_lines) + len(loop_lines) + len(store_lines) + len(call_bad) + len(clr_a)
 
 # Audit color_creator_wheel
 d = json.loads(open('patches/omdem1mk2/color_creator_wheel/edits.json').read())

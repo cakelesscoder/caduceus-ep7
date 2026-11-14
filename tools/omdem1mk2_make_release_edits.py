@@ -9,6 +9,7 @@ Each version gets its own releases/em1mk2/<VERSION>/ so a test build never overw
 release that is on the camera.
 """
 import hashlib
+import os
 import json
 import subprocess
 import sys
@@ -29,6 +30,11 @@ REL_DIR.mkdir(parents=True, exist_ok=True)
 # 1. Rebuild individual patches to ensure fresh binaries
 subprocess.run(["python3", str(ROOT / 'patches' / 'omdem1mk2' / 'sd_loader' / 'make_looks_bin.py'), VERSION], check=True)
 subprocess.run(["python3", str(ROOT / 'patches' / 'omdem1mk2' / 'sd_loader' / 'build.py')], check=True)
+# EM1_SPACE_PROBE=1: code-space probe sp1 (section 5 loaded end -> 0x61300000; banner " S+/S!/S0"). Built before the
+# look editor, which then calls it (docs/OMD-EM1-II/HALATION.md step 1).
+PROBE = os.environ.get('EM1_SPACE_PROBE') == '1'
+if PROBE:
+    subprocess.run(["python3", str(ROOT / 'patches' / 'omdem1mk2' / 'space_probe' / 'build.py')], check=True)
 subprocess.run(["python3", str(ROOT / 'patches' / 'omdem1mk2' / 'color_creator_wheel' / 'build.py')], check=True)
 subprocess.run(["python3", str(ROOT / 'patches' / 'omdem1mk2' / 'debug_log' / 'build.py'), VERSION], check=True)
 subprocess.run(["python3", str(ROOT / 'patches' / 'omdem1mk2' / 'aspect' / 'build.py')], check=True)
@@ -43,6 +49,8 @@ debug_edits = json.loads((ROOT / 'patches' / 'omdem1mk2' / 'debug_log' / 'edits.
 aspect_edits = json.loads((ROOT / 'patches' / 'omdem1mk2' / 'aspect' / 'edits.json').read_text())['edits']
 
 all_edits = []
+if PROBE:
+    all_edits.extend(json.loads((ROOT / 'patches' / 'omdem1mk2' / 'space_probe' / 'edits.json').read_text())['edits'])
 all_edits.extend(rec_edits)
 all_edits.extend(focus_edits)
 all_edits.extend(sd_edits)

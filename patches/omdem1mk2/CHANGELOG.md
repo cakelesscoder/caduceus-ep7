@@ -5,6 +5,28 @@ Container update package: `E1259999.BIN` (93,050,944 bytes) installed via `DCOLY
 
 ---
 
+## v0.4c15 — 2026-11-13 (camera-tested: card looks load, `C1.1` after a half-press)
+
+- v0.4c14 on the camera read `C0.0`: the loader had never tried once. Its trigger sat in a part of the firmware that a
+  half-press never reaches (it was believed to be the half-press handler since v0.1; it isn't). The loader now starts from
+  the camera's main button-event loop, the same place the E-P7 uses, on the half-press event, once the camera has finished
+  loading. The bottom line codes are unchanged (`C1.n` loaded, `C0.n` still trying, `CF.8` no file, `CF.1` damaged file).
+- Same as v0.4c14 otherwise.
+
+## v0.4c14 — 2026-11-13 (not camera-tested; emulator-checked)
+
+- Looks from the card (`EM1MOD/LOOKS.BIN`) now load. Until now the camera waited for a "card ready" sign that never came,
+  so only the 16 built-in looks were ever used (the bottom line always read `C0`). Now it simply tries to open the file at
+  each half-press until it loads. The bottom line reads `C1.n` once loaded, `C0.n` while still trying (n = attempts), `CF.8`
+  when there is no file, `CF.1` for a damaged file.
+- Same as v0.4c13 otherwise (the memory test from v0.4c13-sp1 is not included; its result is recorded).
+
+## v0.4c13-sp1 — 2026-11-13 (test build; camera: S+ after bursts and mode changes)
+
+- v0.4c13 plus a memory test for the next features (halation): the camera loads 100 KB more of the firmware into memory,
+  and the look editor's bottom line ends in **S+** (the memory is there and untouched), **S!** (it changed) or **S0** (not
+  loaded). Nothing else changes.
+
 ## v0.4c13 — 2026-11-13 (camera-tested: SCP tile and option row show 65:24 / 21:9 — working)
 
 - Super Control Panel option row: the screen already had the two extra cells, but it reads its icons from one more

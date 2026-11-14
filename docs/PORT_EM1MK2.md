@@ -38,9 +38,23 @@ All patches reside in non-volatile runtime-loaded section caves copied during `c
 - **Status**: Tested and verified.
 
 ### 3. Dynamic SD Card Looks Loader (`sd_loader`)
-- **Site**: `0x6023d0db` (TRIG1 shutter half-press classifier).
+- **Site** (v0.4c15): `0x602f7bf7` in the HLS event loop `0x602f7b11` (the E-P7 loop `0x602c7f5a`'s counterpart), on the
+  half-press event `0x02000100` / `0x02010100` once all sections are loaded (`0xa2767afc & 0x1ff`). Until v0.4c14:
+  `0x6023d0db`, believed to be a half-press classifier; it is the command-256 branch of an unrelated message loop and
+  never runs on a half-press (camera, v0.4c14: `C0.0`). **Camera v0.4c15: `C1.1` after a half-press — loads [C].**
 - **Cave**: `0x60580200` (Section 2).
 - **Behavior**: On first half-press after boot (or upon entering Color Creator), mounts SD slot 1 (`C:\EM1MOD\LOOKS.BIN`) or slot 2 (`D:\EM1MOD\LOOKS.BIN`), checks `EM1B` magic and IEEE 802.3 CRC-32, and keeps the 2,080-byte buffer in heap.
+- **Card loading fixed in v0.4c14** (owner, 2026-11-13: banner always `C0` with `LOOKS.BIN` on the card, so no camera had
+  ever loaded a card file). The gate waited for one of four card-state words (`0x61f9deec` / `def0` nonzero, `dec4` /
+  `dedc` = `0xf000`; per-device words set at `0x607c0c69`, read at `0x607c0c91`) whose meaning was never confirmed on this
+  body (v0.4c14's `C0.0` later showed the hook itself never ran, so the gate was never even reached). v0.4c14 drops the guess: every half-press until the file is loaded tries `fopen` on C: then D:;
+  no file → retry (state 0), up to 8 attempts, then `CF`; a file that opens but fails its checks → `CF` at once. The banner
+  shows `C<state>.<attempts>`: `C0.0` = the half-press hook never ran (and it didn't, on v0.4c14: wrong hook site, fixed in v0.4c15). Also fixed: `clr a3` after `fclose` assembled to an
+  AM33-2 extended op (`f9 68 bb`) the stock code never uses (the emulator rejects it; the path had never run on the camera)
+  → `mov 0,a3`; the opcode audit now refuses `clr aN`. **Emulated** (`tools/omdem1mk2_emu_sdload.py`, real half-press entry
+  `0x6023d0db` → `0x6023d104`, file/heap calls replaced by emulator-only stand-ins `tools/emu_fixtures/em1_fs_stubs.s`):
+  card ready on press 2 → loaded (16 looks); no file → 7 retries then CF; bad CRC → CF at once; the v0.4c13 gate never
+  calls `fopen` (= the camera's C0). **Not emulated:** the real card driver.
 - **State**: in the shared heap block P (`patches/omdem1mk2/p_layout.inc`): `P_SD_STATE` (0 = not tried, 0xFFFF = failed, 1 = loaded) and `P_BUF`. v0.1/v0.2b1 used `0x621e2f76`/`0x621e2f78`, which are inside a stock callback ring (see §4).
 
 ### 4. In-Camera Look Selection via Live View Color Creator (`color_creator_wheel`)
