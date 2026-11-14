@@ -665,6 +665,111 @@ on a build with g2 they fail by design; this verifier replaces them for the pass
    shots. No freeze, no restart. If it still happens, build K = 2, then K = 1.
 4. A Glow or Halo look with Grain (the blend route) still gets grain, and Grain Off gives none.
 
+## g3: r2's noise again, from a ring in ROM (2026-11-14; released in v0.33, camera-tested (owner, 2026-11-14))
+
+**Why g2 went.** On the camera g2 (v0.32b) was fast and the freeze did not come back, but **at High the grain looked
+tiled**. The model shows it (`model.py --stats`, flat field, High):
+- the step between the two pixels across a 64-px block edge is 1.43 × (along x) and 1.40 × (along y) the usual one;
+- 3.1 % of neighbouring blocks are near-copies of each other (two windows of the same tile, a few pixels apart);
+- at quarter size with the contrast up, g2 is a regular dotted texture and r2 is plain noise
+  (`generated/grain_g3/preview.png`: r2 | g2 | g3, at 100 % and at quarter size with contrast × 4).
+The block tile was the design, so the design is gone. g3 keeps what g2 proved (no heap, short locks) and takes r2's
+noise back.
+
+**What g3 is.** A new revision in the same layer, same spec key (`grain_g2`), same hook: `patches/grain_g2/g3.s.in`,
+`model.py`, `build.py` (`REV = 'g3'`), `verify.py`, `pins.txt` + `pins_g3.txt`. g2's files stay as the record of
+v0.32b: `g2.s.in`, `build_g2.py`, `model_g2.py`, `verify_g2.py` (`REV = 'g2'` rebuilds v0.32b's bytes, checked).
+- **Noise: r2's, to the bit.** The 16384-B ring, a random offset per row, row noise from this row's and the previous
+  row's ring bytes. No blocks, no tile.
+- **The ring is ROM:** r2's own fill (`gc_fill`) from a fixed seed, 3201. verify T runs the old `gc_fill` in the
+  emulator and compares.
+- **The fill's generator steps:** r2 spent 4096 steps of the photo's generator on the fill before the first offset.
+  g3 spends none: record +44 (0 → 0x12345678) goes straight to the offsets, one step before row 0 and one a row, as
+  `gc_next`, and the end state goes back to +44. So g3 started at F = 0x3749c47c (r2's generator after filling from
+  3201) is r2 started at 3201. verify R runs r2's code and g3's code that way: same buffer, same end state, also on
+  rows split at the slice edge.
+- **The average is in the table:** s = ring[o + x] + ring[o_prev + x] (0..60) indexes T2[(Y << 6) + s] =
+  r2's T[(Y << 5) + ((s + 1) >> 1)]. Three 16-KB tables in ROM; verify T folds the emulated `gc_tbl`'s output.
+- **Loop:** 8 instructions a pixel, 64 pixels unrolled (518 for 64, 8.09 a pixel); what is left of a row or of a piece
+  goes one at a time (13 a pixel).
+- **K = 3 rows per lock** (`K` in `build.py`; any K ≥ 1 now). 1, 2 and 4 give the same pixels and seed (verify K).
+- **No stack beyond r2's frame** (g2 took 176 B more), no malloc, no free.
+- **Kept:** guards and ids (+ 0x33), record fields, stage marks, lock / window / flush protocol, slice-edge split.
+- **Space:** the ring and the tables fill the 64-KB claim 0x607b6420–0x607c6420; the code (2160 B) is in a second
+  claim, 0x607c8420–0x607c9420 (9 pinned scan hits, `pins_g3.txt`, same method as g2's 394).
+
+| 5184 × 3888, emulator | r2 | g2 (K = 4) | g3, K = 1 | g3, K = 2 | **g3, K = 3** | g3, K = 4 |
+|---|---|---|---|---|---|---|
+| Instructions per pixel | 15.02 | 6.15 | 8.13 | 8.12 | **8.11** | 8.11 |
+| Whole pass | 303 M | 124 M | 164 M | 164 M | **164 M** | 163 M |
+| Instructions under one lock (flush not counted) | 311,295 | 127,297 | 42,083 | 84,087 | **126,091** | 168,095 |
+| Locks a photo (bus 0xce9d4b80, one row split at 0xd0000000) | 976 | 976 | 3889 | 1946 | **1299** | 976 |
+| Flushes a photo (2 a lock on this window class, + 2) | 1954 | 1954 | 7780 | 3894 | **2600** | 1954 |
+| Setup before the first row | 458,324 | 767 | 789 | 789 | **789** | 789 |
+| malloc / free calls | 2 / 2 | 0 / 0 | 0 / 0 | 0 / 0 | **0 / 0** | 0 / 0 |
+
+Against g2 the pass is a third longer (164 M against 124 M instructions) and takes 646 more flushes (about 0.1 s at
+the OM-3's 0.15 ms `[I]`); against r2 it is still 46 % shorter. One lock masks what g2's did.
+
+**Statistics**, flat Y 128, 5184 × 3888, models. "Exact" is r2's distribution from its definition. r2 draws a new ring
+per photo, so its photos scatter around it; g3's ring is fixed, so its photos barely scatter. The seed was picked from
+1..60000 for a ring that sits on the exact values (for 5184-px rows, which use the middle of the ring more than its
+ends, for 3888-px rows and for narrow ones).
+
+| | Mean shift | Std | Corr. right / down / 2 down / diagonal | Step across 64-px lines, x / y | Near-copy blocks (largest peak) |
+|---|---|---|---|---|---|
+| Low, r2 exact | 0.000 | 4.691 | | | |
+| Low, r2 at 8 more seeds | −0.07 .. +0.09 | 4.66 .. 4.71 | 0.481 .. 0.506 / 0.494 .. 0.496 | | |
+| Low, g3 at 8 more seeds | −0.02 .. −0.01 | 4.69 .. 4.69 | 0.493 .. 0.494 / 0.495 .. 0.496 | | |
+| Low, r2 | −0.146 | 4.671 | 0.4932 / 0.4949 / −0.0003 / 0.2471 | | |
+| Low, g2 | −0.005 | 4.708 | 0.4919 / 0.4883 / +0.0011 / 0.2471 | | |
+| Low, g3 | −0.012 | 4.691 | 0.4941 / 0.4952 / +0.0002 / 0.2472 | | |
+| Med, r2 exact | +0.002 | 11.229 | | | |
+| Med, r2 at 8 more seeds | −0.16 .. +0.22 | 11.15 .. 11.26 | 0.483 .. 0.508 / 0.496 .. 0.498 | | |
+| Med, g3 at 8 more seeds | −0.04 .. −0.02 | 11.23 .. 11.23 | 0.495 .. 0.496 / 0.496 .. 0.497 | | |
+| Med, r2 | −0.348 | 11.181 | 0.4948 / 0.4964 / −0.0002 / 0.2479 | | |
+| Med, g2 | −0.009 | 11.265 | 0.4937 / 0.4901 / +0.0013 / 0.2478 | | |
+| Med, g3 | −0.028 | 11.229 | 0.4956 / 0.4967 / +0.0002 / 0.2480 | | |
+| High, r2 exact | +0.167 | 18.554 | | | |
+| High, r2 at 8 more seeds | −0.11 .. +0.52 | 18.42 .. 18.61 | 0.483 .. 0.508 / 0.496 .. 0.498 | | |
+| High, g3 at 8 more seeds | +0.09 .. +0.14 | 18.55 .. 18.56 | 0.495 .. 0.496 / 0.496 .. 0.497 | | |
+| High, r2 | −0.410 | 18.475 | 0.4950 / 0.4967 / −0.0002 / 0.2480 | 1.00 / 1.00 | 0.0 % (0.10) |
+| High, g2 | +0.146 | 18.620 | 0.4941 / 0.4905 / +0.0013 / 0.2480 | 1.43 / 1.40 | 3.1 % (1.00) |
+| High, g3 | +0.119 | 18.555 | 0.4958 / 0.4969 / +0.0002 / 0.2481 | 1.00 / 1.00 | 0.0 % (0.12) |
+
+- **Step across 64-px lines:** mean |difference| of the two neighbours either side of every 64th grid line, over the
+  mean elsewhere.
+- **Near-copy blocks:** neighbouring 64 × 64 blocks (left / right and up / down) whose normalised cross-correlation
+  reaches 0.75 at some shift up to 6 px each way; in brackets the largest such peak in the photo.
+- g3 inside r2's own scatter on every figure; the two tiling measures are r2's.
+
+**What stays different from r2.** The ring is the same for every photo; only the row offsets change. In r2 each photo
+had its own ring. Within a photo nothing differs.
+
+**Chroma and stray writes.** M compares every byte of the buffer with the model, and counts changed bytes that are
+not a Y byte of the active width (odd bytes, row padding): 0 in all 13 frames, including the row split at pixel 448
+at the 0xd0000000 edge (the camera's residue for bus 0xce9d4b80) and a split at pixel 1237. The pointer starts at a
+pixel and moves by 2; the stores are `movbu d0,(2k,a0)` only (build check). The owner's one pink pixel was a hot
+sensor pixel: same spot in every photo, gone after Pixel Mapping.
+
+**Other layers.** halation_h6 and crash_log build unchanged after g3 (the chain below). crash_log still finds
+`unused_r2`, `g2_grain` and `g2_blk` in the spec (the entry and the unrolled loop keep those names).
+`patches/v027/verify.py` M and the "halation + Grain" case of `patches/halation/verify.py` expect a ring filled per
+photo, so they don't match g3's pixels; this verifier covers the pass (R, M, H).
+
+**Build and verify.** `patches/v032/build.py releases/v0.31d/edits.json --out generated/grain_g3/edits.json --version
+0.33 --extra grain_g2=patches/grain_g2/build.py --extra halation_h6=patches/halation_h6/build.py --extra
+crash_log=patches/crash_log/build.py`; package `generated/grain_g3/rel/patched.pkg.bin` `1581118f…83ec`, restore
+`963f4dfe…2327`. `patches/grain_g2/verify.py BASE NEW PKGDIR` (BASE = the chain without extra layers): T 4, R 4,
+M 13, K 15, H 1, G 22, I 24, X 7,594 aligned accesses, S 4, P: all pass, on this package and on the layer alone (where
+P also shows that only the code, the data and the 6-B hook differ from BASE).
+
+**Camera checks.**
+1. Grain High on a flat wall or sky, JPEG: no tiling at 100 % or zoomed out; it looks like v0.32a's grain.
+2. Grain Low on the owner's usual look, 30 shots with a short burst, hands off: no freeze, no restart; the save is
+   still much shorter than on v0.32a (a little longer than v0.32b).
+3. A Glow or Halo look with Grain still gets grain, and Grain Off gives none.
+
 ## Open: RAW+JPEG (2026-11-10)
 
 Grain (and halation) have not been camera-tested with RAW+JPEG. The OM-3 port's texture-grain route freezes with RAW+JPEG

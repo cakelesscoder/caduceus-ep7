@@ -875,3 +875,140 @@ no watchdog requests, no cap. Every halation placement and the grain block are b
 4. Halo Off and Grain Off: CineStill's stock bloom passes only, no CPU pass. A crash here is outside grain and halation:
    bloom, Rec View (recview), or the ap_custom a1 loader retry.
 
+
+## 23. h6: the same photo, faster and without a pool block (patches/halation_h6, 2026-11-14; released in v0.33, camera-tested (owner, 2026-11-14))
+
+Layer on the v0.32 chain (plugins=False): `patches/v032/build.py … --extra halation_h6=patches/halation_h6/build.py`.
+hl_run's first 5 bytes become `jmp h6_run`; the new code is 2960 B in section 5 (CODE_SPACE_MAP "halation h6"). hl_lvl,
+hl_grain, the flag hook, Extras sector 11 and the jump into gc_grain are untouched: blend → halation → grain, as before.
+
+**The photo is h2's, bit for bit [V emulator]:** same integers as §15, checked against h2's model and against the
+v0.31d code on the same inputs.
+
+**What changed inside:**
+- **Pass A.** Eight Y samples are OR-ed and compared once: an OR below T + 4 = 228 means none of them adds anything
+  ((Y − 224) >> 2 is 0 up to 227). A cell already at 248 is skipped.
+- **Pass B.** The [1 2 1] passes run in place (no temp buffer).
+- **Pass C.** No Gp row. Each row is walked in strips of 32 pairs between two cell centres: a = lv(k − 1), b = lv(k).
+  - a = 0 and b ≤ 1: g = 0 on the whole strip, skipped without touching the photo.
+  - Other strips run from their first to their last pair with g ≥ 1 (`h6_z[x] = ceil(32 / x)`; build.py `check_strips`
+    compares it with v = 64 a + 2 (b − a) j for every a, b). No pair with g = 0 is visited.
+  - Cell columns without glow in either cell row of the band are not walked.
+  - Per pair, g·dY is computed once for both luma bytes ((255 − Y)·(g·dY) is the same integer as dY·((255 − Y)·g)),
+    each chroma clamp is one compare, and eight pairs run per loop turn: 36 instructions a pair (h2: 46 + 7 for Gp).
+- **Memory.** Only the cell grid is left (GW × GH bytes, 4944 for a full photo). With a LOOKS.BIN block it sits in that
+  block's unused tail at L+5824 (GRAIN_HANG "The LOOKS.BIN block's tail"): **no malloc, no pool block**. Without one it
+  is one malloc (h2: three). A failed malloc still means no halation and an untouched photo.
+- **Locks.** One gc_open / flush or mode restore / unlock covers several rows. `HL_CAP = 120000` (build.py) is the most
+  of our own work one lock may mask, in instructions (flushes and the stock lock code not counted):
+  - a row joins the open lock only while *work done + the bound of that row* ≤ HL_CAP − 300; the first row of a lock is
+    always taken, so a row over the cap by itself goes alone, as every row did in h2;
+  - pass A counts a row as its bound (every sample adds: 26040 at 5184 wide, so 4 rows a lock); pass C counts what a
+    row really ran, (pairs + 3 per strip run) × 41 + strips walked × 30 + 130;
+  - a lock never spans a 128 MB slice edge: the row that crosses 0xd0000000 goes alone, in two pieces.
+
+**Numbers [V emulator].** 5184 × 3888 at the camera's bus address 0xce9d4b80, Halo High, red, LOOKS.BIN loaded.
+Cells: instructions / photo locks. A flush (about 0.15 ms) is not an instruction here.
+
+| Frame | Code | Pass A | Pass B | Pass C | Total | Flushes | Largest masked run, A / C | Mallocs |
+|---|---|---|---|---|---|---|---|---|
+| Night with lights (PB061747: 1600 rows glow, 0.52 M pairs) | h2 | 18.12 M / 973 | 0.49 M | 89.54 M / 1601 | 108.14 M | 5148 | 20.5 K / 44.6 K | 3 |
+| | h6 | 7.41 M / 245 | 0.40 M | 20.62 M / 242 | **28.44 M (−74 %)** | 974 | 33.6 K / 99.7 K | 0 |
+| Daylight under the cap (PA211016: 3152 rows, 2.26 M pairs) | h2 | 20.61 M / 973 | 0.49 M | 221.72 M / 3153 | 242.82 M | 8252 | 24.5 K / 65.6 K | 3 |
+| | h6 | 8.16 M / 245 | 0.41 M | 89.09 M / 1072 | **97.66 M (−60 %)** | 2634 | 41.9 K / 99.8 K | 0 |
+| Dense (PA211062: every row, 4.46 M pairs; 27.5 % of the cells at g ≥ 16) | h2 | 18.20 M / 973 | 0.49 M | 337.87 M / 3889 | 356.56 M | 9724 | 19.3 K / 83.7 K | 3 |
+| | h6 | 9.82 M / 245 | 0.41 M | 176.19 M / 2749 | **186.42 M (−48 %)** | 5988 | 44.4 K / 97.7 K | 0 |
+| Thin LED line (synthetic: 3 px, clipped, dark wall) | h2 | 17.96 M / 973 | 0.49 M | 75.46 M / 1025 | 93.91 M | 3996 | 18.4 K / 64.6 K | 3 |
+| | h6 | 7.31 M / 245 | 0.40 M | 30.14 M / 364 | **37.86 M (−60 %)** | 1218 | 30.3 K / 98.5 K | 0 |
+| Daylight over the cap (PA211089: no pass C) | h2 | 18.38 M / 973 | 0.49 M | – | 18.87 M | 1946 | 20.1 K | 3 |
+| | h6 | 9.80 M / 245 | 0.41 M | – | **10.22 M (−46 %)** | 490 | 47.2 K | 0 |
+
+- **Pass A** −46 % to −60 %; **pass C** −48 % to −77 %. Rows where every pair glows (synthetic): 144.1 K → 99.3 K a row
+  (−31 %), or 148.5 K → 108.1 K (−27 %) when both chroma bytes clamp on every pair.
+- **One lock at its worst** (synthetic rows, 5184 wide): pass C, every pair of a row glows and clamps: h2 124.5 K,
+  h6 109.8 K. Pass A, every sample adds: h2 38.9 K (one row), h6 97.2 K (four rows). No lock goes past HL_CAP, and a
+  row that goes alone masks less than it did in h2.
+- **The usual lock is longer than in h2, by design:** pass C averages 64–85 K under a lock (h2: 31–63 K), pass A
+  30–40 K (h2: 19–21 K). That is where the flushes went. HL_CAP is one constant; the runner's accounting replayed on
+  these frames gives the pass C locks at other values (h2: 1601 / 3153 / 3889):
+
+| HL_CAP | 120 K (built) | 90 K | 60 K | 45 K |
+|---|---|---|---|---|
+| Night / daylight / dense | 242 / 1072 / 2749 | 341 / 1814 / 3480 | 570 / 2319 / 3880 | 784 / 2521 / 3889 |
+
+- **Time [I]:** at grain r2's measured rate (about 1.0–1.6 s per 100 M instructions) plus 0.15 ms a flush: night
+  1.9–2.5 s → 0.4–0.6 s, daylight 3.7–5.1 s → 1.4–2.0 s, dense 5.0–7.2 s → 2.8–3.9 s.
+- **Not in these counts [I]:** h2 went through the uncached heap about 5500 times per glow row (Gp row written and
+  read: 21 M on the dense frame). h6 reads two grid bytes per strip walked (0.6 M on that frame) plus about 0.2 M in
+  passes A and B. An uncached access costs far more than an instruction, so the camera should gain more than the table.
+
+**Left out, and why:**
+- **Anything that changes a byte.** The owner later allowed differences of one level; none was needed.
+- **An exact path for the smallest g** (red: g ≤ 3 moves only Cb, by −1, where Y0 < 255): 5–14 % of the pairs with
+  glow, 3–6 % of pass C, for a second pair loop and a proof per tint. **A loop for strips with a = b**: 1–2 %.
+- **More pass A rows per lock:** counting real work would allow about 12 rows instead of 4 (160 fewer locks, about
+  0.05 s) at three times the usual masked run.
+- **Counting a row's pairs before it runs,** so that two rows of a dense band share a lock more often: an extra walk
+  per row for about 0.3 s of flushes on the densest frame only.
+- **The cached alias for the grid:** whether `cache_flush` drops clean lines is not established.
+
+**h3's two shortcuts, measured against h2's model** (§18; not built):
+
+| Frame, stage | g < 8 dropped: largest change Y / Cb / Cr; pairs with glow changed; halo kept (summed change / pairs touched); instructions saved | Y1 takes Y0's delta: largest change in Y; pairs changed |
+|---|---|---|
+| Night, High | 1 / 1 / 1; 20.5 %; 99.3 % / 79.5 %; 4.0 M | 16; 16.7 % |
+| Daylight, High | 1 / 1 / 1; 11.3 %; 99.1 % / 88.7 %; 9.6 M | 12; 13.0 % |
+| Dense, High | 1 / 1 / 1; 24.2 %; 98.2 % / 75.8 %; 40.4 M | 13; 11.9 % |
+| Camera LED strip (PB021373), High | 1 / 1 / 1; 8.8 %; 99.5 % / 91.2 %; 3.8 M | 5; 15.3 % |
+| Thin line, 3 px clipped, High | 1 / 1 / 1; 11.3 %; 99.7 % / 88.6 %; 3.3 M | 35; 27.8 % |
+| Thin line, 2 px at Y 236, Low | 1 / 1 / 1; 32.9 %; 94.8 % / 67.1 %; 8.1 M | 6; 6.8 % |
+
+- **"Y1 takes Y0's delta" is the general fault.** On every frame it moves the second pixel of 7–28 % of the pairs with
+  glow, by up to 35 levels: a bright pixel beside a dark one inside a halo gets the dark one's lift. That is "too
+  strong" and "lighting up highlights", it is not scene-specific, and it breaks the per-pixel rule. h6 has no use for
+  it: with g·dY shared, the second pixel costs one multiply and stays exact.
+- **"g < 8 dropped" never moved a byte by more than one level,** on any frame or stage. It removes the outer 9–33 % of
+  the halo's footprint, where the halo is one level of Y or chroma, and keeps 95–99.7 % of its summed change. It does
+  not make a thin light's halo vanish: a 2-px line at Y 236 still reaches g = 40 at Low. What it draws is a ring: its
+  difference image is the band between the g = 1 and g = 8 contours, which follow the cell interpolation.
+- **Milder thresholds** (red: g < 4 or g < 2) change only Cb, by one level, on 5–20 % or 2–8 % of the pairs with glow.
+  They pass "at most one level" and still draw the ring, so they fail "no contour along the cells". The same pairs can
+  be handled exactly (above), so nothing lossy is in h6 and nothing lossy is proposed.
+
+**Old code, now unused (1228 B, reclaimable):** hl_run after its first 5 B (0x601de91c–0x601dea3a); hl_pb, hl_box,
+hl_li, hl_gpb, hl_row, hl_seg and the old tables (0x601e0850–0x601e0b34); hl_pa, hl_x98 (0x601e3ae4–0x601e3b33); hl_pc
+(0x605b7780–0x605b77fb). One difference outside any real photo: h2 samples row 2 before it checks the height, so on a
+1- or 2-row image it read outside the buffer; h6 checks first.
+
+**Verified** (`patches/halation_h6/verify.py generated/halation_h6/base.json generated/halation_h6/edits.json
+generated/halation_h6/rel --frames`, all pass):
+- **M** 4/4: h2's model bit for bit (three tints; direct, 0xc8 and 0xd8 windows; grid in L and from malloc), and the
+  v0.31d code gives the same bytes. **R:** the same on the night, daylight, dense and thin-line frames.
+- **E** 2/2: 5184 × 70 across 0xd0000000, mode restored; with rows 2 bytes off a 4-byte boundary the one pair across the
+  edge is left alone. **S** 8/8: one strip, a last strip cut short, less than a band of rows, 8192 wide.
+- **G** 11/11: Halo Off, looks without halation, MONO, no record: photo, result, mallocs and L as on the base, no lock.
+  Halation + Grain: the base's bytes, three mallocs fewer (two without LOOKS.BIN). **C** 2/2: cap, empty grid.
+- **F** 15/15: with a LOOKS.BIN block no malloc and nothing written outside the grid's bytes; EP7X, fm_load not run,
+  wrong tag or back pointer, L misplaced, a grid over the tail: one malloc, freed, L untouched; a failed malloc and bad
+  records: photo untouched.
+- **A:** 181,242 word and halfword accesses of the new code traced in two whole runs, all aligned; every such access
+  not on the stack was run. **I:** the two worst locks above. **N:** the claim's 24 pinned scan hits re-derived.
+- **P:** package reparses, restore == stock, 2922 B differ from the base (the code and hl_run's 5 B), no stray byte.
+
+**Packages** (restore `963f4dfe…2327`, Firmware screen `Caduceus: 0.33`):
+- `generated/halation_h6/rel/patched.pkg.bin`, SHA-256 `a3ee53fff65d7b0da6cce737e1ccd3a979e3b2db64803549d1ba10be0ddf1338`:
+  the briefed chain, v0.32a + h6 (grain r2). The verifier run above is this one.
+- `generated/halation_h6/with_g2/rel/patched.pkg.bin`, SHA-256
+  `d4a043672882b6214e344c984a8e4007135bbf7eb7fd84d1a0ec1e456d3fe379`: v0.32b's chain + h6 (`--extra grain_g2=… --extra
+  halation_h6=…`). Same verifier against `releases/v0.32b/edits.json`, all but R: all pass; only the h6 code, hl_run's
+  5 B and the version text differ from v0.32b. This is the one for the camera, which runs v0.32b.
+- `patches/halation/verify.py` and the H check of `patches/grain_g2/verify.py` map no h6 code and expect h2's three heap
+  blocks, so they fail on a spec with h6. This verifier's M and G cover the same ground.
+
+**Camera checks (new behaviour only):**
+1. A night scene with lights, Halo High, Grain Off, on v0.32b and on this build: the halo looks the same and the save
+   is clearly shorter.
+2. The same scene with Grain High, ten shots in a row: no freeze, no restart.
+3. A bright daylight scene with CineStill 800: saves at its usual speed, no crash.
+4. A COLOR slot with split toning and Halo on: the split tone is still right after several halation shots. Then one
+   shot without LOOKS.BIN on the card still gets its halo.

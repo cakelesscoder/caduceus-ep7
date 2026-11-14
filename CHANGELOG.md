@@ -13,6 +13,14 @@ were early-development pre-releases. Use at your own risk (see the README).
 
 - **Preset look packs:** pick **Standard 1.1** (new default: split tone where the real stock has a shadow/highlight cast, halation only on rem-jet-free film) or **Standard 1.0** (the previous library, unchanged) from **New**, or mix looks from several packs with **+ Add look › From a preset pack…**. Looks get a **Split tone** editor and the preview shows it. Saved packs and share links work as before. See `docs/PACKS.md`.
 
+## v0.33 — 2026-11-14 (beta)
+
+- **Grain without tiling:** v0.32b's faster grain laid its noise down in 64-pixel blocks, and at High a faint repeating pattern could show, most when a photo is viewed zoomed out. The grain now uses the same noise pattern as v0.32a and earlier again, with no blocks and no repeats, and the same strength at Low, Med and High. It keeps what made v0.32b stable: no shared camera memory during a shot and short interrupt holds. A photo with Grain saves about 1.85 times faster than on v0.32a (v0.32b was 2.4 times).
+- **Halation is faster and looks identical:** the tinted glow does 48–74 % less work per photo (most on night scenes with a few lights), with far fewer cache flushes, and the result is the same picture, byte for byte. With a `LOOKS.BIN` on the card it no longer takes any of the camera's shared memory blocks.
+- **Clean start after a crash:** the camera's memory survives a crash and restart, and Caduceus could mistake leftovers from before the crash for freshly loaded looks. That could leave the Film page, split tone or halation working on memory they no longer owned until the battery was pulled. The camera now starts clean on the first half-press after any restart.
+- **Crash record:** if the camera ever freezes and restarts by itself, the next half-press writes a small file, `EP7MOD/CRASH.BIN`, with what the camera was doing. Nothing else changes and normal shooting is untouched. If you report a crash, please attach that file; `tools/ep7_crash.py` reads it. See `docs/CRASH_LOG.md`.
+- Firmware screen shows `Caduceus: 0.33`. Card files unchanged from v0.32.
+
 ## v0.32b — 2026-11-14 (beta)
 
 - **Grain no longer freezes the camera, and saves faster:** the grain code is rewritten. It does about 2.4 times less work per photo (6 instructions per pixel instead of 15), so a photo with Grain saves in well under half the time. It no longer takes any of the camera's shared memory blocks during a shot, and each step that briefly holds the camera's interrupts is less than half as long. On v0.32a a shot with Grain could occasionally freeze the camera and restart it, losing that photo; this has not come back in testing on an E-P7. The grain looks the same: Low, Med and High are within 1 % of the old strength, and the pattern is still different on every photo.

@@ -102,7 +102,8 @@ aligned to the width. `prm_device_of 0x6005e852` classifies a key by its storage
 `+2 u16 checksum` (two's complement of the halfword sum of the rest, so the whole image sums to 0, `prm_bank_cksum
 0x6005c7f3`), `+4 u32 generation` (+1 per save), `+8` values (packed or inline records). Check: `prm_bank_check
 0x6005c78a`. With two valid copies the newer generation wins, wrap-aware (`0x6005c3bb`). The E-P7 sets only one copy
-per bank, so there is no A/B redundancy.
+per bank at this layer. **Correction (2026-11-14):** the flash layer below it does keep two alternating slots for MODE
+(`0x40240000` / `0x40280000`) and EEROM, and picks the newer valid one at boot: [INTERNAL_STORAGE.md](INTERNAL_STORAGE.md) §2.4.
 
 **Boot.** `prm_banks_init` → `prm_ctl {op 0, bkram 1, flash 1, eerom 1, mode 1}` → `prm_load_all 0x6005f341`:
 - FLASH: stored records whose key and count match the ROM list are kept, and the rest get ROM defaults

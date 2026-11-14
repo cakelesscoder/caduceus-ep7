@@ -9,7 +9,7 @@ addresses. It consolidates `docs/*.md`, `patches/*/`, `tools/*.py`, `generated/*
 - **Addresses** are E-P7 1.1 main CPU addresses (decoded offset + 0x60020020) unless marked RAM/OSD. **None carry to
   another body** ([FIRMWARE_GUIDE.md](FIRMWARE_GUIDE.md) §12).
 - **Tags** as in FIRMWARE_GUIDE: **V** code/bytes/emulator, **C** camera-proven (a stronger V), **I** inference.
-- **Machine-readable:** [atlas.json](atlas.json) (937 symbols, incl. 137 static tasks).
+- **Machine-readable:** [atlas.json](atlas.json) (1002 symbols, incl. 137 static tasks).
   `tools/atlas_annotate.py START STOP` runs `tools/dis.sh` and names every atlas address in the listing.
 - **New in this atlas (checked against the bytes here):** the static task descriptor and name tables (§2.1), the
   mailbox-id table, and the corrected COLOR editor record bases (§4, §15).
@@ -55,6 +55,10 @@ FIRMUP_SRV). Boot tail resets volatile settings (0x60192961). The HIGHLEVEL app 
 | `0x60020074` | bss_clear_call | func | V |  | Calls 0x6002046d(0x621caf00, 0xa2796888): zero .bss at boot | docs/SD_V2_CRASH.md |
 | `0x600201fe` | data_copy | func | V |  | .data init: flash 0x60230800-0x6025eb50 -> RAM 0x61f98540 (RAM = flash + 0x1d67d40) | docs/ASPECT.md |
 | `0x6002046d` | hw_fill_zero | func | I | (start, end) | Boot fill-to-zero (hardware-assisted [I]); also clears 0x62038100-0x6203c934 | docs/SD_V2_CRASH.md, docs/VIDEO_ROTATION.md |
+| `0x6002144e` | flash_read_pages | func | V | d0 size, a0 flash, a1 RAM | Page reads (0x800) from logical flash into RAM. Read only. Also the boot loads at 0x600201fe | docs/INTERNAL_STORAGE.md §2.4 |
+| `0x60021621` | flash_erase_program | func | V | d0 size, a0 flash, a1 source | DANGER: erase 0x600218a9, then program 0x6002173b | docs/INTERNAL_STORAGE.md §2.4 |
+| `0x6002166f` | fmem_eerom_write_alt | func | V | d0 size, a1 source | DANGER: flash write. The same for the EEROM slots (slot byte 0x61b213a0) | docs/INTERNAL_STORAGE.md §2.4 |
+| `0x600216fd` | fmem_mode_write_alt | func | V | d0 size, a1 source | DANGER: flash write. Flips fmem_mode_slot, erases and programs that slot (flash_erase_program), reads it back into the shadow (flash_read_pages) | docs/INTERNAL_STORAGE.md §2.4 |
 | `0x60027068` | section_desc_table | table | V | 9 x {u32 start, u32 logical src, u32 dst} | Section descriptors ids 1..9 | docs/FIRMWARE_GUIDE.md §2, docs/HSL_PORT.md |
 | `0x60027068` | section_table | table | V | 9 x {start, flash source, destination} | Entry 5 = {0x6075a800, 0x40dda800, 0x6075a800}: sec 5 is copied 1:1 (flash = image addr - 0x60020020 + 0x406a0020) | docs/PLUGINS.md §10 |
 | `0x60044afb` | section_load_fsm | func | V |  | Boot load state machine; order 1,7,2,3,4,5,6,8,9 | docs/SD_UPDATE.md, docs/HSL_PORT.md |
@@ -68,6 +72,9 @@ FIRMUP_SRV). Boot tail resets volatile settings (0x60192961). The HIGHLEVEL app 
 | `0x60052158` | BOOT_CPU0 | func | V | task 1 entry | Linear startup: -> 0x60044afb -> 0x60045223. No updater button check found | docs/SD_UPDATE.md |
 | `0x60058c66` | busmon_cfg | func | V |  | Only region-check hardware programmed (0x99700000) | docs/REVIEW_fixed_hl.md |
 | `0x60059a9d` | nmi_handler | func | V |  | Prints `[SYS WANA] NMI_INT Hassei!` and spins (`bra .` at 0x60059cec). Vectors 0x60055250/c0/330 | docs/BOOTLOOP_T3.md |
+| `0x6005b634` | fmem_param_class | func | V | a0 address -> d0 | 1 = EEROM (shadow 0xa2ab8000, flash 0x402c0000 / 0x402e0000), 2 = MODE (shadow 0xa2a78000, flash 0x40240000 / 0x40280000), 0 = other. flash_write picks the slot writer by it | docs/INTERNAL_STORAGE.md §2.4 |
+| `0x6005b6cc` | fmem_param_mount | func | V | called from 0x600521b9 | Boot: reads the first 512 B of both MODE slots, compares the generations (wrap-aware); the slot one ahead is read in full and its 16-bit sum checked (fmem_sum_check); a wrong sum loads the other slot; neither ahead: both erased. Sets fmem_mode_slot. Then the same for EEROM | docs/INTERNAL_STORAGE.md §2.4 |
+| `0x6005bc0f` | fmem_sum_check | func | V | d0 size, a0 image -> d0 0 = sum is 0 | Cache flush, then the 16-bit sum of size / 2 halfwords | docs/INTERNAL_STORAGE.md §2.4 |
 | `0x600670bc` | to_cached | func | V | a0/d0 addr | Address alias conversion (pair with 0x60067102) | docs/SD_V2_CRASH.md |
 | `0x60067102` | to_uncached | func | V | addr -> addr\|0x40000000 | e.g. 0x6057b200 -> 0xa057b200; sections copied via uncached alias | docs/SD_UPDATE.md |
 | `0x6018e19e` | init_list_dispatch | func | V |  | Initializer lists: `mov count,d2; mov ptr,a2` pairs. Sec-2 list 0x6055e580 (48 B), sec-7 0x61378c54 (20 B) | docs/HSL_PORT.md, docs/SD_UPDATE.md |
@@ -75,6 +82,8 @@ FIRMUP_SRV). Boot tail resets volatile settings (0x60192961). The HIGHLEVEL app 
 | `0x60190df7` | USRSTART2 | func | V | task 43 entry | Boot task: wait(2) 0x60190e18 (runs sec-2 initializers), wait(3)/(4) 0x60191347/5d, wait(5) 0x60191aab, wait(6) 0x60191afb; 0x60191b02 -> 0x60767d20 (HIGHLEVEL framework) | docs/BOOTLOOP_T3.md, docs/SD_BUNDLES_V2.md |
 | `0x60191b74` | USRSTART5 | func | V | task 42 entry | Straight-line startup; starts FIRMUP_SRV at 0x601922f0 | docs/SD_UPDATE.md |
 | `0x60192961` | boot_tail_resets | func | V |  | Per-boot resets of volatile settings (uses 0x602b972b, gate 0x62257b04). Site 0x601929a4 (trace call) used by the old aspect clamp | docs/ASPECT.md, docs/FIRMWARE_GUIDE.md §3 |
+| `0x61b21368` | fmem_mode_slots | data | V | 2 x 28 B {u32 size 0x40000, u32 shadow 0xa2a78000, u32 flash, ..} | Slot 0 flash 0x40240000, slot 1 0x40280000. EEROM table 0x61b21340 (0x402c0000, 0x402e0000). Filled from ROM 0x6002e3a8 by the data copy at 0x60020117 (0x6002e020..0x6002e8e8 -> 0x61b20fe0) | docs/INTERNAL_STORAGE.md §2.4 |
+| `0x61b213a1` | fmem_mode_slot | data | V | u8 0 / 1 | Slot the MODE shadow was loaded from; flipped before each save, so saves alternate. EEROM: 0x61b213a0 | docs/INTERNAL_STORAGE.md §2.4 |
 | `0x621caf00` | bss_range | data | V | 0x621caf00-0x62796888 | Stock .bss, zeroed at boot. Stock writable statics are all >= 0x61b2xxxx | docs/FIRMWARE_GUIDE.md §2 |
 | `0xa272e420` | sections_loaded_mask | data | V | u32 bits 0..8 | Bit n-1 set after section n copied; loader gates check &0x1ff | docs/FIRMWARE_GUIDE.md §2, §8 |
 
@@ -100,6 +109,10 @@ watchdog is kicked only by SYS_WDT; a CPU-bound pass in a higher-priority task s
 | `0x60022700` | alloc_class | func | V | d0 size | Allocator used by job ctor (class 2 <= 16384) | docs/V02_BUNDLES.md |
 | `0x60022782` | malloc | func | V | d0 size -> a0 (uncached) or 0; `[],4` | Pools <=128, <=2048, <=16384; >16 KB logs error | docs/FIRMWARE_GUIDE.md §2 |
 | `0x600227b4` | free | func | V | a0; `[],4` | Range checks at 0x600227c9/d1 give pool bounds | docs/SD_V2_CRASH.md |
+| `0x60022b23` | free_phys_impl | func | V | d0 = class, a0 = block; [d2,d3,a2,a3],40 | free 0x600227b4 picks the class from the block's address range and comes here; takes cpu_lock, per-CPU tables by (0x8050) | patches/halation_h6 |
+| `0x60022d9f` | pool_bit_set | func | V | a0 = bitmap, d0 = block index; retf [d2],4 | alloc_phys_impl marks a block taken: word index >> 5, bit index & 31 (bitmaps 0xa27291f4 / 0xa272920c / 0xa2729210 for classes 0 / 1 / 2, table 0x60026e24) | patches/halation_h6 |
+| `0x60022db5` | pool_bit_clear | func | V | a0 = bitmap, d0 = block index; retf [d2],4 | The same for a freed block | patches/halation_h6 |
+| `0x60022f89` | memcmp | func | V | d0 length, a0, a1 -> d0 (0 = equal); retf [d2,d3],8 | Byte compare; prm_bank_save calls it with size - 12 from image + 8 | docs/INTERNAL_STORAGE.md §2.5 |
 | `0x60023863` | ictlog_add | func | V | d0 item, d1 len, a0 data | Needs state 8 (0x6233b790). dbg_put uses item 119, 60 B (0x60061c4f) | docs/RE_CAPTURE.md §4 |
 | `0x600239b4` | ictlog_flash_save | func | V |  | Checksum + 0x6005bc79 write to 0x47b00000. Only via 0x602f8a63 from OlyHfwPower::startShutDown 0x607a9c2e | docs/RE_CAPTURE.md §4 |
 | `0x60030000` | vec_base_cpu0 | table | V | +0x08 NMI -> 0x60055250, +0x20 IRQ entry -> 0x600386f8 | CPU1 base 0x60050000 (NMI 0x600552c0), CPU2 0x600d0000 (NMI 0x60055330) | docs/RE_CAPTURE.md §4 |
@@ -130,6 +143,8 @@ watchdog is kicked only by SYS_WDT; a CPU-bound pass in a higher-priority task s
 | `0x60056138` | addec_irq_handler | func | V |  | ADDEC (bus/address decode) error: prints ADDR/RDATA/WDATA/STATUS from 0x9a000000+0x100*cpu, clears, returns. Registered by 0x600560a9 via 0x6006aa25 | docs/RE_CAPTURE.md §4 |
 | `0x6005633f` | alarm_start | func | I | a0 callback, a1 delay, d0 mode | Deferred callback (cyclic/alarm handler [I]); ~30 callers | docs/RE_LIVEVIEW.md §1 |
 | `0x60057440` | wdt_off_on_example | func | V |  | Stock pattern: WDT off, long call 0x60022e96, on. Others 0x600f3141/3161, 0x600f35eb, 0x60105728, 0x60c4972b | docs/HALATION_RED.md §21 |
+| `0x600589d9` | sys_down_request | func | V | d0 = code; retf [],0 | Stores the code at 0x8ff000b0 and writes 1 to 0x99200400 (an interrupt for CPU0). The NMI handler calls it on CPU1 (code 1) and CPU2 (code 4), so CPU0 stops too | docs/CRASH_LOG.md |
+| `0x600589f3` | sys_down_irq | func | V |  | CPU0 side of sys_down_request: by the code at 0x8ff000b0, 1 / 4 spin at once (0x60058b8b); 3 "Heap Destroy", 2 / 5 "CPUn ADDEC", 0x10 "ARM" (+ its registers from 0x8ff00b80..), 0x30 SCPU, 0x20 COMMON, 0x50 WiFi, 0x60 BLE print, then wdt_hw_set(1) and spin. This path never enters nmi_handler | docs/CRASH_LOG.md |
 | `0x60059aab` | nmi_hook_site | code | V | 6 B fc dc ec 74 07 60 (mov 0x600774ec,a0) | After wdt_hw_set(1) at 0x60059aa4 (reset ~1 s later). No branch target in span. Crash-log hook C1 candidate | docs/RE_CAPTURE.md §4.1 |
 | `0x60059c63` | nmi_wdt_branch | code | V | btst 2,(0x8900) | WATCHDOG_TIMEROVER case inside nmi_handler 0x60059a9d (replaces mis-addressed wdt_expiry_handler 0x60059c20) | docs/RE_CAPTURE.md §4 |
 | `0x60059fcd` | ssc_try | func | V | d0 bit mask, d1 register -> d0 1 got | bset d0,(a0): Z set = was free | docs/GRAIN_HANG.md |
@@ -148,6 +163,7 @@ watchdog is kicked only by SYS_WDT; a CPU-bound pass in a higher-priority task s
 | `0x6006a922` | cpu_lock | func | V |  | Mask this CPU interrupts (other CPUs run) | docs/FIRMWARE_GUIDE.md §7 |
 | `0x6006a96b` | cpu_unlock | func | V |  | Restore window mode first | docs/FIRMWARE_GUIDE.md §7 |
 | `0x600fa223` | dbgring_save_card | func | V |  | Writes ring to C:\dbgterm\<time>.txt; only caller power-off 0x6006109f | docs/RE_CAPTURE.md §4 |
+| `0x601e01ec` | cl_nmi | func | V | jmp from nmi_hook_site; ends `mov 0x600774ec,a0; jmp 0x60059ab1` | Ours (crash_log, sec 1, in r2's unused gc_grain body 0x601e01eb..0x601e0560): the fault record into this CPU's slot of crash_record. No call; 28 B of stack; every register, MDR, LIR, LAR and the flags as the stock handler has them at 0x60059ab1 | docs/CRASH_LOG.md |
 | `0x602c7f5a` | appevent_get | func | V | frame [d2,d3,a2,a3],88 | Blocking receive from appevent queue (0x60040ce8) via 0x602c9b6a/0x600513e6 (-1); sole caller 0x60770224 (vtable slot 0x60a69820) | docs/SD_BUNDLES_V2.md |
 | `0x602c818c` | trig_tracker | func | C | a0 event ptr; `call ..,[d2,d3,a2,a3],36` | api_event_check_release_notice; called at 0x602c805f (Caduceus loader hook) for every 0x02000100 half-press | docs/SD_BUNDLES_V2.md, docs/FIRMWARE_GUIDE.md §8 |
 | `0x602fcb69` | key_filter | func | V |  | Stock key filter after tracker (0x602c8066-0x602c807f) | docs/SD_BUNDLES_V2.md |
@@ -160,23 +176,31 @@ watchdog is kicked only by SYS_WDT; a CPU-bound pass in a higher-priority task s
 | `0x60dd5067` | GUI_TASK | func | V | dynamic task entry | Created at 0x60cfcee5 via 0x607a791e (name "GUI_TASK", stack 16384) -> WinMain 0x60cfd311 message loop. Runs the GE paint and present | docs/RE_DRAW_PLUGIN.md §2.4 |
 | `0x6136a854` | dcache_range_op | func | V | d0 addr, d1 len, a0 mode | Section 9 ranged D-cache op; >8 KB -> whole-cache 0x6136a7fd. Wrappers 0x6136a8e9 (mode 0), 0x6136a8f3 (mode 1) | docs/RE_DRAW_PLUGIN.md §3.2 |
 | `0x613e63e3` | mod_err_log | func | V | (level, code, line, ...) | REC/module error wrapper -> dbg_put; codes 0x1e0xxxxx in REC code | docs/RE_CAPTURE.md §1 |
+| `0x613ff19e` | ictlog_dbg_init | func | V | debug shell `init`; `t_init` 0x613ff1c9 | memset(0x62ae80c0, 0x99, 0x2f7f40): everything between the NMI frames and the ICTLOG mirror 0x62de0000; mode byte 0x6233b791 = 1 (t_init: 2); then ictlog_boot_load, which touches the mirror only. The one stock user of that RAM by address | docs/CRASH_LOG.md |
 | `0x613ff240` | task_name_table | table | V | 26 B {char name[24], u16 id} | 143 names (0x613ff240-0x614000c6); FIRMUP_CLI record 0x613ffb30. ids 138-143 have no static descriptor | this atlas (bytes), docs/SD_UPDATE.md |
 | `0x6140033a` | cpu1_task_name_table | table | V | 26 B {char name[24], u16 n} | BOOT_CPU1 1 .. S_SHELL_CPU1 0x29 (wifi, AVM, C3D, FCS_IMG_2NDCPU_MAIN) | docs/RE_LIVEVIEW.md §1 |
 | `0x61400b18` | cpu2_task_name_table | table | V | 26 B {char name[24], u16 n} | BOOT_CPU2 1, MVR_MAIN 2, MVR_MOVIE 3, MVR_IMG1 5, MVR_CALC 6, MVR_IMG2 7, MVR_ENC 8, MVR_RECVIEW 0xc, REC_MAIN_CPU2 0x12, REC_VIEW_CPU2 0x14, MVR_EXEC 0x17 ... 0x1c | docs/RE_LIVEVIEW.md §1 |
 | `0x61f9f1c8` | trig_state | data | V | u8 (lo nibble cur, hi prev) | TRIG1 = bit 1 | docs/SD_V2_CRASH.md |
 | `0x6203ba08` | wdt_enabled | data | V | u? | SYS_WDT enabled flag | docs/HALATION_RED.md §21 |
+| `0x621a630c` | cur_tcb_cpu0 | data | V | pointer; task id = s16 at +16 | Current TCB of CPU0, as nmi_handler and addec_irq_handler read it. A negative id: no task | docs/CRASH_LOG.md |
 | `0x622cbc14` | OlyHfwEventManager | struct | V | +172 u16 HLS tid, +174 u16 pad (Caduceus P handle), +176 u32 | Ctor 0x6076fa6a sets +172 = -1 | docs/SD_V2_CRASH.md |
 | `0x622cbcc0` | hls_tid | data | V | u16 | HLS_EVENT tid (mgr+172) | docs/SD_BUNDLES_V2.md |
+| `0x626616c4` | cur_tcb_cpu1 | data | V | pointer; task id = s16 at +16 | Current TCB of CPU1 | docs/CRASH_LOG.md |
+| `0x6267c09c` | cur_tcb_cpu2 | data | V | pointer; task id = s16 at +16 | Current TCB of CPU2 | docs/CRASH_LOG.md |
 | `0x62ae8000` | nmi_frame | data | V | 3 x 0x40 B per CPU: +0 tid, +4 SP, +8 PSW, +0xc PC, +0x10 busmon, +0x20..+0x3c d0..a3 | Outside .bss; not cleared at boot [V scan]; survival through WDT reset unknown | docs/RE_CAPTURE.md §4 |
 | `0x62ae8100` | crashlog_area_cand | data | I | ~2.5 KB in 0x62ae80c0..0x62de0000 | Only static users: ICTLOG debug init/t_init fill (0x613ff19e/0x613ff1c9). Proposed crash record R | docs/RE_CAPTURE.md §4.1 |
 | `0x62de0000` | ictlog_mirror | data | V | 1 MB: +0 checksum, +4 u16 1, +0x400 "log", items from +0x440 | 120 item descriptors at 0x61fb035c (12 B) | docs/RE_CAPTURE.md §4 |
 | `0x8fe00000` | ssc_regs | mmio | V | 8 groups x 8 B | Cross-CPU hardware semaphores (ssc_lock / ssc_unlock) | docs/GRAIN_HANG.md |
+| `0x8ff000b0` | sys_down_code | data | V | u32 | Why CPU0 was told to stop (sys_down_request). 0x8ff00000.. is RAM shared by the CPUs (lock words 0x8ff00040, 0x8ff006fc) | docs/CRASH_LOG.md |
+| `0x9a000008` | addec_regs | data | V | u32 ADDR, R DATA, W DATA, STATUS at +8..+0x14; + 0x100 per CPU | Address-decode error registers; plain reads. The handler clears through the word at +0 (or 4, then and ~2). An error taken with interrupts masked stays here | docs/CRASH_LOG.md |
+| `0xa1bce7c0` | heap_pool_class0 | data | V | 0xa1bce7c0..0xa1bd6d40 | malloc <= 128 B (bounds in free 0x600227b6 / 0x600227be). Our 128-B grain record lives here | docs/CRASH_LOG.md |
 | `0xa1dd8d40` | heap_class2 | data | V | 0xa1dd8d40-0xa1e85800 | <=16384 B pool, blocks 0x4040 apart | docs/FIRMWARE_GUIDE.md §2, docs/LOOK_PICKER.md |
 | `0xa1f8d800` | heap_class1 | data | V | 0xa1f8d800-0xa1f98540 | <=2048 B pool, 44 KB, uncached. Caduceus P = 0xa1f8d7ff + h | docs/FIRMWARE_GUIDE.md §2 |
 | `0xa2682c34` | dbg_put_state | data | V | u32: off/put/sd/serial/sd-serial/reboot | Boot sets 1 (put) at 0x60061797 | docs/RE_CAPTURE.md §4 |
 | `0xa2715d28` | dbg_first_error | data | V | 64 B record | Ver (prop 0xc082 or 0x1100), RTC time, code, args. .bss, lost on reset | docs/RE_CAPTURE.md §4 |
 | `0xa2716034` | window_mode_array | data | V | per CPU | Selector bits 8-15 | docs/GRAIN_PORT.md |
 | `0xa2726c90` | dbgring_buf | data | V | 8 KB; head 0xa2728c90, tail 0xa2728c94, mode 0xa2728c98 | Console tail ring (.bss) | docs/RE_CAPTURE.md §4 |
+| `0xa2ae8100` | crash_record | data | V | 3 slots x 0xc3c B (one per CPU), format tools/ep7_crash.py | Ours: +0 mark (CRSH complete, BRSH busy), +4 sum, +8 later NMI entries, +0x18 header, +0x6c NMI frames, +0x12c CPU0 ring, +0x574 own ring, +0x9bc grain record, +0xa3c stack. Uncached; whether it survives the watchdog reset is not proven | docs/CRASH_LOG.md |
 
 ### 2.1 Static task list (descriptor table 0x600389d0, names 0x613ff240) [V bytes]
 
@@ -286,6 +310,7 @@ Key sids: 111 effective picture mode (key 0x9481; GUI enum, Vivid 0), 1645/1646 
 | `0x6005bc79` | prm_flash_op | func | V | d0 size, d1 mode (0 write, 0x10, 0x100 read, 0x200 erase), a0 src, a1 dst | DANGER: the only flash entry of the settings store. Sem 0x60040af0, WDT off around write/erase (wdt_flashop 0x6005bcb5 is inside), -> flash_write / 0x600c4e80 / fmem_erase | docs/RE_SETTINGS.md §4 |
 | `0x6005c2f1` | prm_bank_new | func | V | -> a0 bank | 7 bank objects at 0xa26ff940, 28 B: +0 id, +2 current copy, +4/+8 shadow copies, +12 ROM default, +16 RAM, +20 size, +24 in use | docs/RE_SETTINGS.md §3 |
 | `0x6005c3bb` | prm_bank_pick_copy | func | V | a0 bank -> d0 copy (0/1, 0xfe none valid) | Checks each shadow copy (prm_bank_check); with two valid copies picks the newer generation (+4, wraps) | docs/RE_SETTINGS.md §4 |
+| `0x6005c4b2` | prm_bank_next_copy | func | V | a0 bank -> d0 copy | Copy index for the next save. With the one shadow each bank has it stays 0; the two flash slots are below this layer (fmem_mode_write_alt) | docs/INTERNAL_STORAGE.md §2.4 |
 | `0x6005c524` | prm_bank_load | func | V | a0 bank -> d0 1 = failed | Valid shadow copy -> RAM (size/4 words) | docs/RE_SETTINGS.md §4 |
 | `0x6005c559` | prm_bkram_load | func | V | a0 bank -> d0 1 = failed | Backup registers -> 0xa26ffa04, check, -> RAM | docs/RE_SETTINGS.md §4 |
 | `0x6005c583` | prm_bkram_save | func | V | a0 bank | Gen++, checksum, RAM -> backup registers 0x98e00008 (14 words, 0x60066e14). Not flash | docs/RE_SETTINGS.md §4 |
@@ -296,6 +321,7 @@ Key sids: 111 effective picture mode (key 0x9481; GUI enum, Vivid 0), 1645/1646 
 | `0x6005c78a` | prm_bank_check | func | V | d0 size, d1 id, a0 image -> d0 0 = ok | Valid when image+0 == bank id and the u16 sum of size/2 halfwords is 0 | docs/RE_SETTINGS.md §4 |
 | `0x6005c7f3` | prm_bank_cksum | func | V | d0 size, a0 image -> d0 | Negated u16 sum of the image after the checksum word; stored at +2 by 0x6005c7e7 | docs/RE_SETTINGS.md §4 |
 | `0x6005c811` | prm_bank_gen_inc | func | V | a0 image | Generation counter at image+4 += 1 | docs/RE_SETTINGS.md §4 |
+| `0x6005c854` | prm_copy_words | func | V | d0 words, a0 src, a1 dst | Word copy of prm_bank_load (whole image, size / 4) and the CPRAM refill | docs/INTERNAL_STORAGE.md §2.6 |
 | `0x6005c8e2` | prm_csv_load | func | V | a0 cmd {.., +20 drive, +24 dir, +28 name} | Reads a card file into 0x62496400 (max 0x1fffc B), then prm_csv_overlay_build | docs/RE_SETTINGS.md §6 |
 | `0x6005d6aa` | prm_registry_build | func | V |  | Clears 4096-slot registry 0xa26ffa88 ({u16 key, u16 count, u32 data}), registers CONST, FLASH, BKRAM, EEROM, MODE, CPRAM records, the DEVICE key list, then FLASHD1/D2 if present | docs/RE_SETTINGS.md §3 |
 | `0x6005d8e3` | prm_csv_overlay_build | func | V |  | Builds overlay registry 0xa2707a88 from 0x62496400 and sets 0xa26ffa84 = 1; prop_lookup then prefers the overlay | docs/RE_SETTINGS.md §6 |
@@ -306,13 +332,16 @@ Key sids: 111 effective picture mode (key 0x9481; GUI enum, Vivid 0), 1645/1646 
 | `0x6005dfc3` | prm_clear | func | V | d0 device (1 CSV, 2 CPRAM, 3 BKRAM, 4 FLASH, 6 EEROM, 7 MODE, 10/11 FLASHD1/D2) | RAM only: device back to ROM defaults, then prm_registry_build. Not persisted until a save | docs/RE_SETTINGS.md §5 |
 | `0x6005e129` | prm_flash_bank_merge | func | V | a0 stored image (0 = none) | Rebuilds FLASH bank RAM: stored records whose key and count match the ROM list first, then ROM defaults for the rest | docs/RE_SETTINGS.md §4 |
 | `0x6005e309` | prm_bank_fill_defaults | func | V | d0 size, a0 RAM, a1 ROM records | Packed defaults for BKRAM/EEROM/MODE | docs/RE_SETTINGS.md §5 |
+| `0x6005e57b` | prm_dbg_mode_used | func | V | -> d0 used bytes | Debug shell `size` only. DANGER: it rebuilds the MODE defaults in RAM to measure them. 0x6005e551 EEROM, 0x6005e5ab BKRAM | docs/INTERNAL_STORAGE.md §2.8 |
 | `0x6005e852` | prm_device_of | func | V | d0 key -> d0 device id | By storage address: 1 CSV, 2 CPRAM, 3 BKRAM, 4 FLASH, 6 EEROM, 7 MODE, 10/11 FLASHD1/D2, 9 DEVICE, 5 ROM | docs/RE_SETTINGS.md §3 |
 | `0x6005e947` | prop_handle | func | V | d0 key -> a0 storage ptr (0 if unknown) | prop_lookup + per-core translate 0x6005c8cf. Result is the a0 handle prop_get/prop_set accept: skips the lookup, value still read live | docs/RE_AE.md §0 |
 | `0x6005e971` | prop_get | func | V | d0 key, d1 index, a0 0 (global) -> d0; `call ..,[d2,d3],12` | Reads RAM registry via 0x6005d924; no fixed RAM address per setting | docs/FIRMWARE_GUIDE.md §3 |
 | `0x6005ea22` | prop_set | func | V | d0 key, d1 index, a0 handle (0 = lookup), a1 value; `call ..,[d2,d3,a2,a3],40` | Used by the AE publish 0x6042805e and the bracket step | docs/RE_AE.md §1 |
+| `0x6005eadf` | prop_store_both | func | V | d0 key, d1 index, a0 storage (cached), a1 value | The store behind prop_set on CPU0: writes the value at the cached address, then at its uncached alias (width from the key). Other CPUs reach it through 0x6005e6e9 | docs/INTERNAL_STORAGE.md §2.5 |
 | `0x6005eeab` | prop_get_default | func | V | d0 key, d1 index -> d0 | ROM default via 0x6005f005 (record lookup in the owning bank ROM image) | docs/RE_SETTINGS.md §5 |
 | `0x6005ef24` | prop_set_default | func | V | d0 key | Copies the ROM default over the property (core 0; wrapper 0x6005eefb forwards from core 1) | docs/RE_SETTINGS.md §5 |
 | `0x6005efbd` | prop_read_width | func | V | d0 key, d1 index, a0 storage | Reads u8/s8/u16/s16/u32 by key type nibble (bit 3 = signed, low 3 bits = width) | docs/RE_AE.md §0 |
+| `0x6005f089` | prm_mode_load_failed_take | func | V | -> d0 flag; clears it | Reads and clears mode_load_failed. 0x6005f079 the same for EEROM (0xa2715cb6), 0x6005f069 for BKRAM (0xa2715cb4) | docs/INTERNAL_STORAGE.md §2.6 |
 | `0x6005f099` | prm_ctl | func | V | a0 -> {u16 op, u16 bkram, u16 flash, u16 eerom, u16 mode} | DANGER for op 1/3. op 0 load (prm_load_all), 1 save (flash flag also writes FLASHD1/D2), 2 card CSV overlay, 3 erase. 21 call sites | docs/RE_SETTINGS.md §4 |
 | `0x6005f341` | prm_load_all | func | V | a0 cmd | FLASH (merge), BKRAM, EEROM, MODE; a failed check logs, sets 0xa2715cb4/6/8 and restores that bank from ROM (prm_clear), then prm_registry_build | docs/RE_SETTINGS.md §4 |
 | `0x60078620` | fmem_xchg_table | table | V | 3 x {u32 uncached shadow, u32 cached shadow, u32 flash} | Read by fmem_shadow_to_flash | docs/RE_SETTINGS.md §4 |
@@ -336,11 +365,15 @@ Key sids: 111 effective picture mode (key 0x9481; GUI enum, Vivid 0), 1645/1646 
 | `0x602af9d1` | set_available | func | V | (id, value) | -> 0x602b2961 availability | docs/LOOK_MENUS.md, docs/BUTTONS.md |
 | `0x602afa81` | set_get_rules | func | V | d0 sid; `[],4` | Getter with rules; bypasses facade (wheel polygon, AE sids 469-471, 3281) | docs/LOOK_MENUS.md, docs/LIVE_ND.md |
 | `0x602afad0` | set_default | func | V | id -> default | Behind facade +152 | docs/LOOK_EDITOR.md |
+| `0x602b039a` | settings_boot_init | func | V |  | From boot_tail_resets (0x6019296e). If the MODE image was refused (settings_mode_load_failed): settings_factory_init, then settings_save at once | docs/INTERNAL_STORAGE.md §2.6 |
 | `0x602b0560` | reset_pick | func | V |  | sid 10049 == 0 -> reset list 0x6049b31c (27); else list 0x6049c144 (626) and snapshot_store(0) | docs/RE_SETTINGS.md §5 |
 | `0x602b174c` | desc_lookup | func | V | d0 sid -> a0 descriptor | Hash sid & 63 at 0x62247d48 (built by 0x602b16f7 over the 439 records) | docs/RE_SETTINGS.md §1 |
 | `0x602b2fad` | facade_avail_handler | func | V |  | Only handles sid 1716 | docs/BUTTONS.md |
+| `0x602b3a60` | settings_reset_list_626 | func | V | d0, d1 | List reset over 626 sids (0x604ab744) through reset_to_default_cache. Which menu Reset this is [I] | docs/INTERNAL_STORAGE.md §2.6 |
+| `0x602b3a8c` | settings_reset_list_1785 | func | V | d0, d1 | List reset over 1,785 sids (0x604aa952); with sid 41 set it first reloads snapshot 0. Which menu Reset this is [I] | docs/INTERNAL_STORAGE.md §2.6 |
 | `0x602b6b4f` | sid15271_cb | func | V |  | Only wired to sid 15271 descriptor (0x60431d64). Dial->movie 15272 trigger untraced | docs/MOVIE_COLOUR.md |
 | `0x602b8916` | eff_sat_recompute | func | V |  | Sector callbacks 0x602b5e91/eaa/ec3/edc -> here -> 0x602b7b71 | docs/LV_BUNDLES.md |
+| `0x602b962f` | settings_factory_init | func | V |  | Every sid 0..1768, 10000.., 15000.. := its sid default (property, raw plane, both active parts), then snapshot_store for slots 0..8. Sid-level: never touches bytes outside the records. Callers: boot (refused image), factory-setting reset, self-adjust, ADJ task | docs/INTERNAL_STORAGE.md §2.6 |
 | `0x602b972b` | reset_to_default | func | V | d0 count, a0 u16 id list | Each id := default. Gate byte 0x62257b04 (==1 skips boot resets) | docs/ASPECT.md |
 | `0x602b9778` | reset_to_default_cache | func | V | d0 count, a0 u16 id list | Like reset_to_default but writes the RAM sid caches (0x602cc1f2/0x602cc345) instead of the properties | docs/RE_SETTINGS.md §5 |
 | `0x602b9bad` | val_default | func | V | id |  | docs/ASPECT.md |
@@ -351,6 +384,7 @@ Key sids: 111 effective picture mode (key 0x9481; GUI enum, Vivid 0), 1645/1646 
 | `0x602ba40b` | forced_lookup | func | V | sid -> 128 = not forced |  | docs/LIVE_ND.md |
 | `0x602ba4cc` | validator_hash_init | func | V |  | Hashes sid & 127 into RAM 0x62248528 at boot; lookup 0x602ba523 | docs/BUTTONS.md |
 | `0x602ba523` | validator_lookup | func | V | d0 sid -> a0 record (0 = none) | Hash bucket sid & 127 (0x62248528); first record for the sid. 0x602ba54d also matches attr | docs/RE_SETTINGS.md §1 |
+| `0x602cb832` | settings_cmd_dispatch | func | V | d0 command id 0x60001..0x60020, a0 args | Jump table 0x604d6b40: sid get / set / reset, settings_save, settings_save_bkram, settings_mode_load_failed. Reached from the script reader 0x60ba7eec through 0x602cb779, not from the menus | docs/INTERNAL_STORAGE.md §2.5 |
 | `0x602cbc0a` | sid_get | func | V | d0 sid -> d0 | Getter by sid | docs/FIRMWARE_GUIDE.md §3 |
 | `0x602cbc13` | sid_get_core | func | V | d0 sid -> d0 | sid_to_key + sid_to_index + prop_get. Body of sid_get | docs/RE_SETTINGS.md §1 |
 | `0x602cbc5d` | sid_set | func | V | d0 sid, d1 value | Skipped while reset_gate == 1; else sid_set_core 0x602cbc74 (prop_set). 86 callers | docs/RE_SETTINGS.md §1 |
@@ -368,8 +402,10 @@ Key sids: 111 effective picture mode (key 0x9481; GUI enum, Vivid 0), 1645/1646 
 | `0x602cc631` | sid_cache_all | func | V |  | Reads every sid of the 0, 3000, 4000, 4500, 15000 ranges into RAM 0x6225359c.. | docs/RE_SETTINGS.md §5 |
 | `0x602cc6dd` | settings_save | func | V |  | DANGER: prm_ctl save {bkram 0, flash 0, eerom 1, mode 1}. Callers: OlyHfwPower::startShutDown, sleep, firmware-update check, life tests | docs/RE_SETTINGS.md §4 |
 | `0x602cc767` | settings_save_bkram | func | V |  | prm_ctl save {bkram 1}. Backup registers only | docs/RE_SETTINGS.md §4 |
+| `0x602cc7ec` | settings_mode_load_failed | func | V | -> d0 | Wrapper (id 0xf0020) of prm_mode_load_failed_take | docs/INTERNAL_STORAGE.md §2.6 |
 | `0x602ccc3c` | flash_prop_save | func | V | d0 key, d1 value -> d0 1 = failed | DANGER: sets one FLASH-bank key (0x0db1, 0xbac1, 0xbbc1) and saves with the flash flag, which also rewrites FLASHD1/D2. Caller 0x60827377 | docs/RE_SETTINGS.md §4 |
 | `0x602ccfcb` | pm_refresh | func | V |  | Picture-mode refresh (also 0x602cd045); only for ids 111/1645/1646/15271 | docs/LOOK_EDITOR.md |
+| `0x604057e3` | fatal_save_hang | func | V |  | Error code 15235, prm_ctl save {mode}, cpu_lock, endless loop. From the 120 s wait 0x60404fba | docs/INTERNAL_STORAGE.md §2.5 |
 | `0x604317ac` | set_desc_registry | table | V | 439 x 60 B; +24 on-change callback | e.g. sid 47 record 0x60433408 cb 0x602b536b; sid 267 records 0x6043459c/0x6043acf8 | docs/FIRMWARE_GUIDE.md §3, docs/BUTTONS.md |
 | `0x6043dfec` | pm_derive_table | table | V | rows {15272 == 1645, 1645 == v} | Derives sid 111 (key 0x9481); outputs 0x6043f2fc. GUI 111: Vivid 0 | docs/MOVIE_COLOUR.md |
 | `0x6045e5fc` | rule_db | table | V | 201 x 20 B, sid at +0 | Availability/forced-value rules; hashed by 0x602b32d8. Drive = record 72 (sid 3281, 0x6045eb9c) | docs/BUTTONS.md, docs/LIVE_ND.md |
@@ -382,6 +418,7 @@ Key sids: 111 effective picture mode (key 0x9481; GUI enum, Vivid 0), 1645/1646 
 | `0x604d6c14` | sid_key_table | table | V | 1769 x {u16 key, u16 index} | sid 0..1768. key = id<<4 \| type (width/sign). 4-B stride | docs/FIRMWARE_GUIDE.md §3, docs/FEATURE_GAPS.md |
 | `0x604d87b8` | sid_key_3000 | table | V | 22 x {u16 key, u16 index} | Sids 3000-3021. Followed by 0x604d8810 (4500-4521, u16 key), 0x604d883c (4000-4022, u16 key), 0x604d886a (10000-10110, {key, index}), 0x604d8a26 (15000-15273, {key, index}) | docs/RE_SETTINGS.md §1 |
 | `0x6061907a` | card_param_csv_load | func | V |  | On card mount (dcfnum.c, 0x60618b53): finds PARAMDT/CP??????.CSV, then prm_clear(1) + prm_ctl op 2 | docs/RE_SETTINGS.md §6 |
+| `0x607ac5eb` | factory_setting_reset | func | V |  | OlyHfwResetFactorySetting.cpp: keeps sid 23, settings_factory_init, settings_save, EEROM save 0x602d2f75. Service path | docs/INTERNAL_STORAGE.md §2.5 |
 | `0x607b3c32` | canexec_get | func | V | -> obj; vtbl[0](id) | CANEXEC row check (0x6082686f -> 0x608290c8) | docs/BUTTONS.md |
 | `0x60adf518` | item_cond_table | table | V | 611 x 12 B {id, cond bytes, n} | Menu grey-out; read by 0x608290c8; cond byte -> predicate table 0x60ade144 (OR) | docs/BUTTONS.md, docs/LIVE_ND.md |
 | `0x60ef98a4` | opc_prop_table | table | V | 24 B {char* name, u32 sid, get, set, list, 0} | Wi-Fi remote property names: takemode, drivemode 3281, focalvalue 3, expcomp 2, shutspeedvalue 4, isospeedvalue 6, wbvalue 9, artfilter 280, colorphase 665 ... | docs/RE_SETTINGS.md §2 |
@@ -389,11 +426,17 @@ Key sids: 111 effective picture mode (key 0x9481; GUI enum, Vivid 0), 1645/1646 
 | `0x62248528` | validator_hash | table | V | 128 buckets | RAM | docs/BUTTONS.md |
 | `0x62257b04` | reset_gate | data | V | u8 | Stock skips boot resets when == 1 (0x602cc6cf, 0x602af9e1) | docs/ASPECT.md |
 | `0x624ea400` | mode_bank_ram | data | V | 0x40000 B: {u16 id, u16 cksum, u32 gen}, packed values | User settings working copy. Storage of each key: docs/settings_catalogue.json | docs/RE_SETTINGS.md §3 |
+| `0x624ea404` | mode_bank_gen | data | V | u32 | Generation of the MODE image in RAM (image +4). prm_bank_save adds 1 before the checksum; equal to the shadow's (0xa2a78004) except while a save is in flight | docs/INTERNAL_STORAGE.md §3.4 |
 | `0x62509d7c` | sid3009_language | data | V | u8, MODE bank (key 0x85e1) | Menu language value; 5 = Simplified Chinese, 6 = Traditional Chinese, 1 = English | docs/I18N_ZH.md |
+| `0x6250f9b0` | mode_bank_tail | data | V | image offset 0x255b0; free to 0x6252a3fc (109,132 B) | First byte after the last MODE record (key 0xfa64). No record, no absolute reference and no decompiled function names anything from here to the end of the image; loaded, summed, compared and saved with the image (emulated). Run-time use through computed pointers not excluded [I] | docs/INTERNAL_STORAGE.md §2.2, §2.8 |
+| `0x62524400` | mode_tail_block_cand | data | I | image offset 0x3A000, 4 KB reserve; uncached 0xa2524400 | Ours, proposed, nothing built: the block that would hold BUNDLES / LOOKS / MOVIE / AP images (EP7I, 3,080 B). Not camera-proven | docs/INTERNAL_STORAGE.md §3.1 |
 | `0x98e00008` | bk_regs | data | V | u32 x 14 | Battery-backed registers for the BKRAM bank (0x60066e14 write, 0x60066e29 read) | docs/RE_SETTINGS.md §4 |
 | `0xa26ff940` | prm_banks | data | V | 7 x 28 B bank objects | Pointers: 0xa2711a88 CONST records, 0xa2711a8c CPRAM ROM, 0xa2711a90 FLASH, 0xa2711a94 BKRAM, 0xa2711a98 EEROM, 0xa2711a9c MODE, 0xa2711aa0 DEVICE, 0xa2711aa4 FLASHD1, 0xa2711aa8 FLASHD2 | docs/RE_SETTINGS.md §3 |
 | `0xa26ffa88` | prop_registry | table | V | 8 B per key>>4 | RAM property registry | docs/PROFILE_INDEX_WB.md |
 | `0xa2707a88` | prop_overlay_registry | table | V | 4096 x 8 B | CSV overlay; active when 0xa26ffa84 != 0 (prop_lookup checks it first) | docs/RE_SETTINGS.md §6 |
+| `0xa2715ab8` | mode_bank_end_cursor | data | V | u32 | First free address after the packed MODE records, stored by prm_bank_fill_defaults (0x6250f9b0). 0xa2715abc EEROM, 0xa2715ac0 BKRAM. Read only by the debug shell `size`; a normal load does not write it | docs/INTERNAL_STORAGE.md §2.8 |
+| `0xa2715cb8` | mode_load_failed | data | V | u16 | Set to 1 by prm_load_all when the MODE image was refused and the bank was rebuilt from ROM | docs/INTERNAL_STORAGE.md §2.6 |
+| `0xa2a78000` | mode_bank_shadow | data | V | 0x40000 B; cached alias 0x62a78000 | RAM mirror of the saved MODE image: filled at boot from the newer valid flash slot (fmem_param_mount), read back after every save. prm_bank_save compares the RAM image with it | docs/INTERNAL_STORAGE.md §2.4 |
 
 ## 4. UI (menu framework)
 
@@ -877,7 +920,11 @@ CPU access to buffers only through the window mapper, lock, flush ([FIRMWARE_GUI
 | Address | Name | Kind | Tag | Signature / layout | Notes | Source |
 |---|---|---|---|---|---|---|
 | `0x601de740` | st_w | func | V | d0 = P+1020, a0 = P | Ours (split_tone v0.32a .sti): EP7X (no LOOKS.BIN, or fm_load still reading) -> capture mallocs at once, live view counts 240 split passes in P+848 (tag 0x5354xxxx) first; fm_load not run -> no split | patches/split_tone |
-| `0x601e01e5` | gc_grain | site | V | a0 = buffer record, d0 = level 1..3; frame [d2,d3,a2,a3],144 | Ours (grain_cpu r2): the CPU grain pass, called by gc_ob and reached by jmp from halation hl_grain. g2: its first 6 B are `jmp g2_grain; nop`; the body to gc_cls 0x601e0572, gc_fill 0x601e05c3, gc_next 0x601e060d, gc_p2 0x601e0640, gc_cach 0x601e0669, gc_tbl 0x601e0686, gc_stab 0x601e06ce and gc_G 0x601e074d stay in place, unused | patches/grain_g2 |
+| `0x601de880` | hl_lvl | func | V | a0 = job -> d0 = grain level 1..3, 4 = halation only, 0 = stock; [d2,d3],16 | Ours (halation h2): replaces gc_gs's call gc_lvl; leaves tint << 4 \| stage at grain record +96. Unchanged by h6 | patches/halation_h6 |
+| `0x601de8e6` | hl_grain | func | V | a0 = 0x1000 buffer record, d0 = level 1..4; on gc_grain's 144 frame | Ours (halation h2): replaces gc_gs's call gc_grain: call hl_run,[d2,d3,a2,a3],96 when record +96 is set, then jmp gc_grain for levels 1..3. Unchanged by h6 | patches/halation_h6 |
+| `0x601de917` | hl_run | site | V | a0 = buffer record, d0 = tint << 4 \| stage; frame [d2,d3,a2,a3],96 (locals 4..76) | Ours (halation h2): the three passes. h6: its first 5 B are `jmp h6_run`; the rest, hl_pa 0x601e3ae4, hl_pb 0x601e0850, hl_box, hl_li, hl_gpb, hl_row, hl_seg, hl_pc 0x605b7780, hl_x98 and the tables hl_tint / hl_gm stay in place, unused (docs/CODE_SPACE_MAP.md "halation h6") | patches/halation_h6 |
+| `0x601e018a` | gc_open | func | V | d0 = bus address -> a0 = CPU address or 0, d0 = lock token, d1 = window mode to restore or -1; [d2,d3,a2,a3],32 | Ours (grain_cpu r2): cpu_lock, then direct (0xa0000000..0xafffffff), this CPU's window if its mode already fits (gc_btab / gc_mtab by 128 MB slice), or window_map. Add -0x40000000 for the cached alias. Used by grain g2 and halation h6 | patches/halation_h6 |
+| `0x601e01e5` | gc_grain | site | V | a0 = buffer record, d0 = level 1..3; frame [d2,d3,a2,a3],144 | Ours (grain_cpu r2): the CPU grain pass, called by gc_ob and reached by jmp from the halation grain hand-off. Since g2 its first 6 B are `jmp g2_grain; nop`; the rest of it, gc_fill 0x601e05c3, gc_next 0x601e060d, gc_p2 0x601e0640, gc_cach 0x601e0669, gc_tbl 0x601e0686, gc_stab 0x601e06ce and gc_G 0x601e074d are unused by the pass (crash_log lives in the body) | patches/grain_g2 |
 | `0x60210e90` | st_h | func | V | jmp from st_c; (4,sp) P, (24,sp) kind | Ours (split_tone v0.32a .sth): no S at P+848 -> with LOOKS.BIN (P+1020 EP7F, L valid) S = L+2688 in the unused tail of the LOOKS block, no malloc; else jmp st_w | patches/split_tone |
 | `0x603397e0` | dev_stage_list | func | V | a0 ctx | Stage builder; 0x60339b8e gates the lens shading stage 0x6039d19a -> 0x6039e54e | docs/VIGNETTE_FIX.md |
 | `0x60339b8e` | gate_lens_shading | func | V | a0 ctx -> d0 | On when ctx+0xc4 == 0 and 0x603b54b0(request) != 0 and byte 1 != 0xff | docs/VIGNETTE_FIX.md |
@@ -970,12 +1017,24 @@ CPU access to buffers only through the window mapper, lock, flush ([FIRMWARE_GUI
 | `0x60530b6c` | gamma_ptr_table | table | V | 25 rows x 8 u32 (4 cols x {normal, variant}) | Row 0 base 0x604ede78; 5-7 Cross Process I R/G/B; 9-11 CP II; 12-14 Vintage I; 15-17 Vintage II; 18-20 Vintage III; 21-23 Bleach Bypass II; 24 used when R+1838 == 257 | docs/RE_LIVEVIEW.md §4 |
 | `0x60532110` | gamma_effect_hash | table | V | 16 x {u32 id-1999, u32 handler} | id 2000 Flat, 2001 log, 0x0101006b/0x0102006b/0x01010079/0x01020079/0x01030079/0x0102007b three-curve, others single | docs/RE_LIVEVIEW.md §4 |
 | `0x60532738` | mask_tone_lut | table | V |  | Key 12 stage 0x0900 tone | docs/GRAIN_PORT.md |
-| `0x607b6430` | g2_grain | func | V | a0 = buffer record, d0 = level 1..3; on gc_grain's frame, ret [d2,d3,a2,a3],144 | Ours (grain_g2, sec-5 dead sdk-api claim 0x607b6420..0x607c6420): r2's guards (+ 0x33 level), record fields, stage marks, lock / window / flush protocol, K rows per lock (build constant), slice-edge split. Noise from g2_tile, tables from g2_T, 176 B more stack, no malloc / free | patches/grain_g2 |
-| `0x607b678f` | g2_offs | func | V | calls, shares the frame: blocks (80,sp), r (48,sp) | Ours: one block row's offsets. Per block tx then ty = ((r >> 8) & 0xffff) * 65 >> 16 from the photo's xorshift32; off[b] = ty * 128 + tx, u16 at (128 + 2b, sp). Runs outside the lock, every 64 rows | patches/grain_g2 |
-| `0x607b67f6` | g2_row | func | V | calls, shares the frame: pointer (52,sp), pixels (56), x (76), tile row (84), T (8) | Ours: one row piece from any x. Whole 64-px blocks through g2_blk; the pixels before a block edge or after the last whole block one at a time | patches/grain_g2 |
-| `0x607b6834` | g2_blk | site | V | a0 image, a2 off[b], d2 tile row, d3 blocks, a3 T | Ours: the block loop, 392 instructions for 64 px: a1 = tile row + off[b], then per pixel n = (k,a1), Y = (2k,a0), T[(Y << 5) + n] back to (2k,a0) | patches/grain_g2 |
-| `0x607b7420` | g2_tile | data | V | u8[128][128], values 0..30 | Ours: the noise tile (model.py tile(), xorshift seed 4880): r2's ring statistics in two dimensions. A block reads the 64 x 64 window at (tx, ty), 0..64 | patches/grain_g2 |
-| `0x607bb420` | g2_T | data | V | u8[3][256][32]: level, Y, n | Ours: the Low / Med / High tables, the bytes r2's gc_tbl builds for strengths 23 / 55 / 91, centre 991 (verify T) | patches/grain_g2 |
+| `0x607b6420` | g3_ring | data | V | u8[16384], values 0..30 | Ours: the noise ring, r2's gc_fill from seed 3201 (verify T runs gc_fill against it). r2 filled it on the heap for every photo | patches/grain_g2 |
+| `0x607ba420` | g3_T | data | V | u8[3][256][64]: level, Y, s | Ours: the Low / Med / High tables T2[Y][s] = T[Y][(s + 1) >> 1], T as r2's gc_tbl builds it for 23 / 55 / 91, centre 991; s = sum of two ring bytes, 0..60 | patches/grain_g2 |
+| `0x607c6430` | h6_run | func | V | jmp from hl_run; a0 = buffer record, d0 = tint << 4 \| stage; ret [d2,d3,a2,a3],96 | Ours (halation h6): h2's record checks, gmax / tint row, then the cell grid: L+5824 of the LOOKS.BIN block when P (ap_P) has EP7F, L is 4-aligned in the class-2 pool with EP7L and the back pointer, and the grid fits 10560 B; else one malloc. Then h6_pa | patches/halation_h6 |
+| `0x607c6585` | h6_pa | site | V | context = hl_run's frame | Ours: pass A driver. Bound of one row (8,sp) = W / 2 * 10 + 120; rows 2, 6, 10.. through h6_rows (4 rows a lock at 5184 wide) | patches/halation_h6 |
+| `0x607c65c0` | h6_pb | site | V |  | Ours: pass B. h6_box on every grid row, then every column; u = min(255, 21 v >> 3), g = (u (511 - u) >> 8) gmax >> 8; no cell or more than a third of the cells at g >= 16: exit (h2's cap) | patches/halation_h6 |
+| `0x607c663b` | h6_pc | site | V |  | Ours: pass C driver. Band j = rows 32 + 64 j .. 95 + 64 j (from 0 for j = 0) on cell rows j and min(j + 1, GH - 1): the columns with glow give the first / last strip (72) / (76) and the bound of one row; a band without glow is skipped (h6_band 0x607c6644, h6_next 0x607c66e7) | patches/halation_h6 |
+| `0x607c66ef` | h6_exit | site | V |  | Ours: frees the grid if it was a malloc ((40,sp)), ret [d2,d3,a2,a3],96 (h6_ret 0x607c66fc) | patches/halation_h6 |
+| `0x607c66ff` | h6_box | func | V | a0 = u8 line, d0 = n, d1 = stride; [d2,d3,a2,a3],24 | Ours: two [1 2 1] / 4 passes in place (the value before is kept in a register): h2's hl_box without its u16 temp buffer | patches/halation_h6 |
+| `0x607c672d` | h6_rows | func | V | a1 = context, d0 = first row, d1 = rows at most -> d0 = 0, d1 = rows done; d0 = 1: window refused; [d2,d3,a2,a3],64 | Ours: one gc_open / flush or mode restore / cpu_unlock around several rows. A further row joins while it lies in the same 128 MB slice and work done + the bound of a row (8,a1) <= HL_CAP - 300 (120000); pass A counts a row as its bound, pass C what h6_crow reports. A first row across a slice edge goes alone in two pieces | patches/halation_h6 |
+| `0x607c68cf` | h6_wk | func | V | a0 = address of pair d1, a1 = context, d0 = row, d1 .. d2 = pairs; [d2,d3,a2,a3],84 | Ours: under the lock: h6_arow for pass A ((60,a1) = 0), else h6_crow | patches/halation_h6 |
+| `0x607c68d9` | h6_arow | site | V | as h6_wk | Ours: pass A, one piece of a row. Per 64-px cell (32 samples): a cell at 248 is skipped; else four groups of eight Y bytes OR-ed, one compare against T + 4 = 228 (below: none adds); a group over it sample by sample, cell += (Y - 224) >> 2, saturating at 248. Cells cut by the piece go one sample at a time | patches/halation_h6 |
+| `0x607c6a54` | h6_crow | site | V | as h6_wk -> d0 = bound of the work done (pairs run * 41 + strips walked * 30 + 130) | Ours: pass C, one piece of a row, strip by strip (h6_seg 0x607c6ad4): a = lv(k - 1), b = lv(k), lv(c) = (64 r0[c] + (r1[c] - r0[c]) t) >> 6. a = 0 and b <= 1: skipped. Whole strip with a, b >= 1: h6_nz 0x607c6b29 straight into h6_p8. Else h6_nc 0x607c6b5f: the pairs with g >= 1 by h6_z, clipped to the piece | patches/halation_h6 |
+| `0x607c6bed` | h6_p8 | site | V | a0 = pixel pair, a3 = end - 28, a1 = v, a2 = step | Ours: eight pairs a turn (36 instructions a pair): g = v >> 6, g dY once for both Y bytes, w0 g for the two chroma bytes, one compare per chroma clamp. h6_p1 0x607c6f02 takes the pairs left over | patches/halation_h6 |
+| `0x607c6f6c` | h6_tint | data | V | s32[4][3]: dY, dC0, dC1 for red, amber, warm, cool | Ours: h2's tint rows (4-aligned); then h6_gm 0x607c6f9c u8[3] gmax 112 / 176 / 240 and h6_z 0x607c6f9f u8[33], h6_z[x] = ceil(32 / x) | patches/halation_h6 |
+| `0x607c8430` | g2_grain | func | V | a0 = buffer record, d0 = level 1..3; on gc_grain's frame, ret [d2,d3,a2,a3],144 | Ours (grain_g2 g3, code claim 0x607c8420..0x607c9420): r2's pass with the ring and the tables in ROM. r2's guards (+ 0x33 level), record fields, stage marks, lock / window / flush protocol, slice-edge split; K rows per lock (build constant, 3); no stack beyond r2's frame, no malloc / free. The name is g2's: other layers know the entry by it | patches/grain_g2 |
+| `0x607c8768` | g3_next | func | V | calls, shares the frame: r (48,sp), span (76), previous offset (80) | Ours: one row's offset, gc_next's arithmetic: one xorshift32 step, o = ((r >> 8) & 0xffff) * (16383 - Hw) >> 16; (84,sp) = g3_ring + o, (88,sp) = g3_ring + the offset before | patches/grain_g2 |
+| `0x607c87a2` | g3_row | func | V | calls, shares the frame: pointer (52,sp), pixels (56), ring pointers (84) and (88), T2 (8) | Ours: one row or one piece of it. 64 pixels at a time through g2_blk, the rest one by one. Writes only even bytes from the pointer on | patches/grain_g2 |
+| `0x607c87b7` | g2_blk | site | V | a0 image, a1 ring + o, a2 ring + previous o, d3 groups, a3 T2 | Ours: the unrolled loop, 518 instructions for 64 px: per pixel s = (k,a1) + (k,a2), Y = (2k,a0), T2[(Y << 6) + s] back to (2k,a0) | patches/grain_g2 |
 
 ## 9. JPEG and EXIF
 
@@ -1006,7 +1065,12 @@ fileif API in section 4. From an ordinary CPU0 task each call is a synchronous R
 | Address | Name | Kind | Tag | Signature / layout | Notes | Source |
 |---|---|---|---|---|---|---|
 | `0x6005a509` | linux_from_sd | func | V |  | Stock fopen/ftell/fseek/fread/fclose precedent | docs/SD_BUNDLES.md |
+| `0x601e045d` | cl_first | func | V | jmp from sd_go_load_call, on sd_gate's frame; ends ret [d2,d3,a2,a3],36 | Ours (crash_log): `call sd_load`, then with a card table and a marked slot: class-2 heap copy, marks cleared, C:\EP7MOD\CRASH.BIN written (fopen w / fwrite / fclose), free. sd_load's d0 / d1 / a0 / a1 given back | docs/CRASH_LOG.md |
+| `0x605b748f` | sd_go_load_call | site | V | call sd_load,[d2,d3,a2,a3],36 (cd 08 00 f0 24), then sd_gout: ret [d2,d3,a2,a3],36 | Ours (card loader v3, sec 3): the one load attempt of a power-on (state word 0x622cbcc2 spent just before; ap_boot re-arms a failed one up to 4 times). crash_log: `jmp cl_first` | docs/CRASH_LOG.md |
+| `0x605b7497` | sd_load | func | V | call from sd_go (crash_log: from cl_first); ret [d2,d3,a2,a3],36 | Ours (card loader v3, sec 3): P = malloc(1024), BUNDLES.BIN read into it (fopen, fseek END, ftell, fseek SET, fread, fclose), sd_check, names, then the handle into the state word 0x622cbcc2, last. Any miss frees the block. The loader writes P+0..+815 only; what the other layers keep above that (editor +680.., split tone +848, movie +960.., AP +984.., grain record +1000, mono +1004.., LOOKS +1016 / +1020) was whatever the block held | docs/GRAIN_HANG.md |
+| `0x605b74a1` | sd_load_block_site | site | V | 5 B `mov a0,a2; cmp 0,a2; bne +5` (92 ba 00 c9 05), then `jmp sd_out` and `mov sd_path,a0; mov sd_mode,a1; call fopen` | Ours (card loader v3): right after `mov 1024,d0; call malloc,[],4`. The block is private here: nothing is in it yet and the state word still says 0xFFFF. clean_boot: `jmp cb_zero` | docs/GRAIN_HANG.md |
 | `0x605b771f` | sd_lo_slot62 | data | V | sd_lo[62..63] (sd_lo 0x605b76e1, sd_span 0x605b7721) | Loader v3 range check is (s8 byte - s8 lo) <= span unsigned (0x605b75e8..) | docs/SPLIT_TONE.md |
+| `0x605b7780` | cb_zero | func | V | jmp from sd_load_block_site, a0 = block or 0; ends `jmp 0x605b74a9` (a block) or `jmp 0x605b74a6` (none) | Ours (clean_boot, sec 3, 33 B in place of halation h2's hl_pc, which h6 left unused): replays the three displaced instructions and clears the block's 1024 B with byte stores, so no mark or pointer of an earlier session (DRAM keeps its contents through a crash-restart) is ever read from P. No call, no stack; every register but a1 (loaded two instructions on) and the flags are as without it | docs/GRAIN_HANG.md |
 | `0x60613000` | fs_library | data | V | 0x60613000-0x60650000 | FS library (no calls into section 5) | docs/SD_BUNDLES.md |
 | `0x60618b53` | card_mount_dcf_init | func | V |  | Card mount sequence (dcfnum.c); last step card_param_csv_load 0x6061907a | docs/RE_SETTINGS.md §6 |
 | `0x6062fc44` | FILECLBK | func | V | task 16, prio 55, stack 0x1000 | Dispatch by class: 0x0000xxxx low-level (unmount 18, mount 97, sector read 83, table 0x6070a410), 0x0001xxxx fileif | docs/SD_BUNDLES.md |
@@ -1101,6 +1165,7 @@ Detail: [FIRMWARE_GUIDE.md](FIRMWARE_GUIDE.md) §1, [SD_UPDATE.md](SD_UPDATE.md)
 |---|---|---|---|---|---|---|
 | `0x600c4f35` | flash_write | func | V | mode | -> 0x600c5016 -> 0x60021621 -> erase 0x600218a9 -> 0x60021137 | docs/SD_REJECT.md |
 | `0x601e7094` | fw_report_ok | func | V | (3,2) | "UPDATE SUCCESS"; fail 0x601e71b6(3,3); none found 0x601e7186(3) | docs/SD_UPDATE.md |
+| `0x601e729e` | fw_power_off_reboot | func | V |  | "Power OFF" / "Power Reboot" after an update: prm_ctl save {mode} from RAM, then the power request. From fw_report_ok and the fail report 0x601e71b6, and 0x602ca7ac | docs/INTERNAL_STORAGE.md §2.7 |
 | `0x601e748a` | FIRMUP_LED | func | C | task 116 | Steady = working, ~2 Hz = success | docs/SD_REJECT.md |
 | `0x60c95bab` | FIRMUP_CLI | func | V | task 88, prio 45 | Walks pattern table 0x60f2cbf0 in DCOLYMP (cmp 0x60c95ed6, hex suffix 0x60c95fd8); reads into 0xa43a3ec0; posts to FIRMUP_SRV. No static activation found | docs/SD_UPDATE.md |
 | `0x60c96030` | FIRMUP_SRV | func | V | task 18 | Started only by USRSTART5 (0x601922f0); kind 1 via 0x60f2d878 -> 0x60c96100 | docs/SD_UPDATE.md |

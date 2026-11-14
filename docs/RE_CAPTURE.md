@@ -163,7 +163,7 @@ So **no stock path records a fatal fault anywhere that survives** [V]. ICTLOG it
 shut-down sessions can be read from the RAM mirror at run time (read-only), but it holds software errors only, never
 the NMI faults.
 
-### 4.1 Crash-log design (not built)
+### 4.1 Crash-log design (built: `patches/crash_log`, see "As built" below)
 
 **Goal:** on the next boot, the card holds the fault CPU, task, PC, cause and the last REC pipeline stages. No flash
 writes, and no new code that runs before the fault except a few RAM stores.
@@ -206,6 +206,31 @@ Stock never reads R, so a stale record does no harm; the magic plus checksum rul
 | D-cache loses the record at reset | Low | Write R uncached only; history rings are already uncached |
 | Card write blocks the UI | Low | Same path and size class as GRAIND.BIN; half-press only, never during capture |
 | Flash writes | None | None are made; `0x98e00000` and ICTLOG are left alone |
+
+**As built** (2026-11-14, `patches/crash_log`, [CRASH_LOG.md](CRASH_LOG.md); emulator-verified; released in v0.33; normal shooting camera-tested, the crash / restart path itself not yet seen on a camera). C1 and C2 as
+designed, the probe P-R not built. What differs from the design above, and why:
+- **One slot per CPU** (3 × 3,132 B at `0xa2ae8100`–`0xa2aea5b4`, not one record of 2.5 KB). Each CPU has its own NMI vector and
+  frame, so NMIs can arrive on several CPUs; a CPU now writes only its own slot.
+- **The first fault is kept.** The handler arms 1 s and spins, and the handler has a WATCHDOG_TIMEROVER branch, so the watchdog's
+  own NMI can follow the real fault on the same CPU [I]. A slot that holds a record only counts later entries (count, cause, PC).
+- **A busy mark before the copy** (`BRSH`, then `CRSH` last). A fault inside the stub re-enters the handler, which calls
+  `wdt_hw_set(1)` again; without the mark the stub would run again and the reset could be pushed back each time [I]. With it, the
+  second entry skips the stub.
+- **C2's gate is the mark alone; the decoder checks the sum.** A record whose sum fails, or that is still marked busy, is written
+  and labelled. With the sum as a gate those cases would give no file, the same as "RAM not kept".
+- **The frame's tid (+0) is stale at the site** (the handler stores it after its first print), so the stub reads the TCB word
+  itself, as the handler does next (`0x621a630c` / `0x626616c4` / `0x6267c09c`, +16) [V].
+- **No register had to be scratch.** d0 / d1 / a1 are saved on the stack (28 B, less than the 32 B the handler's next call writes
+  there) and given back; a0 comes from the replayed instruction; the flags from repeating `wdt_hw_set`'s final `cmp 0,d0`.
+- **More context than listed**, all from constant addresses or checked pointers: 512 B of the interrupted stack, the TCB pointer,
+  the bus-window modes, this CPU's address-decode error registers, the REC abort word and working-block pointer, the system-down
+  code, a build tag.
+- **C2 hooks `sd_go`'s `call sd_load`** (`0x605b748f`), not `sd_back`: that call runs once per power-on by construction (the state
+  word is spent just before it), so no latch is needed, and "card table loaded" stands for "the `EP7MOD` folder exists".
+- **New in §4:** software system-down requests (`0x600589d9` → `0x600589f3`: Heap Destroy, another CPU's ADDEC error, ARM / SCPU /
+  WiFi / BLE reboots) arm the 1 s watchdog and spin on CPU0 **without** entering `0x60059a9d` [V]. The line "every fatal exception
+  and the watchdog arrive at the NMI handler" holds for CPU exceptions and the watchdog, not for these. And the debug-shell fill
+  covers exactly `0x62ae80c0`–`0x62de0000` (`memset(…, 0x99, 0x2f7f40)`), then reloads only the mirror at `0x62de0000` [V].
 
 ## 5. The v0.31a crash (bright daylight, ≈2 s after the shot)
 

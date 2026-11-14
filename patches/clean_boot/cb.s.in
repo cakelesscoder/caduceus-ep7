@@ -1,0 +1,41 @@
+/* Clean restart (patches/clean_boot; ep7-firmware, our own code). docs/GRAIN_HANG.md "Clean restart".
+ *
+ * DRAM keeps its contents through a crash-restart, and the heap pools hand their blocks out in the same order, so the card
+ * table P of a new session is usually the old P's block, still holding every mark and pointer the layers keep in it (editor
+ * +680.., split tone +848, movie +960.., AP +984.., grain record +1000, mono +1004.., LOOKS +1016 / +1020). The loader writes
+ * only +0..+815 of it. cb_zero clears the whole block while it is still private: after its malloc, before the file is read
+ * into it and long before its handle is published, so no task ever sees an earlier session's bytes in P. P2 / P3 (Movie, AP)
+ * are byte copies of P and inherit a clean block.
+ *
+ * cb_zero <- `jmp` at sd_load's `mov a0,a2; cmp 0,a2; bne +5` ({site}, 5 B), the three instructions after its
+ *            `call ep7_malloc,[],4`. They are replayed here; the two ways out are the loader's own next instructions
+ *            (no block: its `jmp sd_out`; a block: its `mov sd_path,a0`).
+ *            a0 = malloc's block ({size} B asked, so {size} B are ours) or 0. Byte stores only: no word or halfword access, so
+ *            nothing here depends on the block's alignment. No call, no stack, no mul / div / setlb; MDR, LIR and LAR are
+ *            never touched. On the way out every register is what the loader had there before, except a1, which the loader
+ *            loads two instructions on (`mov sd_mode,a1`, build-checked): a0 is back at the block start, d0 is given back,
+ *            the flags are those of the replayed `cmp 0,a2`.
+ * Stores: the block's {size} bytes through a0.
+ */
+ .am33_2
+ .text
+ .global _start
+_start:
+cb_zero:
+ mov a0,a2                        /* displaced */
+ cmp 0,a2                         /* displaced */
+ beq cb_none                      /* displaced `bne`: malloc gave no block */
+ mov d0,a1                        /* d0 waits in a1 */
+ clr d0
+ add {size},a0                    /* the block's end; a0 walks back to its start */
+1:
+ add -1,a0
+ movbu d0,(a0)
+ cmp a2,a0
+ bne 1b
+ mov a1,d0
+ cmp 0,a2                         /* the displaced compare again: its flags, not the loop's */
+ jmp ep7_sd_cont                  /* the loader: mov sd_path,a0; mov sd_mode,a1; call ep7_fopen */
+cb_none:
+ jmp ep7_sd_none                  /* the loader: jmp sd_out */
+cb_end:

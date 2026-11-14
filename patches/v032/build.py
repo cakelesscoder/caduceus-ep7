@@ -11,6 +11,10 @@ Firmware-screen L/O readout; docs/PLUGINS.md §10). Offline.
 
 v0.32b (release) = the same chain plus patches/grain_g2 (faster grain, no heap; docs/GRAIN_PORT.md "g2"):
   ... --version 0.32b --extra grain_g2=patches/grain_g2/build.py
+
+v0.33 (release) = the chain plus grain g3 (patches/grain_g2, REV g3), halation h6, the crash record and the clean restart:
+  ... --version 0.33 --extra grain_g2=patches/grain_g2/build.py --extra halation_h6=patches/halation_h6/build.py
+      --extra crash_log=patches/crash_log/build.py --extra clean_boot=patches/clean_boot/build.py
 """
 import argparse, importlib.util, json
 from pathlib import Path

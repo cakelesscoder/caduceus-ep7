@@ -11,7 +11,7 @@ stills, and longer video recording.
 
 *Named after the caduceus, the staff of Hermes: messenger between gods and mortals and guide of travellers.*
 
-**Latest release: [v0.32b](https://github.com/cakelesscoder/caduceus-ep7/releases/tag/v0.32b)** ·
+**Latest release: [v0.33](https://github.com/cakelesscoder/caduceus-ep7/releases/tag/v0.33)** ·
 **[Install guide](docs/INSTALL.md)** · **[Changelog](CHANGELOG.md)** · **[Caduceus Control Panel](https://cakelesscoder.github.io/caduceus-ep7/)** (make and share looks in your browser) · The camera's Setup › Firmware screen shows the Caduceus version.
 
 > [!WARNING]
@@ -80,8 +80,8 @@ The builder downloads OM's official 1.1 firmware from OM's server, checks it, an
   - Windows: `Build Caduceus (Windows).bat`
   - macOS: `Build Caduceus (Mac).command` (the first time: right-click › **Open**)
   - Linux: `build-caduceus-linux.sh`
-- **Or from a terminal** in that folder: `python3 caduceus.py build --release v0.32b`
-  (Windows: `py caduceus.py build --release v0.32b`).
+- **Or from a terminal** in that folder: `python3 caduceus.py build --release v0.33`
+  (Windows: `py caduceus.py build --release v0.33`).
 
 It creates a folder with:
 
@@ -198,7 +198,7 @@ boots back to 4:3 each time, on purpose.
 - *Live view vs photo:* Star Light and some effects only show in the saved photo.
 - *Rec View on bloom/clarity looks?* Fixed in v0.31: the review shows the shot without the glow; the saved
   photo has the effect.
-- *Camera freezes or restarts after a shot?* Update to v0.32b first: its grain does far less work per photo and fixed a freeze-and-restart seen with Grain on v0.32a. Grain, halation, glow/clarity and split tone are computed by the camera's own processor, the way the film look is built rather than as a quick filter. Stacking several heavy effects on one profile (for example Grain plus Halo plus a strong glow) uses a lot of processing and memory, and very occasionally the camera can stall (keys stop responding) or restart; switching off and on clears it. If it happens often, drop one effect (Grain or Halo first) on that profile, and please open an issue with the look and settings.
+- *Camera freezes or restarts after a shot?* Update to v0.33 first: grain and halation do far less work per photo, which fixed a freeze-and-restart seen with Grain on v0.32a. If it still happens, the next half-press writes `EP7MOD/CRASH.BIN` to the card: please attach it to an issue. Grain, halation, glow/clarity and split tone are computed by the camera's own processor, the way the film look is built rather than as a quick filter. Stacking several heavy effects on one profile (for example Grain plus Halo plus a strong glow) uses a lot of processing and memory, and very occasionally the camera can stall (keys stop responding) or restart; switching off and on clears it. If it happens often, drop one effect (Grain or Halo first) on that profile, and please open an issue with the look and settings.
 - *Grain vs NR?* Sector 1 **Grain** adds film grain to the photo. Sector 9 **NR** sets the camera's noise reduction (Noise Filter); Off keeps the most sensor texture, mostly visible at higher ISO. Both belong to the COLOR profile: picking a look never changes them.
 
 ### Vignette correction: reports wanted

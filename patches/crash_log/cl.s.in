@@ -1,0 +1,354 @@
+/* Crash record (patches/crash_log; ep7-firmware, our own code). docs/CRASH_LOG.md, docs/RE_CAPTURE.md section 4.1.
+ * Format: tools/ep7_crash.py (the offsets below are filled in from it). Section 1: the NMI can come before later sections load.
+ *
+ * cl_nmi    <- `jmp` at 0x60059aab in the NMI handler 0x60059a9d, after its wdt_hw_set(1): the reset is about 1 s away whatever
+ *              happens here. Displaced: `mov 0x600774ec,a0`, replayed at the end; back to 0x60059ab1.
+ *              No call, no lock, no mul / div / setlb (MDR, LIR and LAR are never touched). The stack: 28 B below the handler's
+ *              sp (its own next call writes 32 B there); every register is given back, and the flags are those of wdt_hw_set's
+ *              last `cmp 0,d0` (d0 = 0 on its return).
+ *              One slot per CPU, written by that CPU only, so NMIs on several CPUs never share a word. A slot that holds a
+ *              record keeps it: a later NMI on that CPU only counts (+8) and leaves its cause and PC (+12..+20). A slot marked
+ *              busy means the stub was entered and did not finish on that CPU (a fault in here): it is not tried again, so a
+ *              stub fault cannot loop. Order: busy mark, body, sum, complete mark last.
+ *              Pointers followed: this CPU's TCB (the handler reads the same word next), the card table P and our grain
+ *              record (each checked against its heap pool and for alignment, as gc_pp / gc_blk find them), the frame's SP
+ *              (aligned, inside RAM). Everything else is a constant address. Word access only, except TCB +16 (halfword).
+ *              Record stores go through the uncached alias; the frames are read cached (this CPU wrote its own just now).
+ * cl_first  <- `jmp` at sd_go's `call sd_load,[d2,d3,a2,a3],36` in the card loader (the first half-press with a card, HLS_EVENT;
+ *              once per power-on: the loader's state word is spent). Runs that call, then, only with a card table loaded
+ *              (BUNDLES.BIN came from C:\EP7MOD): one uncached read per slot; with a record, a heap copy (slots without one
+ *              as zeros), each mark cleared in RAM, then C:\EP7MOD\CRASH.BIN written from the copy. sd_load's d0 / d1 / a0 /
+ *              a1 are given back; the frame and the `ret` are sd_gate's. */
+ .am33_2
+ .text
+ .global _start
+_start:
+ .set R, {r}
+ .set SLOT, {slot}
+ .set FRAMES, {frames}
+ .set RING, {ring}
+ .set RING_LEN, {ring_len}
+ .set MAGIC_OK, {magic_ok}
+ .set MAGIC_BUSY, {magic_busy}
+ .set RAM0, 0x60000000
+
+/* \words words from (a0) to (a1). Uses d0, d1; a0 and a1 move on. */
+ .macro COPYW words
+ mov \words,d1
+8:
+ mov (a0),d0
+ inc4 a0
+ mov d0,(a1)
+ inc4 a1
+ add -1,d1
+ bne 8b
+ .endm
+
+/* The same, or zeros when a0 = 0 (a0 then stays 0). */
+ .macro COPYZ words
+ mov \words,d1
+8:
+ clr d0
+ cmp 0,a0
+ beq 9f
+ mov (a0),d0
+ inc4 a0
+9:
+ mov d0,(a1)
+ inc4 a1
+ add -1,d1
+ bne 8b
+ .endm
+
+/* d1 = \reg folded onto the cached alias; falls through when it lies in the first \lim bytes of RAM, on either alias. */
+ .macro INRAM reg, lim, miss
+ mov \reg,d1
+ add -RAM0,d1
+ and 0xbfffffff,d1
+ cmp \lim,d1
+ bcc \miss
+ .endm
+
+/* ---------------------------------------------------------------- C1: the fault */
+cl_nmi:
+ movm [d2,d3,a2,a3],(sp)
+ add -12,sp
+ mov d0,(0,sp)
+ mov d1,(4,sp)
+ mov a1,(8,sp)
+ mov (0x8050),d3                  /* this CPU, as the handler reads it */
+ exthu d3
+ cmp 3,d3
+ bcc cl_out
+ mov R,a2                         /* a2 = this CPU's slot, a3 = its NMI frame */
+ mov FRAMES,a3
+ mov d3,d1
+1:
+ cmp 0,d1
+ beq 2f
+ add SLOT,a2
+ add 0x40,a3
+ add -1,d1
+ bra 1b
+2:
+ mov (a2),d0
+ cmp MAGIC_OK,d0
+ bne 3f
+ mov ({o_later},a2),d0            /* a record is waiting: count this entry, keep its cause and PC */
+ inc d0
+ mov d0,({o_later},a2)
+ mov (0x8900),d0
+ mov d0,({o_l_nmi},a2)
+ mov (0x8044),d0
+ mov d0,({o_l_sys},a2)
+ mov (12,a3),d0
+ mov d0,({o_l_pc},a2)
+ bra cl_out
+3:
+ cmp MAGIC_BUSY,d0
+ beq cl_out                       /* entered before and not finished on this CPU: not again */
+ mov MAGIC_BUSY,d0
+ mov d0,(a2)
+ clr d0
+ mov d0,({o_later},a2)
+ mov d0,({o_l_nmi},a2)
+ mov d0,({o_l_sys},a2)
+ mov d0,({o_l_pc},a2)
+ clr d2                           /* d2 = flags */
+ mov (0x8900),d0
+ mov d0,({o_nmi},a2)
+ mov (0x8044),d0
+ mov d0,({o_sys},a2)
+ mov {tcb0},a0                    /* the current task: TCB +16, as the handler reads it after its first print */
+ cmp 0,d3
+ beq 4f
+ mov {tcb1},a0
+ cmp 1,d3
+ beq 4f
+ mov {tcb2},a0
+4:
+ mov (a0),d0
+ mov d0,({o_tcb},a2)
+ mov d0,a0
+ mov -1,d0
+ INRAM a0, {tcb_lim}, 5f
+ btst 1,d1
+ bne 5f
+ movhu (16,a0),d0
+ exth d0
+ or {f_tid},d2
+5:
+ mov d0,({o_tid},a2)
+ mov ({state_lo}),d0              /* HLS_EVENT's task id and the card-table handle (two halfwords of one word) */
+ mov d0,({o_state},a2)
+ lsr 16,d0
+ clr d1
+ mov d1,({o_p},a2)
+ mov d1,({o_gptr},a2)
+ add -1,d0                        /* P, as gc_pp finds it: inside the class-1 pool with its 1024 B, 4-aligned */
+ cmp {lim},d0
+ bcc 7f
+ btst 3,d0
+ bne 7f
+ add {pool},d0
+ mov d0,({o_p},a2)
+ mov d0,a0
+ or {f_ph},d2
+ mov (a0),d0
+ cmp {bmagic},d0
+ bne 6f
+ or {f_pm},d2
+6:
+ mov ({gptr},a0),d0               /* our grain record, as gc_blk finds it: 128 B inside the class-0 pool, 4-aligned */
+ mov d0,({o_gptr},a2)
+ btst 3,d0
+ bne 7f
+ mov d0,d1
+ add -{g_lo},d1
+ cmp {g_span},d1
+ bcc 7f
+ or {f_gp},d2
+ mov d0,a0
+ mov (a0),d0
+ cmp {gdia},d0
+ bne 7f
+ or {f_gm},d2
+7:
+ mov ({xcode}),d0
+ mov d0,({o_xcode},a2)
+ mov ({sect}),d0
+ mov d0,({o_sect},a2)
+ mov {wmode},a0
+ mov (a0),d0
+ mov d0,({o_wmode},a2)
+ mov (4,a0),d0
+ mov d0,({o_wmode4},a2)
+ mov (8,a0),d0
+ mov d0,({o_wmode8},a2)
+ mov d3,d0                        /* this CPU's address-decode error registers, as its interrupt handler reads them */
+ asl 8,d0
+ add {addec},d0
+ mov d0,a0
+ mov (8,a0),d0
+ mov d0,({o_addec},a2)
+ mov (12,a0),d0
+ mov d0,({o_addec4},a2)
+ mov (16,a0),d0
+ mov d0,({o_addec8},a2)
+ mov (20,a0),d0
+ mov d0,({o_addec12},a2)
+ mov SLOT,d0
+ mov d0,({o_size},a2)
+ mov {build_tag},d0                /* which build wrote this */
+ mov d0,({o_build},a2)
+ mov a2,a1                        /* the copies, one after the other from +{o_frames} */
+ add {o_frames},a1
+ mov FRAMES,a0
+ COPYW {frames_words}
+ mov RING,a0
+ mov ({abort_d},a0),d0            /* two REC words beside the ring: the abort word, the working block */
+ mov d0,({o_abort},a2)
+ mov ({recblk_d},a0),d0
+ mov d0,({o_recblk},a2)
+ COPYW {ring_words}
+ mov 0,a0                         /* the faulting CPU's ring when it isn't CPU0 */
+ cmp 0,d3
+ beq 2f
+ mov RING+RING_LEN,a0
+ cmp 1,d3
+ beq 1f
+ add RING_LEN,a0
+1:
+ or {f_rn},d2
+2:
+ COPYZ {ring_words}
+ mov 0,a0
+ btst {f_gp},d2
+ beq 1f
+ mov ({o_gptr},a2),a0
+1:
+ COPYZ {grain_words}
+ mov 0,a0                         /* the interrupted stack, from the frame's SP */
+ mov (4,a3),d0
+ btst 3,d0
+ bne 1f
+ INRAM d0, {sp_lim}, 1f
+ mov d0,a0
+ or {f_stk},d2
+1:
+ COPYZ {stack_words}
+ mov d2,d0                        /* version | cpu << 8 | flags << 16 */
+ asl 16,d0
+ mov d3,d1
+ asl 8,d1
+ or d1,d0
+ or {version},d0
+ mov d0,({o_info},a2)
+ mov a2,a0                        /* the sum of the body, read back from the record */
+ add {body},a0
+ mov {body_words},d1
+ clr d2
+1:
+ mov (a0),d0
+ add d0,d2
+ inc4 a0
+ add -1,d1
+ bne 1b
+ mov d2,({o_sum},a2)
+ mov MAGIC_OK,d0
+ mov d0,(a2)                      /* last */
+cl_out:
+ mov (8,sp),a1
+ mov (4,sp),d1
+ mov (0,sp),d0
+ add 12,sp
+ movm (sp),[d2,d3,a2,a3]
+ cmp 0,d0
+ mov {hook_imm},a0                /* the displaced instruction */
+ jmp ep7_nmi_back
+
+/* ---------------------------------------------------------------- C2: the first card load of the next power-on */
+cl_first:
+ call ep7_sd_load,[d2,d3,a2,a3],36    /* the displaced call, on sd_gate's frame */
+ mov d0,(4,sp)
+ mov d1,(8,sp)
+ mov a0,(12,sp)
+ mov a1,(16,sp)
+ movhu ({state}),d0               /* a card table? (no EP7MOD folder: nothing below runs) */
+ add -1,d0
+ cmp {lim},d0
+ bcc cl_done
+ btst 3,d0
+ bne cl_done
+ mov d0,a0
+ add {pool},a0
+ mov (a0),d0
+ cmp {bmagic},d0
+ bne cl_done
+ mov R,a2                         /* a record? One uncached read per slot */
+ clr d2
+ mov {ncpu},d3
+1:
+ mov (a2),d0
+ add -MAGIC_BUSY,d0               /* busy or complete (= busy + 1) */
+ cmp 2,d0
+ bcc 2f
+ inc d2
+2:
+ add SLOT,a2
+ add -1,d3
+ bne 1b
+ cmp 0,d2
+ beq cl_done
+ mov {file_len},d0
+ call ep7_malloc,[],4
+ mov a0,a3                        /* a3 = the copy */
+ cmp 0,a3
+ beq cl_done                      /* no memory: the record waits for the next power-on */
+ mov R,a2
+ mov a3,a1
+ mov {ncpu},d3
+3:
+ mov 0,a0                         /* a slot with a record is copied, any other is zeros in the file and untouched in RAM */
+ mov (a2),d0
+ add -MAGIC_BUSY,d0
+ cmp 2,d0
+ bcc 4f
+ mov a2,a0
+4:
+ COPYZ {slot_words}
+ cmp 0,a0
+ beq 5f
+ clr d0
+ mov d0,(a2)                      /* the mark goes before the file call: a failure below cannot repeat on the next boot */
+5:
+ add SLOT,a2
+ add -1,d3
+ bne 3b
+ mov cl_path,a0
+ mov cl_mode,a1
+ call ep7_fopen,[],4
+ mov a0,a2                        /* a2 = handle */
+ cmp 0,a2
+ beq 6f
+ mov a3,a0
+ mov 1,d0
+ mov {file_len},d1
+ mov a2,a1
+ call ep7_fwrite,[d2,d3,a2,a3],24
+ mov a2,a0
+ call ep7_fclose,[d2,a2,a3],16
+6:
+ mov a3,a0
+ call ep7_free,[],4
+cl_done:
+ mov (4,sp),d0
+ mov (8,sp),d1
+ mov (12,sp),a0
+ mov (16,sp),a1
+ ret [d2,d3,a2,a3],36
+cl_path:
+ .asciz "C:\\EP7MOD\\CRASH.BIN"
+cl_mode:
+ .asciz "w"
+cl_end:

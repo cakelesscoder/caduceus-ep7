@@ -1,0 +1,1005 @@
+/* Tinted halation h6 (patches/halation_h6; ep7-firmware, our own code). docs/HALATION_RED.md "h6".
+ * The passes of patches/halation (h2, v0.31), with the same integers and the same photo, built to cost less:
+ *   A  Y of every 2nd pixel on every 4th row: cell += (Y - T) >> 2, saturating at 248 (64 x 64 px cells, u8). Eight samples
+ *      are OR-ed and compared once (an OR below T + 4 means none of them adds anything); a cell at 248 is skipped;
+ *   B  two [1 2 1] / 4 passes per axis, in place; u = min(255, 21 v >> 3), g = (u (511 - u) >> 8) gmax >> 8;
+ *      no halation when no cell or more than a third of the cells have g >= 16 (the h2 cap);
+ *   C  per row, per 32-pair strip k between cell centres k - 1 and k: a = lv(k - 1), b = lv(k), v = 64 a + 2 (b - a) j,
+ *      g = v >> 6, with lv(c) = (64 r0[c] + (r1[c] - r0[c]) t) >> 6. Strips whose g is 0 throughout are skipped, the others
+ *      run from their first to their last pair with g >= 1 (h6_z), so no pair with g = 0 is ever visited:
+ *      Y += w g dY >> 16 (each pixel, w = 255 - Y), C0 += w0 g dC0 >> 16, C1 += w0 g dC1 >> 16 (clamped 0..255).
+ * Entry: hl_run's first instructions are `jmp h6_run` (same frame, `ret [d2,d3,a2,a3],96`); a0 = buffer record, d0 = tint << 4 | stage.
+ * Memory: only the cell grid. With a valid LOOKS.BIN block L (P+1020 'EP7F', L = P+1016 4-aligned in the class-2 pool,
+ * L+2112 'EP7L', L+2116 = P) it is L+{loff}.., the unused tail of that block; else one malloc. No grid: no halation.
+ * Locks: gc_open / flush or mode restore / unlock as h2, but one lock covers several rows when they are cheap: a row joins the
+ * lock only while the work done under it plus that row's bound stays within {cap} instructions (build.py HL_CAP and the
+ * bounds EA_* / EC_*; pass C counts the pairs it really ran). A row that is over it alone goes alone, as in h2.
+ * Writes only the photo buffer, the grid, the stack. Byte accesses to the photo; words only on the stack, the record,
+ * P, L and the 4-aligned grid base. mul with `ret` returns (MDR is not needed). No div, no setlb, no fb forms.
+ * A frame's size counts its saved registers: `call f,[d2,d3,a2,a3],N` leaves locals (4,sp) .. (N - 20,sp).
+ * Context (hl_run's frame, 96: the sp of h6_run, a1 of the helpers): (4) row, (8) word, then the bound of one row, (12) W, (16) H, (20) bus,
+ * (24) pitch, (28) GW, (32) GH, (36) grid, (40) block to free, (44) cells, then the band's end, (48) gmax, then the band, (52) tint row,
+ * (56) rows per step, (60) pass (0 A, 1 C), (64) grid words, then band row r0, (68) r1 - r0, (72) first strip that can glow, (76) last. */
+ .set T_THR, {thr}
+ .set T_HIT, {thr}+4
+ .set SAT, 248
+ .set CAP_NET, {cap}-{e_lock}
+ .set EC_PAIR, {ec_pair}
+ .set EC_SEG, {ec_seg}
+ .set EC_ROW, {ec_row}
+
+ .text
+ .global _start
+_start:
+h6_run:
+ mov d0,(8,sp)
+ clr d0
+ mov d0,(40,sp)
+ movhu (8,a0),d0
+ cmp 0x0302,d0
+ bne h6_ret
+ movhu (20,a0),d0
+ movhu (22,a0),d1
+ or d1,d0
+ bne h6_ret
+ movhu (12,a0),d0
+ mov d0,(12,sp)
+ mov d0,d1
+ add -64,d1
+ cmp 8129,d1                      /* 64 <= W <= 8192, W % 4 == 0 */
+ bcc h6_ret
+ btst 3,d0
+ bne h6_ret
+ add 63,d0
+ lsr 6,d0
+ mov d0,(28,sp)
+ movhu (10,a0),d1
+ mov (12,sp),d0
+ cmp d0,d1
+ bcs h6_ret
+ add d1,d1
+ mov d1,(24,sp)
+ movhu (14,a0),d2
+ mov d2,(16,sp)
+ mov d2,d0
+ add -1,d0
+ cmp 8192,d0                      /* 1 <= H <= 8192 */
+ bcc h6_ret
+ mov d2,d0
+ add 63,d0
+ lsr 6,d0
+ mov d0,(32,sp)
+ mul d2,d1                        /* pitch * H within the record's size */
+ mov (72,a0),d0
+ cmp d1,d0
+ bcs h6_ret
+ mov (a0),d0
+ mov d0,(20,sp)
+ add d0,d1                        /* d1 = end */
+ cmp 0xa0000000,d0
+ bcs h6_ret
+ cmp 0xb0000000,d0
+ bcc 2f
+ cmp 0xb0000001,d1
+ bcc h6_ret
+ bra 3f
+2:
+ cmp 0xe0000001,d1
+ bcc h6_ret
+ cmp 0xc4000000,d0
+ bcc 3f
+ cmp 0xc0000001,d1
+ bcc h6_ret
+3:
+ mov (8,sp),d0                    /* gmax and tint row */
+ mov d0,d1
+ and 15,d0
+ mov h6_gm-1,a1
+ movbu (d0,a1),d0
+ mov d0,(48,sp)
+ lsr 4,d1
+ add -1,d1
+ mov d1,d0
+ add d1,d1
+ add d0,d1
+ asl2 d1
+ mov h6_tint,a1
+ add d1,a1
+ mov a1,(52,sp)
+ mov (28,sp),d0
+ mov (32,sp),d3
+ mul d0,d3
+ mov d3,(44,sp)                   /* cells */
+ add 3,d3
+ lsr 2,d3
+ mov d3,(64,sp)                   /* words */
+ call ep7_ap_p,[d2],8             /* d0 = 1, a0 = P (the unswapped block) */
+ cmp 1,d0
+ bne 5f
+ mov (1020,a0),d0
+ cmp {fmagic},d0
+ bne 5f
+ mov (1016,a0),a1
+ mov a1,d1
+ add {npool2},d1
+ cmp {liml},d1
+ bcc 5f
+ btst 3,d1
+ bne 5f
+ mov ({ltag},a1),d1
+ cmp {lmagic},d1
+ bne 5f
+ mov ({lback},a1),d1
+ cmp a0,d1
+ bne 5f
+ mov (64,sp),d0
+ cmp {tailw}+1,d0                 /* the grid fits the tail */
+ bcc 5f
+ add {loff},a1
+ bra 6f
+5:
+ mov (64,sp),d0
+ asl2 d0
+ call ep7_malloc,[],4
+ cmp 0,a0
+ beq h6_ret
+ mov a0,(40,sp)
+ mov a0,a1
+6:
+ mov a1,(36,sp)
+ mov (64,sp),d3                   /* clear the grid */
+ clr d0
+7:
+ mov d0,(a1)
+ inc4 a1
+ add -1,d3
+ bne 7b
+
+/* ------------------------------------------------------------------ pass A */
+h6_pa:
+ mov (12,sp),d0                   /* the bound of one row under the lock: every sample adds */
+ lsr 1,d0
+ mov {ea_sample},d1
+ mul d1,d0
+ add {ea_row},d0
+ mov d0,(8,sp)
+ mov 4,d0
+ mov d0,(56,sp)
+ clr d0
+ mov d0,(60,sp)
+ mov 2,d0
+ mov d0,(4,sp)
+4:
+ mov (4,sp),d0
+ mov (16,sp),d1
+ cmp d1,d0
+ bcc h6_pb
+ sub d0,d1
+ add 3,d1
+ lsr 2,d1                         /* sampled rows left */
+ mov sp,a1
+ call h6_rows,[d2,d3,a2,a3],64
+ cmp 0,d0
+ bne h6_exit
+ asl2 d1                          /* rows done under that lock */
+ mov (4,sp),d0
+ add d1,d0
+ mov d0,(4,sp)
+ bra 4b
+
+/* ------------------------------------------------------------------ pass B */
+h6_pb:
+ clr d2                           /* rows */
+1:
+ mov d2,d0
+ mov (28,sp),d1
+ mul d1,d0
+ mov (36,sp),a0
+ add d0,a0
+ mov (28,sp),d0
+ mov 1,d1
+ call h6_box,[d2,d3,a2,a3],24
+ inc d2
+ mov (32,sp),d0
+ cmp d0,d2
+ bcs 1b
+ clr d2                           /* columns */
+2:
+ mov (36,sp),a0
+ add d2,a0
+ mov (32,sp),d0
+ mov (28,sp),d1
+ call h6_box,[d2,d3,a2,a3],24
+ inc d2
+ mov (28,sp),d0
+ cmp d0,d2
+ bcs 2b
+ mov (36,sp),a0                   /* map, count */
+ mov (44,sp),d3
+ mov (48,sp),d2
+ mov 0,a1
+3:
+ movbu (a0),d0
+ mov d0,d1
+ asl 2,d1
+ add d0,d1
+ asl 2,d1
+ add d0,d1
+ lsr 3,d1
+ cmp 255,d1
+ bls 4f
+ mov 255,d1
+4:
+ mov 511,d0
+ sub d1,d0
+ mul d1,d0
+ lsr 8,d0
+ mul d2,d0
+ lsr 8,d0
+ cmp 16,d0
+ bcs 5f
+ inc a1
+5:
+ movbu d0,(a0)
+ inc a0
+ add -1,d3
+ bne 3b
+ mov a1,d0                        /* cells with g >= 16: none, or 3 count > cells: no halation */
+ cmp 0,d0
+ beq h6_exit
+ mov d0,d1
+ add d0,d0
+ add d1,d0
+ mov (44,sp),d1
+ cmp d1,d0
+ bhi h6_exit
+
+/* ------------------------------------------------------------------ pass C: bands of rows that share two cell rows */
+h6_pc:
+ mov 1,d0
+ mov d0,(56,sp)
+ mov d0,(60,sp)
+ clr d0
+ mov d0,(48,sp)
+h6_band:
+ mov (48,sp),d0                   /* band j: rows 32 + 64 j .. 95 + 64 j (from 0 for j = 0), cell rows j and min(j + 1, GH - 1) */
+ clr d1
+ cmp 0,d0
+ beq 1f
+ mov d0,d1
+ asl 6,d1
+ add 32,d1
+1:
+ mov (16,sp),d2
+ cmp d2,d1
+ bcc h6_exit
+ mov d1,(4,sp)
+ mov d0,d1
+ asl 6,d1
+ add 96,d1
+ cmp d2,d1
+ bls 2f
+ mov d2,d1
+2:
+ mov d1,(44,sp)
+ mov (28,sp),d1
+ mov d0,d3
+ mul d1,d3
+ mov (36,sp),a0
+ add d3,a0
+ mov a0,(64,sp)
+ mov (32,sp),d3
+ add -1,d3
+ cmp d3,d0
+ bcs 3f
+ clr d1
+3:
+ mov d1,(68,sp)
+ clr d2                           /* columns with glow in either cell row: strips c and c + 1 can glow */
+ mov 0,a1
+ mov 0,a2
+ mov -1,d0
+ mov d0,(72,sp)
+4:
+ movbu (a0),d0
+ movbu (d1,a0),d3
+ or d3,d0
+ beq 6f
+ mov (72,sp),d0
+ cmp -1,d0
+ bne 5f
+ mov d2,(72,sp)
+5:
+ mov d2,d0
+ inc d0
+ mov d0,(76,sp)
+ inc a1
+ mov a2,d0
+ cmp 0,d0
+ bne 7f
+ inc a1
+7:
+ mov 1,a2
+ bra 8f
+6:
+ mov 0,a2
+8:
+ inc a0
+ inc d2
+ mov (28,sp),d3
+ cmp d3,d2
+ bcs 4b
+ mov (72,sp),d0
+ cmp -1,d0
+ beq h6_next                      /* no glow in either cell row: these rows stay as they are */
+ mov a1,d0                        /* the bound of one row under the lock: every strip that can glow does, on all its pairs */
+ mov 35*EC_PAIR,d1
+ mul d1,d0
+ mov (76,sp),d1
+ mov (72,sp),d2
+ sub d2,d1
+ inc d1
+ mov EC_SEG,d2
+ mul d2,d1
+ add d1,d0
+ add EC_ROW,d0
+ mov d0,(8,sp)
+12:
+ mov (4,sp),d0
+ mov (44,sp),d1
+ cmp d1,d0
+ bcc h6_next
+ sub d0,d1                        /* rows left in the band */
+ mov sp,a1
+ call h6_rows,[d2,d3,a2,a3],64
+ cmp 0,d0
+ bne h6_exit
+ mov (4,sp),d0
+ add d1,d0
+ mov d0,(4,sp)
+ bra 12b
+h6_next:
+ mov (48,sp),d0
+ inc d0
+ mov d0,(48,sp)
+ jmp h6_band
+
+h6_exit:
+ mov (40,sp),a0
+ cmp 0,a0
+ beq h6_ret
+ call ep7_free,[],4
+h6_ret:
+ ret [d2,d3,a2,a3],96
+
+/* h6_box: `call h6_box,[d2,d3,a2,a3],24`, a0 = u8 line, d0 = n, d1 = stride: two [1 2 1] / 4 passes in place, zero beyond the ends */
+h6_box:
+ mov d0,(4,sp)
+ mov 2,a3
+1:
+ mov a0,a2
+ mov (4,sp),d3
+ clr d0                           /* the value before */
+ movbu (a2),d2
+2:
+ add d2,d0
+ add d2,d0
+ mov d2,a1
+ clr d2
+ cmp 1,d3
+ beq 3f
+ movbu (d1,a2),d2                 /* the value after */
+3:
+ add d2,d0
+ add 2,d0
+ lsr 2,d0
+ movbu d0,(a2)
+ mov a1,d0
+ add d1,a2
+ add -1,d3
+ bne 2b
+ add -1,a3
+ cmp 0,a3
+ bne 1b
+ ret [d2,d3,a2,a3],24
+
+/* the lock's other end: token (16,sp), mode to restore (20,sp) */
+ .macro CLOSE
+ mov (20,sp),d0
+ cmp -1,d0
+ bne 88f
+ call ep7_flush,[d2,d3],16
+ bra 89f
+88:
+ call ep7_modeset,[d2,d3,a2],20   /* flushes first */
+89:
+ mov (16,sp),d0
+ call ep7_unlock,[d2],8
+ .endm
+
+/* one lock for one piece of the row (8,sp): d0 = bus of pair d1, d1 .. d2 = the pairs. A refused window leaves by 90 */
+ .macro ONE
+ mov d1,(44,sp)
+ call gc_open,[d2,d3,a2,a3],32
+ mov d0,(16,sp)
+ mov d1,(20,sp)
+ cmp 0,a0
+ beq 90f
+ add -0x40000000,a0
+ mov (4,sp),a1
+ mov (8,sp),d0
+ mov (44,sp),d1
+ call h6_wk,[d2,d3,a2,a3],84
+ CLOSE
+ .endm
+
+/* h6_rows: `call h6_rows,[d2,d3,a2,a3],64`, a1 = context, d0 = first row, d1 = rows at most ((56) rows apart)
+ * -> d0 = 0, d1 = rows done (1 or more); or d0 = 1 if a window was refused. One lock; a further row joins it while it lies in the same
+ * 128 MB slice and the work done plus the bound of a row (8,a1) stays within the cap. A first row that crosses a slice edge goes alone, in two pieces.
+ * Locals: (4) context, (8) row, (12) rows left, (16) token, (20) restore, (24) row address, (28) bytes per step, (32) row bus,
+ * (36) work done / pairs before the edge, (40) rows done / bytes before the edge, (44) the lock's bus / first pair of a piece. */
+h6_rows:
+ mov a1,(4,sp)
+ mov d0,(8,sp)
+ mov d1,(12,sp)
+ mov (56,a1),d2
+ mov (24,a1),d3
+ mul d3,d2
+ mov d2,(28,sp)
+ mul d3,d0
+ mov (20,a1),d3
+ add d3,d0
+ mov d0,(32,sp)
+ mov d0,(44,sp)
+ mov (12,a1),d2
+ mov d0,d1
+ add d2,d1
+ add d2,d1
+ add -1,d1                        /* the row's last byte */
+ xor d0,d1
+ lsr 27,d1
+ bne 30f
+ call gc_open,[d2,d3,a2,a3],32
+ mov d0,(16,sp)
+ mov d1,(20,sp)
+ cmp 0,a0
+ beq 90f
+ add -0x40000000,a0
+ mov a0,(24,sp)
+ clr d0
+ mov d0,(36,sp)
+ mov d0,(40,sp)
+1:
+ mov (4,sp),a1
+ mov (24,sp),a0
+ mov (8,sp),d0
+ clr d1
+ mov (12,a1),d2
+ lsr 1,d2
+ call h6_wk,[d2,d3,a2,a3],84      /* pass C: d0 = the bound of what it ran */
+ mov (4,sp),a1
+ mov (60,a1),d1
+ cmp 0,d1
+ bne 2f
+ mov (8,a1),d0                    /* pass A: a row counts as its bound */
+2:
+ mov (36,sp),d1
+ add d0,d1
+ mov d1,(36,sp)
+ mov (40,sp),d0
+ inc d0
+ mov d0,(40,sp)
+ mov (12,sp),d0
+ add -1,d0
+ mov d0,(12,sp)
+ beq 9f
+ mov (8,a1),d0
+ add d1,d0
+ cmp CAP_NET+1,d0
+ bcc 9f                           /* the next row could take the lock past the cap */
+ mov (28,sp),d1
+ mov (24,sp),d0
+ add d1,d0
+ mov d0,(24,sp)
+ mov (32,sp),d0
+ add d1,d0
+ mov d0,(32,sp)
+ mov (8,sp),d2
+ mov (56,a1),d3
+ add d3,d2
+ mov d2,(8,sp)
+ mov (12,a1),d2
+ add d2,d0
+ add d2,d0
+ add -1,d0                        /* its last byte: in the lock's slice? */
+ mov (44,sp),d2
+ xor d2,d0
+ lsr 27,d0
+ bne 9f
+ jmp 1b
+9:
+ CLOSE
+ clr d0
+ mov (40,sp),d1
+ ret [d2,d3,a2,a3],64
+30:                               /* the row crosses a slice edge: d0 = its bus */
+ mov d0,d3
+ and 0x07ffffff,d3
+ mov 0x08000000,d1
+ sub d3,d1                        /* bytes to the edge */
+ mov d1,(40,sp)
+ lsr 2,d1
+ mov d1,(36,sp)                   /* whole pairs before it */
+ cmp 0,d1
+ beq 31f
+ mov d1,d2
+ clr d1
+ ONE
+31:
+ mov (36,sp),d1
+ mov (40,sp),d0
+ btst 3,d0
+ beq 32f
+ inc d1                           /* a pair across the edge (rows not 4-byte aligned; no such buffer is known): left as it is */
+32:
+ mov (4,sp),a1
+ mov (12,a1),d2
+ lsr 1,d2
+ cmp d2,d1
+ bcc 33f
+ mov d1,d0
+ asl2 d0
+ mov (32,sp),d3
+ add d3,d0
+ ONE
+33:
+ clr d0
+ mov 1,d1
+ ret [d2,d3,a2,a3],64
+90:
+ mov (16,sp),d0
+ call ep7_unlock,[d2],8
+ mov 1,d0
+ clr d1
+ ret [d2,d3,a2,a3],64
+
+/* h6_wk: `call h6_wk,[d2,d3,a2,a3],84`, a0 = address of pair d1, a1 = context, d0 = row, d1 .. d2 = the pairs. Under the lock.
+ * Pass C returns d0 = the bound of the work it did (pairs run, strips walked) */
+h6_wk:
+ mov (60,a1),d3
+ cmp 0,d3
+ beq h6_arow
+ jmp h6_crow
+
+/* ------------------------------------------------------------------ pass A, one piece of a row */
+ .macro SAMPLE o
+ movbu (\o,a0),d0
+ cmp T_HIT,d0
+ bcs 83f
+ add -T_THR,d0
+ lsr 2,d0
+ add d0,d2
+83:
+ .endm
+
+/* the samples a0 .. a1 into the cell at a2, one at a time; a0 = a1 after it */
+ .macro TAILCELL
+ movbu (a2),d2
+ cmp SAT,d2
+ bcc 87f
+84:
+ cmp a1,a0
+ bcc 85f
+ movbu (a0),d0
+ add 4,a0
+ cmp T_HIT,d0
+ bcs 84b
+ add -T_THR,d0
+ lsr 2,d0
+ add d0,d2
+ bra 84b
+85:
+ cmp SAT,d2
+ bls 86f
+ mov SAT,d2
+86:
+ movbu d2,(a2)
+87:
+ mov a1,a0
+ .endm
+
+h6_arow:
+ mov d2,d3
+ sub d1,d3
+ asl2 d3
+ mov a0,a3
+ add d3,a3                        /* a3 = the end of the piece */
+ lsr 6,d0
+ mov (28,a1),d3
+ mul d3,d0
+ mov (36,a1),a2
+ add d0,a2
+ mov d1,d0
+ lsr 5,d0
+ add d0,a2                        /* a2 = the cell of the first pair */
+ and 31,d1
+ beq 20f
+ mov 32,d0                        /* the piece starts inside a cell (the second piece of a split row) */
+ sub d1,d0
+ asl2 d0
+ mov a0,a1
+ add d0,a1
+ cmp a3,a1
+ bls 10f
+ mov a3,a1
+10:
+ TAILCELL
+ inc a2
+20:
+ mov a0,a1
+ add 128,a1
+ cmp a3,a1
+ bhi 40f
+21:                               /* a whole cell: 32 samples */
+ movbu (a2),d2
+ cmp SAT,d2
+ bcc 29f                          /* full already: nothing can change it */
+ mov 4,d3
+22:
+ movbu (a0),d0
+ movbu (4,a0),d1
+ or d1,d0
+ movbu (8,a0),d1
+ or d1,d0
+ movbu (12,a0),d1
+ or d1,d0
+ movbu (16,a0),d1
+ or d1,d0
+ movbu (20,a0),d1
+ or d1,d0
+ movbu (24,a0),d1
+ or d1,d0
+ movbu (28,a0),d1
+ or d1,d0
+ cmp T_HIT,d0
+ bcc 25f                          /* one of the eight may add something */
+23:
+ add 32,a0
+ add -1,d3
+ bne 22b
+ bra 29f
+25:
+ SAMPLE 0
+ SAMPLE 4
+ SAMPLE 8
+ SAMPLE 12
+ SAMPLE 16
+ SAMPLE 20
+ SAMPLE 24
+ SAMPLE 28
+ cmp SAT,d2
+ bcs 26f
+ mov SAT,d2
+ movbu d2,(a2)
+ bra 29f
+26:
+ movbu d2,(a2)
+ bra 23b
+29:
+ mov a1,a0
+ inc a2
+ add 128,a1
+ cmp a3,a1
+ bls 21b
+40:
+ cmp a3,a0
+ bcc 49f
+ mov a3,a1                        /* what is left of the piece: less than a cell */
+ TAILCELL
+49:
+ ret [d2,d3,a2,a3],84
+
+/* ------------------------------------------------------------------ pass C, one piece of a row
+ * Locals: (4) context, (8) t, (12) r0, (16) r1 - r0, (20) strip k, (24) first pair q, (28) end q, (32) a, (36) address of q = 0,
+ * (40) dY, (44) dC0, (48) dC1, (52) GW, (56) b, (60) last strip + 1, (64) pairs run (+ 3 per strip run, for its set-up).
+ * q = pair + 16, so strip k is q = 32 k .. 32 k + 31. */
+/* d0 = cell column -> d0 = (64 r0 + (r1 - r0) t) >> 6. Uses d1, d2, a0 */
+ .macro LV
+ mov (12,sp),a0
+ add d0,a0
+ movbu (a0),d1
+ mov (16,sp),d0
+ movbu (d0,a0),d0
+ sub d1,d0
+ mov (8,sp),d2
+ mul d2,d0
+ asl 6,d1
+ add d1,d0
+ asr 6,d0
+ .endm
+
+/* one pixel pair at (o,a0): a1 = v (g = v >> 6 >= 1), a2 = its step. Uses d0 - d3 */
+ .macro PAIR o
+ mov a1,d3
+ asr 6,d3
+ add a2,a1
+ mov (40,sp),d1
+ mul d3,d1                        /* g dY */
+ movbu (\o,a0),d0
+ mov 255,d2
+ sub d0,d2
+ mul d2,d3                        /* w0 g */
+ mul d1,d2
+ asr 16,d2
+ add d2,d0
+ movbu d0,(\o,a0)
+ movbu (\o+2,a0),d0
+ mov 255,d2
+ sub d0,d2
+ mul d1,d2
+ asr 16,d2
+ add d2,d0
+ movbu d0,(\o+2,a0)
+ mov (44,sp),d0
+ mul d3,d0
+ asr 16,d0
+ movbu (\o+1,a0),d1
+ add d0,d1
+ cmp 256,d1
+ bcs 81f
+ asr 31,d1                        /* below 0 -> 0, above 255 -> 255 */
+ not d1
+81:
+ movbu d1,(\o+1,a0)
+ mov (48,sp),d0
+ mul d3,d0
+ asr 16,d0
+ movbu (\o+3,a0),d1
+ add d0,d1
+ cmp 256,d1
+ bcs 82f
+ asr 31,d1
+ not d1
+82:
+ movbu d1,(\o+3,a0)
+ .endm
+
+h6_crow:
+ mov a1,(4,sp)
+ clr d3
+ mov d3,(64,sp)
+ add -32,d0
+ blt 1f
+ mov d0,d3
+ and 63,d3
+1:
+ mov d3,(8,sp)
+ mov (64,a1),d0
+ mov d0,(12,sp)
+ mov (68,a1),d0
+ mov d0,(16,sp)
+ mov (28,a1),d0
+ mov d0,(52,sp)
+ mov (52,a1),a2
+ mov (a2),d0
+ mov d0,(40,sp)
+ mov (4,a2),d0
+ mov d0,(44,sp)
+ mov (8,a2),d0
+ mov d0,(48,sp)
+ add 16,d1
+ add 16,d2
+ mov d1,d0
+ asl2 d0
+ sub d0,a0
+ mov a0,(36,sp)
+ mov (72,a1),d0
+ asl 5,d0
+ cmp d0,d1
+ bcc 2f
+ mov d0,d1                        /* from the first strip that can glow */
+2:
+ mov (76,a1),d0
+ inc d0
+ asl 5,d0
+ cmp d0,d2
+ bls 3f
+ mov d0,d2                        /* to the last */
+3:
+ cmp d2,d1
+ bcc h6_cret
+ mov d1,(24,sp)
+ mov d2,(28,sp)
+ add -1,d2
+ lsr 5,d2
+ inc d2
+ mov d2,(60,sp)
+ lsr 5,d1
+ mov d1,(20,sp)
+ mov d1,d0
+ add -1,d0
+ bge 4f
+ clr d0
+4:
+ LV
+ mov d0,(32,sp)
+h6_seg:
+ mov (20,sp),d0
+ mov (52,sp),d1
+ cmp d1,d0
+ bcs 1f
+ mov (32,sp),d0                   /* strip GW: b = a */
+ bra 2f
+1:
+ LV
+2:
+ mov (32,sp),d3
+ mov d0,(32,sp)
+ cmp 0,d3
+ bne h6_nz
+ cmp 2,d0
+ bcc h6_nz                        /* a = 0 and b <= 1: g = 0 on all of it */
+h6_sn:
+ mov (20,sp),d0
+ inc d0
+ mov d0,(20,sp)
+ mov (60,sp),d1
+ cmp d1,d0
+ bcs h6_seg
+h6_cret:
+ mov (64,sp),d0                   /* the bound of this row's work */
+ mov EC_PAIR,d1
+ mul d1,d0
+ mov (4,sp),a1
+ mov (76,a1),d1
+ mov (72,a1),d2
+ sub d2,d1
+ inc d1
+ mov EC_SEG,d2
+ mul d2,d1
+ add d1,d0
+ add EC_ROW,d0
+ ret [d2,d3,a2,a3],84
+
+h6_nz:                            /* d3 = a, d0 = b */
+ cmp 0,d3
+ beq h6_nc
+ cmp 0,d0
+ beq h6_nc
+ mov (20,sp),d1
+ asl 5,d1
+ mov (24,sp),d2
+ cmp d1,d2
+ bhi h6_nc                        /* the piece starts inside this strip */
+ add 32,d1
+ mov (28,sp),d2
+ cmp d1,d2
+ bcs h6_nc                        /* or ends inside it */
+ sub d3,d0                        /* a whole strip, g >= 1 on all 32 pairs */
+ add d0,d0
+ mov d0,a2                        /* the step of v */
+ asl 6,d3
+ mov d3,a1                        /* v = 64 a */
+ mov (64,sp),d0
+ add 35,d0
+ mov d0,(64,sp)
+ asl2 d1
+ mov (36,sp),a3
+ add d1,a3
+ mov a3,a0
+ add -128,a0
+ add -28,a3
+ jmp h6_p8
+h6_nc:                            /* a clipped strip, or one with a = 0 or b = 0: its pairs inside the piece, j = d2 .. d1 */
+ mov d0,(56,sp)
+ mov (20,sp),d1
+ asl 5,d1
+ mov (24,sp),d2
+ cmp d1,d2
+ bcc 3f
+ mov d1,d2
+3:
+ sub d1,d2
+ add 32,d1
+ mov (28,sp),d0
+ cmp d0,d1
+ bls 4f
+ mov d0,d1
+4:
+ mov (20,sp),d0
+ asl 5,d0
+ sub d0,d1
+ mov (56,sp),d0
+ cmp 0,d3
+ bne 6f
+ cmp 32,d0                        /* a = 0: g >= 1 from pair h6_z[b] */
+ bls 5f
+ mov 32,d0
+5:
+ mov h6_z,a0
+ movbu (d0,a0),d0
+ cmp d0,d2
+ bcc 8f
+ mov d0,d2
+ bra 8f
+6:
+ cmp 0,d0
+ bne 8f
+ mov d3,d0                        /* b = 0: g >= 1 up to pair 32 - h6_z[a] */
+ cmp 32,d0
+ bls 7f
+ mov 32,d0
+7:
+ mov h6_z,a0
+ movbu (d0,a0),d0
+ not d0
+ add 34,d0
+ cmp d0,d1
+ bls 8f
+ mov d0,d1
+8:
+ cmp d1,d2
+ bcs 9f
+ jmp h6_sn
+9:
+ mov (64,sp),d0
+ add d1,d0
+ sub d2,d0
+ add 3,d0
+ mov d0,(64,sp)
+ mov (56,sp),d0
+ sub d3,d0
+ add d0,d0                        /* the step of v */
+ mov d0,a2
+ mul d2,d0
+ asl 6,d3
+ add d3,d0
+ mov d0,a1                        /* v at the first pair */
+ mov (20,sp),d0
+ asl 5,d0
+ add d0,d1
+ add d0,d2
+ asl2 d1
+ asl2 d2
+ mov (36,sp),a0
+ mov a0,a3
+ add d1,a3
+ add d2,a0
+ mov a3,d0
+ sub a0,d0
+ cmp 32,d0
+ bcs h6_p1x
+ add -28,a3
+h6_p8:                            /* eight pairs a turn while eight are left */
+ PAIR 0
+ PAIR 4
+ PAIR 8
+ PAIR 12
+ PAIR 16
+ PAIR 20
+ PAIR 24
+ PAIR 28
+ add 32,a0
+ cmp a3,a0
+ bcs h6_p8
+ add 28,a3
+h6_p1x:
+ cmp a3,a0
+ bcc h6_p0
+h6_p1:
+ PAIR 0
+ add 4,a0
+ cmp a3,a0
+ bcs h6_p1
+h6_p0:
+ jmp h6_sn
+
+/* ------------------------------------------------------------------ tables */
+ .balign 4
+h6_tint:
+{tint}
+h6_gm:
+ .byte {gmax}
+h6_z:                             /* h6_z[x] = ceil(32 / x), x = 1..32 */
+ .byte {ztab}
+h6_end:

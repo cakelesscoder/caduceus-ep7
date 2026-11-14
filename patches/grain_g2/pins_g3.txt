@@ -1,0 +1,15 @@
+# Naive reference-scan hits into the grain_g2 claim 0x607c8420..0x607c9420 that are not address uses (build.py check_claims).
+# Written and re-checked by `build.py --pins SPEC [--write-pins]`; docs/GRAIN_PORT.md "g2" has the method and the counts.
+# address, its four bytes, scan kind (abs32: the bytes read as an address in the claim on one of the four aliases; rel: a
+# cc / cd / dc / dd byte whose displacement lands in the claim), then what the bytes are:
+#   i ADDR  inside the one instruction at ADDR, as opcode, register-list, frame or displacement bytes, not as its address operand
+#   x ADDR  they run over the end of the instruction at ADDR into the next one
+0x6010b856 fc857ca0 abs32 i 0x6010b856
+0x6010be46 fc857ca0 abs32 i 0x6010be46
+0x60312185 fc8be440 abs32 i 0x60312185
+0x607a89c0 dccd0102 rel i 0x607a89bf
+0x60b814e3 60907ca0 abs32 x 0x60b814e2
+0x60b8152b 60887ca0 abs32 x 0x60b8152a
+0x60e15a84 f893e480 abs32 x 0x60e15a84
+0x613cbc7a cc84e440 abs32 i 0x613cbc79
+0x613cbc90 dc8fe440 abs32 i 0x613cbc8f

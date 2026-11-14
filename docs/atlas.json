@@ -70,6 +70,46 @@
    "source": "docs/SD_V2_CRASH.md, docs/VIDEO_ROTATION.md"
   },
   {
+   "addr": "0x6002144e",
+   "name": "flash_read_pages",
+   "kind": "func",
+   "subsystem": "boot",
+   "confidence": "V",
+   "sig": "d0 size, a0 flash, a1 RAM",
+   "notes": "Page reads (0x800) from logical flash into RAM. Read only. Also the boot loads at 0x600201fe",
+   "source": "docs/INTERNAL_STORAGE.md §2.4"
+  },
+  {
+   "addr": "0x60021621",
+   "name": "flash_erase_program",
+   "kind": "func",
+   "subsystem": "boot",
+   "confidence": "V",
+   "sig": "d0 size, a0 flash, a1 source",
+   "notes": "DANGER: erase 0x600218a9, then program 0x6002173b",
+   "source": "docs/INTERNAL_STORAGE.md §2.4"
+  },
+  {
+   "addr": "0x6002166f",
+   "name": "fmem_eerom_write_alt",
+   "kind": "func",
+   "subsystem": "boot",
+   "confidence": "V",
+   "sig": "d0 size, a1 source",
+   "notes": "DANGER: flash write. The same for the EEROM slots (slot byte 0x61b213a0)",
+   "source": "docs/INTERNAL_STORAGE.md §2.4"
+  },
+  {
+   "addr": "0x600216fd",
+   "name": "fmem_mode_write_alt",
+   "kind": "func",
+   "subsystem": "boot",
+   "confidence": "V",
+   "sig": "d0 size, a1 source",
+   "notes": "DANGER: flash write. Flips fmem_mode_slot, erases and programs that slot (flash_erase_program), reads it back into the shadow (flash_read_pages)",
+   "source": "docs/INTERNAL_STORAGE.md §2.4"
+  },
+  {
    "addr": "0x600219ab",
    "name": "wdt_hw_set",
    "kind": "func",
@@ -160,6 +200,16 @@
    "source": "docs/GRAIN_HANG.md"
   },
   {
+   "addr": "0x60022b23",
+   "name": "free_phys_impl",
+   "kind": "func",
+   "subsystem": "rtos",
+   "confidence": "V",
+   "sig": "d0 = class, a0 = block; [d2,d3,a2,a3],40",
+   "notes": "free 0x600227b4 picks the class from the block's address range and comes here; takes cpu_lock, per-CPU tables by (0x8050)",
+   "source": "patches/halation_h6"
+  },
+  {
    "addr": "0x60022cc5",
    "name": "free_phys_impl",
    "kind": "func",
@@ -170,6 +220,26 @@
    "source": "docs/GRAIN_HANG.md"
   },
   {
+   "addr": "0x60022d9f",
+   "name": "pool_bit_set",
+   "kind": "func",
+   "subsystem": "rtos",
+   "confidence": "V",
+   "sig": "a0 = bitmap, d0 = block index; retf [d2],4",
+   "notes": "alloc_phys_impl marks a block taken: word index >> 5, bit index & 31 (bitmaps 0xa27291f4 / 0xa272920c / 0xa2729210 for classes 0 / 1 / 2, table 0x60026e24)",
+   "source": "patches/halation_h6"
+  },
+  {
+   "addr": "0x60022db5",
+   "name": "pool_bit_clear",
+   "kind": "func",
+   "subsystem": "rtos",
+   "confidence": "V",
+   "sig": "a0 = bitmap, d0 = block index; retf [d2],4",
+   "notes": "The same for a freed block",
+   "source": "patches/halation_h6"
+  },
+  {
    "addr": "0x60022dcd",
    "name": "heap_fail_dump",
    "kind": "func",
@@ -178,6 +248,16 @@
    "sig": "",
    "notes": "Called on alloc/free failure: task id, log line, dump 0x60022e34. Not fatal: the caller still gets 0",
    "source": "docs/GRAIN_HANG.md"
+  },
+  {
+   "addr": "0x60022f89",
+   "name": "memcmp",
+   "kind": "func",
+   "subsystem": "rtos",
+   "confidence": "V",
+   "sig": "d0 length, a0, a1 -> d0 (0 = equal); retf [d2,d3],8",
+   "notes": "Byte compare; prm_bank_save calls it with size - 12 from image + 8",
+   "source": "docs/INTERNAL_STORAGE.md §2.5"
   },
   {
    "addr": "0x60023863",
@@ -690,6 +770,26 @@
    "source": "docs/HALATION_RED.md §21"
   },
   {
+   "addr": "0x600589d9",
+   "name": "sys_down_request",
+   "kind": "func",
+   "subsystem": "rtos",
+   "confidence": "V",
+   "sig": "d0 = code; retf [],0",
+   "notes": "Stores the code at 0x8ff000b0 and writes 1 to 0x99200400 (an interrupt for CPU0). The NMI handler calls it on CPU1 (code 1) and CPU2 (code 4), so CPU0 stops too",
+   "source": "docs/CRASH_LOG.md"
+  },
+  {
+   "addr": "0x600589f3",
+   "name": "sys_down_irq",
+   "kind": "func",
+   "subsystem": "rtos",
+   "confidence": "V",
+   "sig": "",
+   "notes": "CPU0 side of sys_down_request: by the code at 0x8ff000b0, 1 / 4 spin at once (0x60058b8b); 3 \"Heap Destroy\", 2 / 5 \"CPUn ADDEC\", 0x10 \"ARM\" (+ its registers from 0x8ff00b80..), 0x30 SCPU, 0x20 COMMON, 0x50 WiFi, 0x60 BLE print, then wdt_hw_set(1) and spin. This path never enters nmi_handler",
+   "source": "docs/CRASH_LOG.md"
+  },
+  {
    "addr": "0x60058c66",
    "name": "busmon_cfg",
    "kind": "func",
@@ -790,6 +890,36 @@
    "source": "docs/HALATION_RED.md §18, §22"
   },
   {
+   "addr": "0x6005b634",
+   "name": "fmem_param_class",
+   "kind": "func",
+   "subsystem": "boot",
+   "confidence": "V",
+   "sig": "a0 address -> d0",
+   "notes": "1 = EEROM (shadow 0xa2ab8000, flash 0x402c0000 / 0x402e0000), 2 = MODE (shadow 0xa2a78000, flash 0x40240000 / 0x40280000), 0 = other. flash_write picks the slot writer by it",
+   "source": "docs/INTERNAL_STORAGE.md §2.4"
+  },
+  {
+   "addr": "0x6005b6cc",
+   "name": "fmem_param_mount",
+   "kind": "func",
+   "subsystem": "boot",
+   "confidence": "V",
+   "sig": "called from 0x600521b9",
+   "notes": "Boot: reads the first 512 B of both MODE slots, compares the generations (wrap-aware); the slot one ahead is read in full and its 16-bit sum checked (fmem_sum_check); a wrong sum loads the other slot; neither ahead: both erased. Sets fmem_mode_slot. Then the same for EEROM",
+   "source": "docs/INTERNAL_STORAGE.md §2.4"
+  },
+  {
+   "addr": "0x6005bc0f",
+   "name": "fmem_sum_check",
+   "kind": "func",
+   "subsystem": "boot",
+   "confidence": "V",
+   "sig": "d0 size, a0 image -> d0 0 = sum is 0",
+   "notes": "Cache flush, then the 16-bit sum of size / 2 halfwords",
+   "source": "docs/INTERNAL_STORAGE.md §2.4"
+  },
+  {
    "addr": "0x6005bc79",
    "name": "prm_flash_op",
    "kind": "func",
@@ -828,6 +958,16 @@
    "sig": "a0 bank -> d0 copy (0/1, 0xfe none valid)",
    "notes": "Checks each shadow copy (prm_bank_check); with two valid copies picks the newer generation (+4, wraps)",
    "source": "docs/RE_SETTINGS.md §4"
+  },
+  {
+   "addr": "0x6005c4b2",
+   "name": "prm_bank_next_copy",
+   "kind": "func",
+   "subsystem": "settings",
+   "confidence": "V",
+   "sig": "a0 bank -> d0 copy",
+   "notes": "Copy index for the next save. With the one shadow each bank has it stays 0; the two flash slots are below this layer (fmem_mode_write_alt)",
+   "source": "docs/INTERNAL_STORAGE.md §2.4"
   },
   {
    "addr": "0x6005c524",
@@ -930,6 +1070,16 @@
    "source": "docs/RE_SETTINGS.md §4"
   },
   {
+   "addr": "0x6005c854",
+   "name": "prm_copy_words",
+   "kind": "func",
+   "subsystem": "settings",
+   "confidence": "V",
+   "sig": "d0 words, a0 src, a1 dst",
+   "notes": "Word copy of prm_bank_load (whole image, size / 4) and the CPRAM refill",
+   "source": "docs/INTERNAL_STORAGE.md §2.6"
+  },
+  {
    "addr": "0x6005c8e2",
    "name": "prm_csv_load",
    "kind": "func",
@@ -1030,6 +1180,16 @@
    "source": "docs/RE_SETTINGS.md §5"
   },
   {
+   "addr": "0x6005e57b",
+   "name": "prm_dbg_mode_used",
+   "kind": "func",
+   "subsystem": "settings",
+   "confidence": "V",
+   "sig": "-> d0 used bytes",
+   "notes": "Debug shell `size` only. DANGER: it rebuilds the MODE defaults in RAM to measure them. 0x6005e551 EEROM, 0x6005e5ab BKRAM",
+   "source": "docs/INTERNAL_STORAGE.md §2.8"
+  },
+  {
    "addr": "0x6005e852",
    "name": "prm_device_of",
    "kind": "func",
@@ -1070,6 +1230,16 @@
    "source": "docs/RE_AE.md §1"
   },
   {
+   "addr": "0x6005eadf",
+   "name": "prop_store_both",
+   "kind": "func",
+   "subsystem": "settings",
+   "confidence": "V",
+   "sig": "d0 key, d1 index, a0 storage (cached), a1 value",
+   "notes": "The store behind prop_set on CPU0: writes the value at the cached address, then at its uncached alias (width from the key). Other CPUs reach it through 0x6005e6e9",
+   "source": "docs/INTERNAL_STORAGE.md §2.5"
+  },
+  {
    "addr": "0x6005eeab",
    "name": "prop_get_default",
    "kind": "func",
@@ -1098,6 +1268,16 @@
    "sig": "d0 key, d1 index, a0 storage",
    "notes": "Reads u8/s8/u16/s16/u32 by key type nibble (bit 3 = signed, low 3 bits = width)",
    "source": "docs/RE_AE.md §0"
+  },
+  {
+   "addr": "0x6005f089",
+   "name": "prm_mode_load_failed_take",
+   "kind": "func",
+   "subsystem": "settings",
+   "confidence": "V",
+   "sig": "-> d0 flag; clears it",
+   "notes": "Reads and clears mode_load_failed. 0x6005f079 the same for EEROM (0xa2715cb6), 0x6005f069 for BKRAM (0xa2715cb4)",
+   "source": "docs/INTERNAL_STORAGE.md §2.6"
   },
   {
    "addr": "0x6005f099",
@@ -1790,6 +1970,36 @@
    "source": "patches/split_tone"
   },
   {
+   "addr": "0x601de880",
+   "name": "hl_lvl",
+   "kind": "func",
+   "subsystem": "pipeline",
+   "confidence": "V",
+   "sig": "a0 = job -> d0 = grain level 1..3, 4 = halation only, 0 = stock; [d2,d3],16",
+   "notes": "Ours (halation h2): replaces gc_gs's call gc_lvl; leaves tint << 4 | stage at grain record +96. Unchanged by h6",
+   "source": "patches/halation_h6"
+  },
+  {
+   "addr": "0x601de8e6",
+   "name": "hl_grain",
+   "kind": "func",
+   "subsystem": "pipeline",
+   "confidence": "V",
+   "sig": "a0 = 0x1000 buffer record, d0 = level 1..4; on gc_grain's 144 frame",
+   "notes": "Ours (halation h2): replaces gc_gs's call gc_grain: call hl_run,[d2,d3,a2,a3],96 when record +96 is set, then jmp gc_grain for levels 1..3. Unchanged by h6",
+   "source": "patches/halation_h6"
+  },
+  {
+   "addr": "0x601de917",
+   "name": "hl_run",
+   "kind": "site",
+   "subsystem": "pipeline",
+   "confidence": "V",
+   "sig": "a0 = buffer record, d0 = tint << 4 | stage; frame [d2,d3,a2,a3],96 (locals 4..76)",
+   "notes": "Ours (halation h2): the three passes. h6: its first 5 B are `jmp h6_run`; the rest, hl_pa 0x601e3ae4, hl_pb 0x601e0850, hl_box, hl_li, hl_gpb, hl_row, hl_seg, hl_pc 0x605b7780, hl_x98 and the tables hl_tint / hl_gm stay in place, unused (docs/CODE_SPACE_MAP.md \"halation h6\")",
+   "source": "patches/halation_h6"
+  },
+  {
    "addr": "0x601df03c",
    "name": "ap_P",
    "kind": "func",
@@ -1830,14 +2040,44 @@
    "source": "docs/PLUGINS.md §1"
   },
   {
+   "addr": "0x601e018a",
+   "name": "gc_open",
+   "kind": "func",
+   "subsystem": "pipeline",
+   "confidence": "V",
+   "sig": "d0 = bus address -> a0 = CPU address or 0, d0 = lock token, d1 = window mode to restore or -1; [d2,d3,a2,a3],32",
+   "notes": "Ours (grain_cpu r2): cpu_lock, then direct (0xa0000000..0xafffffff), this CPU's window if its mode already fits (gc_btab / gc_mtab by 128 MB slice), or window_map. Add -0x40000000 for the cached alias. Used by grain g2 and halation h6",
+   "source": "patches/halation_h6"
+  },
+  {
    "addr": "0x601e01e5",
    "name": "gc_grain",
    "kind": "site",
    "subsystem": "pipeline",
    "confidence": "V",
    "sig": "a0 = buffer record, d0 = level 1..3; frame [d2,d3,a2,a3],144",
-   "notes": "Ours (grain_cpu r2): the CPU grain pass, called by gc_ob and reached by jmp from halation hl_grain. g2: its first 6 B are `jmp g2_grain; nop`; the body to gc_cls 0x601e0572, gc_fill 0x601e05c3, gc_next 0x601e060d, gc_p2 0x601e0640, gc_cach 0x601e0669, gc_tbl 0x601e0686, gc_stab 0x601e06ce and gc_G 0x601e074d stay in place, unused",
+   "notes": "Ours (grain_cpu r2): the CPU grain pass, called by gc_ob and reached by jmp from the halation grain hand-off. Since g2 its first 6 B are `jmp g2_grain; nop`; the rest of it, gc_fill 0x601e05c3, gc_next 0x601e060d, gc_p2 0x601e0640, gc_cach 0x601e0669, gc_tbl 0x601e0686, gc_stab 0x601e06ce and gc_G 0x601e074d are unused by the pass (crash_log lives in the body)",
    "source": "patches/grain_g2"
+  },
+  {
+   "addr": "0x601e01ec",
+   "name": "cl_nmi",
+   "kind": "func",
+   "subsystem": "rtos",
+   "confidence": "V",
+   "sig": "jmp from nmi_hook_site; ends `mov 0x600774ec,a0; jmp 0x60059ab1`",
+   "notes": "Ours (crash_log, sec 1, in r2's unused gc_grain body 0x601e01eb..0x601e0560): the fault record into this CPU's slot of crash_record. No call; 28 B of stack; every register, MDR, LIR, LAR and the flags as the stock handler has them at 0x60059ab1",
+   "source": "docs/CRASH_LOG.md"
+  },
+  {
+   "addr": "0x601e045d",
+   "name": "cl_first",
+   "kind": "func",
+   "subsystem": "fileio",
+   "confidence": "V",
+   "sig": "jmp from sd_go_load_call, on sd_gate's frame; ends ret [d2,d3,a2,a3],36",
+   "notes": "Ours (crash_log): `call sd_load`, then with a card table and a marked slot: class-2 heap copy, marks cleared, C:\\EP7MOD\\CRASH.BIN written (fopen w / fwrite / fclose), free. sd_load's d0 / d1 / a0 / a1 given back",
+   "source": "docs/CRASH_LOG.md"
   },
   {
    "addr": "0x601e1a8c",
@@ -1958,6 +2198,16 @@
    "sig": "(3,2)",
    "notes": "\"UPDATE SUCCESS\"; fail 0x601e71b6(3,3); none found 0x601e7186(3)",
    "source": "docs/SD_UPDATE.md"
+  },
+  {
+   "addr": "0x601e729e",
+   "name": "fw_power_off_reboot",
+   "kind": "func",
+   "subsystem": "updater",
+   "confidence": "V",
+   "sig": "",
+   "notes": "\"Power OFF\" / \"Power Reboot\" after an update: prm_ctl save {mode} from RAM, then the power request. From fw_report_ok and the fail report 0x601e71b6, and 0x602ca7ac",
+   "source": "docs/INTERNAL_STORAGE.md §2.7"
   },
   {
    "addr": "0x601e748a",
@@ -2310,6 +2560,16 @@
    "source": "docs/LOOK_EDITOR.md"
   },
   {
+   "addr": "0x602b039a",
+   "name": "settings_boot_init",
+   "kind": "func",
+   "subsystem": "settings",
+   "confidence": "V",
+   "sig": "",
+   "notes": "From boot_tail_resets (0x6019296e). If the MODE image was refused (settings_mode_load_failed): settings_factory_init, then settings_save at once",
+   "source": "docs/INTERNAL_STORAGE.md §2.6"
+  },
+  {
    "addr": "0x602b0560",
    "name": "reset_pick",
    "kind": "func",
@@ -2340,6 +2600,26 @@
    "source": "docs/BUTTONS.md"
   },
   {
+   "addr": "0x602b3a60",
+   "name": "settings_reset_list_626",
+   "kind": "func",
+   "subsystem": "settings",
+   "confidence": "V",
+   "sig": "d0, d1",
+   "notes": "List reset over 626 sids (0x604ab744) through reset_to_default_cache. Which menu Reset this is [I]",
+   "source": "docs/INTERNAL_STORAGE.md §2.6"
+  },
+  {
+   "addr": "0x602b3a8c",
+   "name": "settings_reset_list_1785",
+   "kind": "func",
+   "subsystem": "settings",
+   "confidence": "V",
+   "sig": "d0, d1",
+   "notes": "List reset over 1,785 sids (0x604aa952); with sid 41 set it first reloads snapshot 0. Which menu Reset this is [I]",
+   "source": "docs/INTERNAL_STORAGE.md §2.6"
+  },
+  {
    "addr": "0x602b6b4f",
    "name": "sid15271_cb",
    "kind": "func",
@@ -2358,6 +2638,16 @@
    "sig": "",
    "notes": "Sector callbacks 0x602b5e91/eaa/ec3/edc -> here -> 0x602b7b71",
    "source": "docs/LV_BUNDLES.md"
+  },
+  {
+   "addr": "0x602b962f",
+   "name": "settings_factory_init",
+   "kind": "func",
+   "subsystem": "settings",
+   "confidence": "V",
+   "sig": "",
+   "notes": "Every sid 0..1768, 10000.., 15000.. := its sid default (property, raw plane, both active parts), then snapshot_store for slots 0..8. Sid-level: never touches bytes outside the records. Callers: boot (refused image), factory-setting reset, self-adjust, ADJ task",
+   "source": "docs/INTERNAL_STORAGE.md §2.6"
   },
   {
    "addr": "0x602b972b",
@@ -2478,6 +2768,16 @@
    "sig": "a0 event ptr; `call ..,[d2,d3,a2,a3],36`",
    "notes": "api_event_check_release_notice; called at 0x602c805f (Caduceus loader hook) for every 0x02000100 half-press",
    "source": "docs/SD_BUNDLES_V2.md, docs/FIRMWARE_GUIDE.md §8"
+  },
+  {
+   "addr": "0x602cb832",
+   "name": "settings_cmd_dispatch",
+   "kind": "func",
+   "subsystem": "settings",
+   "confidence": "V",
+   "sig": "d0 command id 0x60001..0x60020, a0 args",
+   "notes": "Jump table 0x604d6b40: sid get / set / reset, settings_save, settings_save_bkram, settings_mode_load_failed. Reached from the script reader 0x60ba7eec through 0x602cb779, not from the menus",
+   "source": "docs/INTERNAL_STORAGE.md §2.5"
   },
   {
    "addr": "0x602cbc0a",
@@ -2648,6 +2948,16 @@
    "sig": "",
    "notes": "prm_ctl save {bkram 1}. Backup registers only",
    "source": "docs/RE_SETTINGS.md §4"
+  },
+  {
+   "addr": "0x602cc7ec",
+   "name": "settings_mode_load_failed",
+   "kind": "func",
+   "subsystem": "settings",
+   "confidence": "V",
+   "sig": "-> d0",
+   "notes": "Wrapper (id 0xf0020) of prm_mode_load_failed_take",
+   "source": "docs/INTERNAL_STORAGE.md §2.6"
   },
   {
    "addr": "0x602ccc3c",
@@ -4280,6 +4590,16 @@
    "source": "docs/RE_AE.md §3"
   },
   {
+   "addr": "0x604057e3",
+   "name": "fatal_save_hang",
+   "kind": "func",
+   "subsystem": "settings",
+   "confidence": "V",
+   "sig": "",
+   "notes": "Error code 15235, prm_ctl save {mode}, cpu_lock, endless loop. From the 120 s wait 0x60404fba",
+   "source": "docs/INTERNAL_STORAGE.md §2.5"
+  },
+  {
    "addr": "0x60421540",
    "name": "TAKE_EXPOSE",
    "kind": "func",
@@ -4850,6 +5170,36 @@
    "source": "docs/VIGNETTE_FIX.md"
   },
   {
+   "addr": "0x605b748f",
+   "name": "sd_go_load_call",
+   "kind": "site",
+   "subsystem": "fileio",
+   "confidence": "V",
+   "sig": "call sd_load,[d2,d3,a2,a3],36 (cd 08 00 f0 24), then sd_gout: ret [d2,d3,a2,a3],36",
+   "notes": "Ours (card loader v3, sec 3): the one load attempt of a power-on (state word 0x622cbcc2 spent just before; ap_boot re-arms a failed one up to 4 times). crash_log: `jmp cl_first`",
+   "source": "docs/CRASH_LOG.md"
+  },
+  {
+   "addr": "0x605b7497",
+   "name": "sd_load",
+   "kind": "func",
+   "subsystem": "fileio",
+   "confidence": "V",
+   "sig": "call from sd_go (crash_log: from cl_first); ret [d2,d3,a2,a3],36",
+   "notes": "Ours (card loader v3, sec 3): P = malloc(1024), BUNDLES.BIN read into it (fopen, fseek END, ftell, fseek SET, fread, fclose), sd_check, names, then the handle into the state word 0x622cbcc2, last. Any miss frees the block. The loader writes P+0..+815 only; what the other layers keep above that (editor +680.., split tone +848, movie +960.., AP +984.., grain record +1000, mono +1004.., LOOKS +1016 / +1020) was whatever the block held",
+   "source": "docs/GRAIN_HANG.md"
+  },
+  {
+   "addr": "0x605b74a1",
+   "name": "sd_load_block_site",
+   "kind": "site",
+   "subsystem": "fileio",
+   "confidence": "V",
+   "sig": "5 B `mov a0,a2; cmp 0,a2; bne +5` (92 ba 00 c9 05), then `jmp sd_out` and `mov sd_path,a0; mov sd_mode,a1; call fopen`",
+   "notes": "Ours (card loader v3): right after `mov 1024,d0; call malloc,[],4`. The block is private here: nothing is in it yet and the state word still says 0xFFFF. clean_boot: `jmp cb_zero`",
+   "source": "docs/GRAIN_HANG.md"
+  },
+  {
    "addr": "0x605b771f",
    "name": "sd_lo_slot62",
    "kind": "data",
@@ -4858,6 +5208,16 @@
    "sig": "sd_lo[62..63] (sd_lo 0x605b76e1, sd_span 0x605b7721)",
    "notes": "Loader v3 range check is (s8 byte - s8 lo) <= span unsigned (0x605b75e8..)",
    "source": "docs/SPLIT_TONE.md"
+  },
+  {
+   "addr": "0x605b7780",
+   "name": "cb_zero",
+   "kind": "func",
+   "subsystem": "fileio",
+   "confidence": "V",
+   "sig": "jmp from sd_load_block_site, a0 = block or 0; ends `jmp 0x605b74a9` (a block) or `jmp 0x605b74a6` (none)",
+   "notes": "Ours (clean_boot, sec 3, 33 B in place of halation h2's hl_pc, which h6 left unused): replays the three displaced instructions and clears the block's 1024 B with byte stores, so no mark or pointer of an earlier session (DRAM keeps its contents through a crash-restart) is ever read from P. No call, no stack; every register but a1 (loaded two instructions on) and the flags are as without it",
+   "source": "docs/GRAIN_HANG.md"
   },
   {
    "addr": "0x605be54b",
@@ -5440,6 +5800,16 @@
    "source": "docs/RE_DRAW_PLUGIN.md §2.2"
   },
   {
+   "addr": "0x607ac5eb",
+   "name": "factory_setting_reset",
+   "kind": "func",
+   "subsystem": "settings",
+   "confidence": "V",
+   "sig": "",
+   "notes": "OlyHfwResetFactorySetting.cpp: keeps sid 23, settings_factory_init, settings_save, EEROM save 0x602d2f75. Service path",
+   "source": "docs/INTERNAL_STORAGE.md §2.5"
+  },
+  {
    "addr": "0x607b3c32",
    "name": "canexec_get",
    "kind": "func",
@@ -5450,13 +5820,13 @@
    "source": "docs/BUTTONS.md"
   },
   {
-   "addr": "0x607b6430",
-   "name": "g2_grain",
-   "kind": "func",
+   "addr": "0x607b6420",
+   "name": "g3_ring",
+   "kind": "data",
    "subsystem": "pipeline",
    "confidence": "V",
-   "sig": "a0 = buffer record, d0 = level 1..3; on gc_grain's frame, ret [d2,d3,a2,a3],144",
-   "notes": "Ours (grain_g2, sec-5 dead sdk-api claim 0x607b6420..0x607c6420): r2's guards (+ 0x33 level), record fields, stage marks, lock / window / flush protocol, K rows per lock (build constant), slice-edge split. Noise from g2_tile, tables from g2_T, 176 B more stack, no malloc / free",
+   "sig": "u8[16384], values 0..30",
+   "notes": "Ours: the noise ring, r2's gc_fill from seed 3201 (verify T runs gc_fill against it). r2 filled it on the heap for every photo",
    "source": "patches/grain_g2"
   },
   {
@@ -5518,46 +5888,6 @@
    "sig": "u16 1, u16 6, fw_text, prop_get, text_set, ka_sel, ka_get, features (bit 0 key hook)",
    "notes": "Plugin API v1.1; pl_chk passes it to init (mov at 0x601e1ace)",
    "source": "docs/PLUGINS.md §9"
-  },
-  {
-   "addr": "0x607b678f",
-   "name": "g2_offs",
-   "kind": "func",
-   "subsystem": "pipeline",
-   "confidence": "V",
-   "sig": "calls, shares the frame: blocks (80,sp), r (48,sp)",
-   "notes": "Ours: one block row's offsets. Per block tx then ty = ((r >> 8) & 0xffff) * 65 >> 16 from the photo's xorshift32; off[b] = ty * 128 + tx, u16 at (128 + 2b, sp). Runs outside the lock, every 64 rows",
-   "source": "patches/grain_g2"
-  },
-  {
-   "addr": "0x607b67f6",
-   "name": "g2_row",
-   "kind": "func",
-   "subsystem": "pipeline",
-   "confidence": "V",
-   "sig": "calls, shares the frame: pointer (52,sp), pixels (56), x (76), tile row (84), T (8)",
-   "notes": "Ours: one row piece from any x. Whole 64-px blocks through g2_blk; the pixels before a block edge or after the last whole block one at a time",
-   "source": "patches/grain_g2"
-  },
-  {
-   "addr": "0x607b6834",
-   "name": "g2_blk",
-   "kind": "site",
-   "subsystem": "pipeline",
-   "confidence": "V",
-   "sig": "a0 image, a2 off[b], d2 tile row, d3 blocks, a3 T",
-   "notes": "Ours: the block loop, 392 instructions for 64 px: a1 = tile row + off[b], then per pixel n = (k,a1), Y = (2k,a0), T[(Y << 5) + n] back to (2k,a0)",
-   "source": "patches/grain_g2"
-  },
-  {
-   "addr": "0x607b7420",
-   "name": "g2_tile",
-   "kind": "data",
-   "subsystem": "pipeline",
-   "confidence": "V",
-   "sig": "u8[128][128], values 0..30",
-   "notes": "Ours: the noise tile (model.py tile(), xorshift seed 4880): r2's ring statistics in two dimensions. A block reads the 64 x 64 window at (tx, ty), 0..64",
-   "source": "patches/grain_g2"
   },
   {
    "addr": "0x607b8430",
@@ -5680,13 +6010,173 @@
    "source": "docs/PLUGINS.md §13"
   },
   {
-   "addr": "0x607bb420",
-   "name": "g2_T",
+   "addr": "0x607ba420",
+   "name": "g3_T",
    "kind": "data",
    "subsystem": "pipeline",
    "confidence": "V",
-   "sig": "u8[3][256][32]: level, Y, n",
-   "notes": "Ours: the Low / Med / High tables, the bytes r2's gc_tbl builds for strengths 23 / 55 / 91, centre 991 (verify T)",
+   "sig": "u8[3][256][64]: level, Y, s",
+   "notes": "Ours: the Low / Med / High tables T2[Y][s] = T[Y][(s + 1) >> 1], T as r2's gc_tbl builds it for 23 / 55 / 91, centre 991; s = sum of two ring bytes, 0..60",
+   "source": "patches/grain_g2"
+  },
+  {
+   "addr": "0x607c6430",
+   "name": "h6_run",
+   "kind": "func",
+   "subsystem": "pipeline",
+   "confidence": "V",
+   "sig": "jmp from hl_run; a0 = buffer record, d0 = tint << 4 | stage; ret [d2,d3,a2,a3],96",
+   "notes": "Ours (halation h6): h2's record checks, gmax / tint row, then the cell grid: L+5824 of the LOOKS.BIN block when P (ap_P) has EP7F, L is 4-aligned in the class-2 pool with EP7L and the back pointer, and the grid fits 10560 B; else one malloc. Then h6_pa",
+   "source": "patches/halation_h6"
+  },
+  {
+   "addr": "0x607c6585",
+   "name": "h6_pa",
+   "kind": "site",
+   "subsystem": "pipeline",
+   "confidence": "V",
+   "sig": "context = hl_run's frame",
+   "notes": "Ours: pass A driver. Bound of one row (8,sp) = W / 2 * 10 + 120; rows 2, 6, 10.. through h6_rows (4 rows a lock at 5184 wide)",
+   "source": "patches/halation_h6"
+  },
+  {
+   "addr": "0x607c65c0",
+   "name": "h6_pb",
+   "kind": "site",
+   "subsystem": "pipeline",
+   "confidence": "V",
+   "sig": "",
+   "notes": "Ours: pass B. h6_box on every grid row, then every column; u = min(255, 21 v >> 3), g = (u (511 - u) >> 8) gmax >> 8; no cell or more than a third of the cells at g >= 16: exit (h2's cap)",
+   "source": "patches/halation_h6"
+  },
+  {
+   "addr": "0x607c663b",
+   "name": "h6_pc",
+   "kind": "site",
+   "subsystem": "pipeline",
+   "confidence": "V",
+   "sig": "",
+   "notes": "Ours: pass C driver. Band j = rows 32 + 64 j .. 95 + 64 j (from 0 for j = 0) on cell rows j and min(j + 1, GH - 1): the columns with glow give the first / last strip (72) / (76) and the bound of one row; a band without glow is skipped (h6_band 0x607c6644, h6_next 0x607c66e7)",
+   "source": "patches/halation_h6"
+  },
+  {
+   "addr": "0x607c66ef",
+   "name": "h6_exit",
+   "kind": "site",
+   "subsystem": "pipeline",
+   "confidence": "V",
+   "sig": "",
+   "notes": "Ours: frees the grid if it was a malloc ((40,sp)), ret [d2,d3,a2,a3],96 (h6_ret 0x607c66fc)",
+   "source": "patches/halation_h6"
+  },
+  {
+   "addr": "0x607c66ff",
+   "name": "h6_box",
+   "kind": "func",
+   "subsystem": "pipeline",
+   "confidence": "V",
+   "sig": "a0 = u8 line, d0 = n, d1 = stride; [d2,d3,a2,a3],24",
+   "notes": "Ours: two [1 2 1] / 4 passes in place (the value before is kept in a register): h2's hl_box without its u16 temp buffer",
+   "source": "patches/halation_h6"
+  },
+  {
+   "addr": "0x607c672d",
+   "name": "h6_rows",
+   "kind": "func",
+   "subsystem": "pipeline",
+   "confidence": "V",
+   "sig": "a1 = context, d0 = first row, d1 = rows at most -> d0 = 0, d1 = rows done; d0 = 1: window refused; [d2,d3,a2,a3],64",
+   "notes": "Ours: one gc_open / flush or mode restore / cpu_unlock around several rows. A further row joins while it lies in the same 128 MB slice and work done + the bound of a row (8,a1) <= HL_CAP - 300 (120000); pass A counts a row as its bound, pass C what h6_crow reports. A first row across a slice edge goes alone in two pieces",
+   "source": "patches/halation_h6"
+  },
+  {
+   "addr": "0x607c68cf",
+   "name": "h6_wk",
+   "kind": "func",
+   "subsystem": "pipeline",
+   "confidence": "V",
+   "sig": "a0 = address of pair d1, a1 = context, d0 = row, d1 .. d2 = pairs; [d2,d3,a2,a3],84",
+   "notes": "Ours: under the lock: h6_arow for pass A ((60,a1) = 0), else h6_crow",
+   "source": "patches/halation_h6"
+  },
+  {
+   "addr": "0x607c68d9",
+   "name": "h6_arow",
+   "kind": "site",
+   "subsystem": "pipeline",
+   "confidence": "V",
+   "sig": "as h6_wk",
+   "notes": "Ours: pass A, one piece of a row. Per 64-px cell (32 samples): a cell at 248 is skipped; else four groups of eight Y bytes OR-ed, one compare against T + 4 = 228 (below: none adds); a group over it sample by sample, cell += (Y - 224) >> 2, saturating at 248. Cells cut by the piece go one sample at a time",
+   "source": "patches/halation_h6"
+  },
+  {
+   "addr": "0x607c6a54",
+   "name": "h6_crow",
+   "kind": "site",
+   "subsystem": "pipeline",
+   "confidence": "V",
+   "sig": "as h6_wk -> d0 = bound of the work done (pairs run * 41 + strips walked * 30 + 130)",
+   "notes": "Ours: pass C, one piece of a row, strip by strip (h6_seg 0x607c6ad4): a = lv(k - 1), b = lv(k), lv(c) = (64 r0[c] + (r1[c] - r0[c]) t) >> 6. a = 0 and b <= 1: skipped. Whole strip with a, b >= 1: h6_nz 0x607c6b29 straight into h6_p8. Else h6_nc 0x607c6b5f: the pairs with g >= 1 by h6_z, clipped to the piece",
+   "source": "patches/halation_h6"
+  },
+  {
+   "addr": "0x607c6bed",
+   "name": "h6_p8",
+   "kind": "site",
+   "subsystem": "pipeline",
+   "confidence": "V",
+   "sig": "a0 = pixel pair, a3 = end - 28, a1 = v, a2 = step",
+   "notes": "Ours: eight pairs a turn (36 instructions a pair): g = v >> 6, g dY once for both Y bytes, w0 g for the two chroma bytes, one compare per chroma clamp. h6_p1 0x607c6f02 takes the pairs left over",
+   "source": "patches/halation_h6"
+  },
+  {
+   "addr": "0x607c6f6c",
+   "name": "h6_tint",
+   "kind": "data",
+   "subsystem": "pipeline",
+   "confidence": "V",
+   "sig": "s32[4][3]: dY, dC0, dC1 for red, amber, warm, cool",
+   "notes": "Ours: h2's tint rows (4-aligned); then h6_gm 0x607c6f9c u8[3] gmax 112 / 176 / 240 and h6_z 0x607c6f9f u8[33], h6_z[x] = ceil(32 / x)",
+   "source": "patches/halation_h6"
+  },
+  {
+   "addr": "0x607c8430",
+   "name": "g2_grain",
+   "kind": "func",
+   "subsystem": "pipeline",
+   "confidence": "V",
+   "sig": "a0 = buffer record, d0 = level 1..3; on gc_grain's frame, ret [d2,d3,a2,a3],144",
+   "notes": "Ours (grain_g2 g3, code claim 0x607c8420..0x607c9420): r2's pass with the ring and the tables in ROM. r2's guards (+ 0x33 level), record fields, stage marks, lock / window / flush protocol, slice-edge split; K rows per lock (build constant, 3); no stack beyond r2's frame, no malloc / free. The name is g2's: other layers know the entry by it",
+   "source": "patches/grain_g2"
+  },
+  {
+   "addr": "0x607c8768",
+   "name": "g3_next",
+   "kind": "func",
+   "subsystem": "pipeline",
+   "confidence": "V",
+   "sig": "calls, shares the frame: r (48,sp), span (76), previous offset (80)",
+   "notes": "Ours: one row's offset, gc_next's arithmetic: one xorshift32 step, o = ((r >> 8) & 0xffff) * (16383 - Hw) >> 16; (84,sp) = g3_ring + o, (88,sp) = g3_ring + the offset before",
+   "source": "patches/grain_g2"
+  },
+  {
+   "addr": "0x607c87a2",
+   "name": "g3_row",
+   "kind": "func",
+   "subsystem": "pipeline",
+   "confidence": "V",
+   "sig": "calls, shares the frame: pointer (52,sp), pixels (56), ring pointers (84) and (88), T2 (8)",
+   "notes": "Ours: one row or one piece of it. 64 pixels at a time through g2_blk, the rest one by one. Writes only even bytes from the pointer on",
+   "source": "patches/grain_g2"
+  },
+  {
+   "addr": "0x607c87b7",
+   "name": "g2_blk",
+   "kind": "site",
+   "subsystem": "pipeline",
+   "confidence": "V",
+   "sig": "a0 image, a1 ring + o, a2 ring + previous o, d3 groups, a3 T2",
+   "notes": "Ours: the unrolled loop, 518 instructions for 64 px: per pixel s = (k,a1) + (k,a2), Y = (2k,a0), T2[(Y << 6) + s] back to (2k,a0)",
    "source": "patches/grain_g2"
   },
   {
@@ -8700,6 +9190,16 @@
    "source": "docs/PROFILE_INDEX_WB.md"
   },
   {
+   "addr": "0x613ff19e",
+   "name": "ictlog_dbg_init",
+   "kind": "func",
+   "subsystem": "rtos",
+   "confidence": "V",
+   "sig": "debug shell `init`; `t_init` 0x613ff1c9",
+   "notes": "memset(0x62ae80c0, 0x99, 0x2f7f40): everything between the NMI frames and the ICTLOG mirror 0x62de0000; mode byte 0x6233b791 = 1 (t_init: 2); then ictlog_boot_load, which touches the mirror only. The one stock user of that RAM by address",
+   "source": "docs/CRASH_LOG.md"
+  },
+  {
    "addr": "0x613ff240",
    "name": "task_name_table",
    "kind": "table",
@@ -8768,6 +9268,26 @@
    "sig": "d0 running CRC, a0 data, d1 length > 0 -> d0; [d2,d3],8; keeps a1",
    "notes": "Ours (fm_core): bitwise CRC-32 (0xedb88320), no table. Also called by ls_sc and plugin_loader",
    "source": "patches/looks_split"
+  },
+  {
+   "addr": "0x61b21368",
+   "name": "fmem_mode_slots",
+   "kind": "data",
+   "subsystem": "boot",
+   "confidence": "V",
+   "sig": "2 x 28 B {u32 size 0x40000, u32 shadow 0xa2a78000, u32 flash, ..}",
+   "notes": "Slot 0 flash 0x40240000, slot 1 0x40280000. EEROM table 0x61b21340 (0x402c0000, 0x402e0000). Filled from ROM 0x6002e3a8 by the data copy at 0x60020117 (0x6002e020..0x6002e8e8 -> 0x61b20fe0)",
+   "source": "docs/INTERNAL_STORAGE.md §2.4"
+  },
+  {
+   "addr": "0x61b213a1",
+   "name": "fmem_mode_slot",
+   "kind": "data",
+   "subsystem": "boot",
+   "confidence": "V",
+   "sig": "u8 0 / 1",
+   "notes": "Slot the MODE shadow was loaded from; flipped before each save, so saves alternate. EEROM: 0x61b213a0",
+   "source": "docs/INTERNAL_STORAGE.md §2.4"
   },
   {
    "addr": "0x61f9f1c8",
@@ -8960,6 +9480,16 @@
    "source": "docs/PLUGINS.md §13"
   },
   {
+   "addr": "0x621a630c",
+   "name": "cur_tcb_cpu0",
+   "kind": "data",
+   "subsystem": "rtos",
+   "confidence": "V",
+   "sig": "pointer; task id = s16 at +16",
+   "notes": "Current TCB of CPU0, as nmi_handler and addec_irq_handler read it. A negative id: no task",
+   "source": "docs/CRASH_LOG.md"
+  },
+  {
    "addr": "0x621caf00",
    "name": "bss_range",
    "kind": "data",
@@ -9130,6 +9660,16 @@
    "source": "docs/RE_SETTINGS.md §3"
   },
   {
+   "addr": "0x624ea404",
+   "name": "mode_bank_gen",
+   "kind": "data",
+   "subsystem": "settings",
+   "confidence": "V",
+   "sig": "u32",
+   "notes": "Generation of the MODE image in RAM (image +4). prm_bank_save adds 1 before the checksum; equal to the shadow's (0xa2a78004) except while a save is in flight",
+   "source": "docs/INTERNAL_STORAGE.md §3.4"
+  },
+  {
    "addr": "0x62509d7c",
    "name": "sid3009_language",
    "kind": "data",
@@ -9140,6 +9680,36 @@
    "source": "docs/I18N_ZH.md"
   },
   {
+   "addr": "0x6250f9b0",
+   "name": "mode_bank_tail",
+   "kind": "data",
+   "subsystem": "settings",
+   "confidence": "V",
+   "sig": "image offset 0x255b0; free to 0x6252a3fc (109,132 B)",
+   "notes": "First byte after the last MODE record (key 0xfa64). No record, no absolute reference and no decompiled function names anything from here to the end of the image; loaded, summed, compared and saved with the image (emulated). Run-time use through computed pointers not excluded [I]",
+   "source": "docs/INTERNAL_STORAGE.md §2.2, §2.8"
+  },
+  {
+   "addr": "0x62524400",
+   "name": "mode_tail_block_cand",
+   "kind": "data",
+   "subsystem": "settings",
+   "confidence": "I",
+   "sig": "image offset 0x3A000, 4 KB reserve; uncached 0xa2524400",
+   "notes": "Ours, proposed, nothing built: the block that would hold BUNDLES / LOOKS / MOVIE / AP images (EP7I, 3,080 B). Not camera-proven",
+   "source": "docs/INTERNAL_STORAGE.md §3.1"
+  },
+  {
+   "addr": "0x626616c4",
+   "name": "cur_tcb_cpu1",
+   "kind": "data",
+   "subsystem": "rtos",
+   "confidence": "V",
+   "sig": "pointer; task id = s16 at +16",
+   "notes": "Current TCB of CPU1",
+   "source": "docs/CRASH_LOG.md"
+  },
+  {
    "addr": "0x6266a354",
    "name": "recview_developing",
    "kind": "data",
@@ -9148,6 +9718,16 @@
    "sig": "u8",
    "notes": "Set 0x60332799 (Rec View developing)",
    "source": "docs/ISSUES_19_20.md"
+  },
+  {
+   "addr": "0x6267c09c",
+   "name": "cur_tcb_cpu2",
+   "kind": "data",
+   "subsystem": "rtos",
+   "confidence": "V",
+   "sig": "pointer; task id = s16 at +16",
+   "notes": "Current TCB of CPU2",
+   "source": "docs/CRASH_LOG.md"
   },
   {
    "addr": "0x62ae8000",
@@ -9190,6 +9770,16 @@
    "source": "docs/GRAIN_HANG.md"
   },
   {
+   "addr": "0x8ff000b0",
+   "name": "sys_down_code",
+   "kind": "data",
+   "subsystem": "rtos",
+   "confidence": "V",
+   "sig": "u32",
+   "notes": "Why CPU0 was told to stop (sys_down_request). 0x8ff00000.. is RAM shared by the CPUs (lock words 0x8ff00040, 0x8ff006fc)",
+   "source": "docs/CRASH_LOG.md"
+  },
+  {
    "addr": "0x98e00008",
    "name": "bk_regs",
    "kind": "data",
@@ -9198,6 +9788,26 @@
    "sig": "u32 x 14",
    "notes": "Battery-backed registers for the BKRAM bank (0x60066e14 write, 0x60066e29 read)",
    "source": "docs/RE_SETTINGS.md §4"
+  },
+  {
+   "addr": "0x9a000008",
+   "name": "addec_regs",
+   "kind": "data",
+   "subsystem": "rtos",
+   "confidence": "V",
+   "sig": "u32 ADDR, R DATA, W DATA, STATUS at +8..+0x14; + 0x100 per CPU",
+   "notes": "Address-decode error registers; plain reads. The handler clears through the word at +0 (or 4, then and ~2). An error taken with interrupts masked stays here",
+   "source": "docs/CRASH_LOG.md"
+  },
+  {
+   "addr": "0xa1bce7c0",
+   "name": "heap_pool_class0",
+   "kind": "data",
+   "subsystem": "rtos",
+   "confidence": "V",
+   "sig": "0xa1bce7c0..0xa1bd6d40",
+   "notes": "malloc <= 128 B (bounds in free 0x600227b6 / 0x600227be). Our 128-B grain record lives here",
+   "source": "docs/CRASH_LOG.md"
   },
   {
    "addr": "0xa1dd8d40",
@@ -9270,6 +9880,26 @@
    "source": "docs/RE_SETTINGS.md §6"
   },
   {
+   "addr": "0xa2715ab8",
+   "name": "mode_bank_end_cursor",
+   "kind": "data",
+   "subsystem": "settings",
+   "confidence": "V",
+   "sig": "u32",
+   "notes": "First free address after the packed MODE records, stored by prm_bank_fill_defaults (0x6250f9b0). 0xa2715abc EEROM, 0xa2715ac0 BKRAM. Read only by the debug shell `size`; a normal load does not write it",
+   "source": "docs/INTERNAL_STORAGE.md §2.8"
+  },
+  {
+   "addr": "0xa2715cb8",
+   "name": "mode_load_failed",
+   "kind": "data",
+   "subsystem": "settings",
+   "confidence": "V",
+   "sig": "u16",
+   "notes": "Set to 1 by prm_load_all when the MODE image was refused and the bank was rebuilt from ROM",
+   "source": "docs/INTERNAL_STORAGE.md §2.6"
+  },
+  {
    "addr": "0xa2715d28",
    "name": "dbg_first_error",
    "kind": "data",
@@ -9328,6 +9958,26 @@
    "sig": "u8 index, busy bytes +1.., keys 0xa27409ec+8n, records 0xa27409fc+300n",
    "notes": "CPU0 <-> CPU2 REC messages",
    "source": "docs/RE_CAPTURE.md §1"
+  },
+  {
+   "addr": "0xa2a78000",
+   "name": "mode_bank_shadow",
+   "kind": "data",
+   "subsystem": "settings",
+   "confidence": "V",
+   "sig": "0x40000 B; cached alias 0x62a78000",
+   "notes": "RAM mirror of the saved MODE image: filled at boot from the newer valid flash slot (fmem_param_mount), read back after every save. prm_bank_save compares the RAM image with it",
+   "source": "docs/INTERNAL_STORAGE.md §2.4"
+  },
+  {
+   "addr": "0xa2ae8100",
+   "name": "crash_record",
+   "kind": "data",
+   "subsystem": "rtos",
+   "confidence": "V",
+   "sig": "3 slots x 0xc3c B (one per CPU), format tools/ep7_crash.py",
+   "notes": "Ours: +0 mark (CRSH complete, BRSH busy), +4 sum, +8 later NMI entries, +0x18 header, +0x6c NMI frames, +0x12c CPU0 ring, +0x574 own ring, +0x9bc grain record, +0xa3c stack. Uncached; whether it survives the watchdog reset is not proven",
+   "source": "docs/CRASH_LOG.md"
   },
   {
    "addr": "0xa3091000",
