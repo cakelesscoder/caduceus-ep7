@@ -9,7 +9,7 @@ addresses. It consolidates `docs/*.md`, `patches/*/`, `tools/*.py`, `generated/*
 - **Addresses** are E-P7 1.1 main CPU addresses (decoded offset + 0x60020020) unless marked RAM/OSD. **None carry to
   another body** ([FIRMWARE_GUIDE.md](FIRMWARE_GUIDE.md) §12).
 - **Tags** as in FIRMWARE_GUIDE: **V** code/bytes/emulator, **C** camera-proven (a stronger V), **I** inference.
-- **Machine-readable:** [atlas.json](atlas.json) (927 symbols, incl. 137 static tasks).
+- **Machine-readable:** [atlas.json](atlas.json) (929 symbols, incl. 137 static tasks).
   `tools/atlas_annotate.py START STOP` runs `tools/dis.sh` and names every atlas address in the listing.
 - **New in this atlas (checked against the bytes here):** the static task descriptor and name tables (§2.1), the
   mailbox-id table, and the corrected COLOR editor record bases (§4, §15).
@@ -553,6 +553,7 @@ Events: 0x9004/0x9006 step, 0x9008/0x900a sector, 0x900c commit, 0x900e MENU, 0x
 | `0x60dec790` | colprof_view_update | func | V | a0 view; movm [d2,d3,a2,a3]; add -12; ... ret [d2,d3,a2,a3],28 | Rebuilds the view state (GUI data 175) via the facade; reads ALL state 0x61fc3804, picture mode 111, cursor settings 1091/1096/1097/1686 | docs/EXTRAS_OVERLAY.md |
 | `0x60decabd` | sector_value_label | func | V |  | ID tables .data 0x61fc27e8/2818/2848/2878 | docs/LOOK_EDITOR.md |
 | `0x60decbfc` | guide_label | func | C |  | Blanks ALL-off label when values hit both -5 and +5 | docs/LOOK_EDITOR.md, WORKLOG.md |
+| `0x60decbfc` | guide_label_fake_view | note | V | view+128 (= (12,sp)+88) == 1: facade path | With a zeroed view and +128 = 1 the stock part reads only the facade (GetValue 111, the sector-id table 0x61fc27e8.. (12 u32 per COLOR mode at 0x61fc27e8 / 2818 / 2848 / 2878), GetDefault) and globals; it writes view+43, +44..+51 (label kind/id/style) and view+118..+132. Emulated on the v0.32a image through the whole layer chain (i18n_gd .. ed_guide): no view pointer is read | docs/FILM_DOWN_CRASH.md |
 | `0x60df249e` | view_create | func | V | kind -> viewer | Table 0x6115c724 (126 x {kind, create}); vtbl[0] draw, [1] dtor | docs/RE_UI.md §3.3 |
 | `0x60df250b` | label_by_value | func | C | d0 value, d1 count, a1 list, (4,sp) out | Builder A, 277 callers; miss leaves label untouched. Kind-4 point 0x60df255f (hook site) | docs/FIRMWARE_GUIDE.md §4 |
 | `0x60df25b5` | label_from_src | func | C | label source | Builder B, 239 callers; kind-4 point 0x60df25dc (hook site) | docs/FIRMWARE_GUIDE.md §4 |
@@ -571,6 +572,7 @@ Events: 0x9004/0x9006 step, 0x9008/0x900a sector, 0x900c commit, 0x900e MENU, 0x
 | `0x60e230e0` | child_min_check | func | V |  | Bound helpers (min -5 / max +5 0x60e231e0), read via GetValue | docs/LOOK_EDITOR.md |
 | `0x60e23b98` | lc_actuator | func | C |  | Live Control = screen group 20; INFO release via 0x60e2418b -> 0x60e22413; handler 0x60e593be | docs/MOVIE_COLOUR.md |
 | `0x60e26ab0` | mono_profile_view | func | V |  | Preset label slot; view+400 = GetValue(111) at 0x60e26b33 | docs/MONO_PRESETS.md |
+| `0x60e27289` | profile_view_color_page | func | V | Profile view page 1 writer for COLOR; frame [d2,d3,a2,a3],44; (8,sp) = view, d2 = view+4 | Guide label at view+186 when (404,view) == 1, else view+260. Skips the label when 0x60e231e0 and 0x60e230e0 both answer non-zero; ALL (0x61fc3800 / 0x61fc3804) -> id 2756 else 2755, written at 0x60e2757d (scp_name hook from v0.32). Then call 0x60e27950,[d2,d3,a2,a3],40 and, on 1, view+4+330..332 = 2, 1, 1. Only branch into the hooked bytes 0x60e2757d..88 is the bra at 0x60e27567 (to 0x60e2757d) | docs/FILM_DOWN_CRASH.md |
 | `0x60e27639` | mono_view_page | func | V |  | Page from sid 1088; guide label view+186 | docs/MONO_PRESETS.md |
 | `0x60e4ba62` | sscommon_fn_noop | func | V | clr d0; retf | SsCommon state 8 (StCaReqDisp, shooting) handler for 0x9057, handler word 57 of the ss-1 descriptor 0x611992c4, used by no other (event, state) | docs/PLUGINS.md §7 |
 | `0x60e4c9a0` | IGui_Controler_ctor | func | V | (controller kind, args, obj 228 B) | Kind -> layout (0x6119a0b0 or RAM resolver 0x61fc4198+8k) -> 0x6119a100 {layout, act kind, view kind}; wrapper with alloc 0x60e4ce8b | docs/RE_UI.md §3.1 |

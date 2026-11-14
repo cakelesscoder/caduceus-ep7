@@ -55,7 +55,7 @@ Missing glyphs that ruled out common terms: 展 (扩展), 附 (附加), 额 (额
 ## 4. Translations
 
 All Chinese below passes `--check`. "Whole" = the label must equal the English exactly; otherwise it's a token replaced
-inside composed labels (`5 Shadow ` + `Yellow` -> `5 阴影 黄`). `?` = wants native review.
+inside composed labels (`5 Shadow ` + `Yellow` -> `5 阴影色调 黄`). `?` = wants native review.
 
 | English | 中文 | glyphs OK | Note |
 |---|---|---|---|
@@ -72,14 +72,14 @@ inside composed labels (`5 Shadow ` + `Yellow` -> `5 阴影 黄`). `?` = wants n
 | Effects: 1-7 (whole) | 效果: 1-7 | yes | |
 | Colour: 1-8 (whole) | 色彩: 1-8 | yes | |
 | Split: COLOR 1-4 (whole) | 分离色调: COLOR 1-4 | yes | may be wide ? |
-| Grain / Glow / Art / Halo: stills (whole) | 颗粒 / 柔光 / 艺术 / 光环: 仅照片 | yes | AP / movie slot |
+| Grain / Glow / Art / Halo: stills (whole) | 颗粒 / 柔和 / 艺术 / 光环: 仅照片 | yes | AP / movie slot |
 | Grain | 颗粒 | yes | |
 | Off / Low / Medium, Med / High | 关 / 低 / 中 / 高 | yes | `Grain High`, `Halo High` are phrases so `High` alone can mean highlights |
 | Art | 艺术 | yes | |
 | Star Light / Pin Hole / Blur | 星光 / 针孔 / 模糊 | yes | |
-| Glow | 柔光 | yes | 光晕 has no 晕; 辉 missing ? |
+| Glow | 柔和 | yes | #46 review (was 柔光); 光晕 has no 晕 |
 | Clarity | 清晰度 | yes | |
-| Clarity/Glow | 清晰/柔光 | yes | |
+| Clarity/Glow | 清晰/柔和 | yes | |
 | WB | 白平衡 | yes | |
 | Amber / Blue, Amber/Blue | 黄 / 蓝, 黄/蓝 | yes | 琥珀 missing ? |
 | Green / Magenta, Green/Mag. | 绿 / 品红, 绿/品红 | yes | |
@@ -93,6 +93,7 @@ inside composed labels (`5 Shadow ` + `Yellow` -> `5 阴影 黄`). `?` = wants n
 | Halo | 光环 | yes | 光晕 preferred (#46) but 晕 has no glyph in the camera font |
 | Shadow (split tone) | 阴影 | yes | |
 | High (split tone highlight) | 高光 | yes | |
+| 5 / 6 Shadow, 7 / 8 High (split tone, by sector) | 5 阴影色调 / 6 阴影强度, 7 高光色调 / 8 高光强度 | yes | #46 review: colour vs strength |
 | Yellow / Orange / Or-Red / Red | 黄 / 橙 / 橙红 / 红 | yes | |
 | Magenta / Violet / Blue / Bl-Cyan | 品红 / 紫 / 蓝 / 蓝青 | yes | |
 | Cyan / Gr-Cyan / Green / Yl-Green | 青 / 绿青 / 绿 / 黄绿 | yes | |
@@ -101,8 +102,8 @@ Look names stay as the user wrote them: on the Film page only whole entries appl
 ...) and `Sepia Print` / `Selenium` / `Cyanotype` are on the mono path (§2) and stay English; 硒 and 晒 have no glyph.
 
 Examples (host model `build.translate`, same rules as the camera code): `1 Grain High` -> `1 颗粒 高`,
-`2 Clarity/Glow 0` -> `2 清晰/柔光 0`, `4 WB Green/Mag.` -> `4 白平衡 绿/品红`, `8 VigFix Camera` -> `8 暗角校正 默认`,
-`7 High Yl-Green` -> `7 高光 黄绿`, `11 Halo Med` -> `11 光环 中`.
+`2 Clarity/Glow 0` -> `2 清晰/柔和 0`, `4 WB Green/Mag.` -> `4 白平衡 绿/品红`, `8 VigFix Camera` -> `8 暗角校正 默认`,
+`7 High Yl-Green` -> `7 高光色调 黄绿`, `11 Halo Med` -> `11 光环 中`.
 
 ## 5. The layer (`patches/i18n_zh/`)
 
