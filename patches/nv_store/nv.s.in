@@ -1,0 +1,415 @@
+/* Settings-memory probe and marker (patches/nv_store; ep7-firmware, our own code). docs/INTERNAL_STORAGE.md, steps S0 + S1.
+ * Format of the file and of the marker: tools/ep7_nvprobe.py (the offsets and bits below are filled in from it).
+ * The method (bytes of ours in the unused tail of the camera's settings image, saved by the camera's own save) follows
+ * Caduceus for OM-3 (androidfanman/caduceus-om3, research and design by iancw); this code is ours.
+ *
+ * nv_load <- the `call sd_load,[d2,d3,a2,a3],36` at the head of crash_log's cl_first (the card loader's one load attempt of a
+ *            power-on, first half-press, HLS_EVENT). Same frame and contract as sd_load: it calls sd_load, and sd_load's
+ *            d0 / d1 / a0 / a1 are given back. Nothing below runs unless that load left a card table (BUNDLES.BIN from
+ *            C:\EP7MOD), so: no card, no EP7MOD folder or no BUNDLES.BIN -> not one read or store of ours.
+ *   S0 (reads only): this CPU, the MODE bank object, the image's id and generation in RAM and in the shadow (the copy the
+ *            boot read from flash), the unused tail outside our 4 KB reserve (every word), the reserve (zero after its first
+ *            16 bytes; cached == uncached; RAM == shadow), the 16 bytes at its start.
+ *   S1 (the only stores into the settings image): the 16-byte marker at the start of the reserve, written once, with the
+ *            counter one up, or cleared when C:\EP7MOD\FORGET.BIN exists. Only when every S0 condition held on this
+ *            power-on (F_ALL), and then inside cpu_lock, after two more tests there: the RAM generation still equals the
+ *            shadow's (prm_bank_save raises the RAM one before its checksum, and the shadow's follows only at its
+ *            read-back: no save is in flight) and the 16 bytes are still the ones judged. Eight word stores, each to a
+ *            constant address: four to the cached address, then four to its uncached alias, as stock writes its settings.
+ *            No settings function, no save and no flash routine is called.
+ *   The file C:\EP7MOD\NVPROBE.BIN (128 B, built in one heap block) says what was found and what was done.
+ * The layer keeps no state: the load it follows happens once per power-on (the loader's state word is spent), so there is
+ * no mark in P and no byte of ours for a restart with stale DRAM to find. No memory for the 128 B: nothing is done.
+ * Frame: sd_load's four results at (4..16,sp); (0,sp) is left to the calls. d2 = the flags, d3 = counts, then the action,
+ * a2 = the heap block, a3 = the lock token, then the file handle. No mul / div / setlb. */
+ .am33_2
+ .text
+ .global _start
+_start:
+ .set RAM, {ram}
+ .set SHADOW, {shadow}
+ .set C, {c}
+ .set C_END, {c_end}
+ .set U, {u}
+ .set S, {s}
+
+/* The words a0 .. a1: d3 += the non-zero ones; the image offset of the first -> O_TFIRST. Uses d0. */
+ .macro NZSCAN
+8:
+ mov (a0),d0
+ cmp 0,d0
+ beq 9f
+ inc d3
+ mov ({o_tfirst},a2),d0
+ cmp 0,d0
+ bne 9f
+ mov a0,d0
+ sub RAM,d0
+ mov d0,({o_tfirst},a2)
+9:
+ inc4 a0
+ cmp a1,a0
+ bne 8b
+ .endm
+
+/* The reserve, cached, against \other: the number of differing words -> (\off,a2); none -> \flag. Uses d0, d1, d3, a0, a1. */
+ .macro DIFF other, off, flag
+ clr d3
+ mov C,a0
+ mov \other,a1
+8:
+ mov (a0),d0
+ mov (a1),d1
+ cmp d1,d0
+ beq 9f
+ inc d3
+9:
+ inc4 a0
+ inc4 a1
+ cmp C_END,a0
+ bne 8b
+ mov d3,(\off,a2)
+ cmp 0,d3
+ bne 7f
+ or \flag,d2
+7:
+ .endm
+
+/* Four words from \src into the block at \off. Uses d0, d1, a0, a1. */
+ .macro COPY4 src, off
+ mov \src,a0
+ mov a2,a1
+ add \off,a1
+ mov 4,d1
+8:
+ mov (a0),d0
+ inc4 a0
+ mov d0,(a1)
+ inc4 a1
+ add -1,d1
+ bne 8b
+ .endm
+
+/* Word \k of the 16 bytes, at both addresses, against the block's word at \off: any difference -> \miss. Uses d0, d1. */
+ .macro SAME k, off, miss
+ mov (\off+\k,a2),d1
+ mov (C+\k),d0
+ cmp d1,d0
+ bne \miss
+ mov (U+\k),d0
+ cmp d1,d0
+ bne \miss
+ .endm
+
+nv_load:
+ call ep7_sd_load,[d2,d3,a2,a3],36    /* the displaced call */
+ mov d0,(4,sp)
+ mov d1,(8,sp)
+ mov a0,(12,sp)
+ mov a1,(16,sp)
+ movhu ({state}),d0               /* a card table? (as cl_first asks) */
+ add -1,d0
+ cmp {lim},d0
+ bcc nv_done
+ btst 3,d0
+ bne nv_done
+ mov d0,a0
+ add {pool},a0
+ mov (a0),d0
+ cmp {bmagic},d0
+ bne nv_done
+ mov {file_len},d0
+ call ep7_malloc,[],4
+ mov a0,a2                        /* a2 = the file image */
+ cmp 0,a2
+ beq nv_done
+ mov a2,d0
+ btst 3,d0
+ bne nv_free
+ mov a2,a0
+ mov {file_words},d1
+ clr d0
+1:
+ mov d0,(a0)
+ inc4 a0
+ add -1,d1
+ bne 1b
+ mov {file_magic},d0
+ mov d0,({o_magic},a2)
+ mov {verlen},d0
+ mov d0,({o_verlen},a2)
+ clr d2                           /* d2 = the flags */
+
+/* ---------------------------------------------------------------- S0: reads only */
+ mov (0x8050),d0                  /* this CPU */
+ mov d0,({o_cpu},a2)
+ exthu d0
+ cmp 0,d0
+ bne 1f
+ or {f_cpu0},d2
+1:
+ mov ({bankp}),a0                 /* the MODE bank object: followed only when it is the one address prm_banks_init gives it */
+ mov a0,({o_bank},a2)
+ cmp {mode_obj},a0
+ bne nv_b9
+ mov (a0),d0
+ and 0x00ffffff,d0
+ mov d0,({o_bid},a2)
+ mov (16,a0),d0
+ mov d0,({o_bram},a2)
+ mov (20,a0),d1
+ mov d1,({o_bsize},a2)
+ cmp RAM,d0
+ bne nv_b9
+ cmp {size},d1
+ bne nv_b9
+ mov (4,a0),d0
+ cmp SHADOW,d0
+ bne nv_b9
+ movhu (a0),d0
+ cmp {mode_id},d0
+ bne nv_b9
+ or {f_bank},d2
+nv_b9:
+ mov (RAM),d0                     /* the image: id | checksum, generation; the same of the shadow */
+ mov d0,({o_rhdr},a2)
+ exthu d0
+ cmp {mode_id},d0
+ bne 1f
+ or {f_id},d2
+1:
+ mov (RAM+4),d1
+ mov d1,({o_rgen},a2)
+ mov (SHADOW),d0
+ mov d0,({o_shdr},a2)
+ mov (SHADOW+4),d0
+ mov d0,({o_sgen},a2)
+ cmp d0,d1
+ bne 1f
+ or {f_gen},d2
+1:
+ movbu ({slot_e}),d0              /* which flash slot each shadow came from; "MODE image refused at boot" */
+ asl 8,d0
+ movbu ({slot_m}),d1
+ or d1,d0
+ movhu ({lfail}),d1
+ asl 16,d1
+ or d1,d0
+ mov d0,({o_slot},a2)
+ clr d3                           /* the tail outside the reserve, every word */
+ mov {tail_lo},a0
+ mov C,a1
+ NZSCAN
+ mov C_END,a0
+ mov {tail_hi},a1
+ NZSCAN
+ mov d3,({o_tnz},a2)
+ cmp 0,d3
+ bne 1f
+ or {f_tail},d2
+1:
+ clr d3                           /* the reserve after its first 16 bytes */
+ mov C+{m_len},a0
+ mov C_END,a1
+2:
+ mov (a0),d0
+ cmp 0,d0
+ beq 3f
+ inc d3
+3:
+ inc4 a0
+ cmp a1,a0
+ bne 2b
+ mov d3,({o_rnz},a2)
+ cmp 0,d3
+ bne 1f
+ or {f_rest},d2
+1:
+ DIFF U, {o_cu}, {f_cu}
+ DIFF S, {o_cs}, {f_cs}
+ COPY4 C, {o_pre}
+ COPY4 S, {o_shd}
+ mov ({o_pre},a2),d0              /* the 16 bytes: nothing, our marker (right or damaged), or something else */
+ mov ({o_pre}+4,a2),d1
+ or d1,d0
+ mov ({o_pre}+8,a2),d1
+ or d1,d0
+ mov ({o_pre}+12,a2),d1
+ or d1,d0
+ cmp 0,d0
+ bne 1f
+ or {f_absent},d2
+ bra nv_m9
+1:
+ mov ({o_pre},a2),d0
+ cmp {m_magic},d0
+ bne nv_m9
+ or {f_ours},d2
+ mov ({o_pre}+8,a2),d0
+ cmp {m_version},d0
+ bne nv_m9
+ mov a2,a0
+ add {o_pre},a0
+ mov -1,d0
+ mov 12,d1
+ call ep7_sd_crc,[d2,d3],12
+ not d0
+ mov ({o_pre}+12,a2),d1
+ cmp d1,d0
+ bne nv_m9
+ or {f_valid},d2
+nv_m9:
+ mov nv_fpath,a0                  /* C:\EP7MOD\FORGET.BIN on the card? */
+ mov nv_rmode,a1
+ call ep7_fopen,[],4
+ cmp 0,a0
+ beq 1f
+ call ep7_fclose,[d2,a2,a3],16
+ or {f_forget},d2
+1:
+
+/* ---------------------------------------------------------------- S1: what to do (d3 = the action) */
+ clr d3
+ mov d2,d0
+ and {f_all},d0
+ cmp {f_all},d0
+ bne nv_post                      /* a condition did not hold: nothing is written */
+ btst {f_forget},d2
+ beq nv_mark
+ mov {a_forget_empty},d3          /* FORGET.BIN: what is ours goes; the image to store is the block's 16 zero bytes at O_STAGE */
+ btst {f_absent},d2
+ bne nv_post
+ mov {a_foreign},d3
+ btst {f_ours},d2
+ beq nv_post
+ mov {a_cleared},d3
+ bra nv_store
+nv_mark:
+ mov 1,d1                         /* no marker: counter 1 */
+ btst {f_absent},d2
+ bne nv_new
+ mov {a_foreign},d3
+ btst {f_ours},d2
+ beq nv_post
+ mov {a_damaged},d3
+ btst {f_valid},d2
+ beq nv_post
+ mov ({o_pre}+4,a2),d1            /* a right marker: its counter + 1 */
+ inc d1
+nv_new:
+ mov d1,({o_new},a2)
+ mov {m_magic},d0
+ mov d0,({o_stage},a2)
+ mov d1,({o_stage}+4,a2)
+ mov {m_version},d0
+ mov d0,({o_stage}+8,a2)
+ mov a2,a0
+ add {o_stage},a0
+ mov -1,d0
+ mov 12,d1
+ call ep7_sd_crc,[d2,d3],12
+ not d0
+ mov d0,({o_stage}+12,a2)
+ mov {a_written},d3
+nv_store:
+ clr d0
+ call ep7_cpu_lock,[d2],8
+ mov d0,a3                        /* a3 = the token */
+ or {f_lock},d2
+ mov (RAM+4),d0                   /* no save in flight */
+ mov (SHADOW+4),d1
+ cmp d1,d0
+ beq 1f
+ mov {a_save},d3
+ bra nv_unlock
+1:
+ SAME 0, {o_pre}, nv_chg          /* the 16 bytes are still the ones judged, at both addresses */
+ SAME 4, {o_pre}, nv_chg
+ SAME 8, {o_pre}, nv_chg
+ SAME 12, {o_pre}, nv_chg
+nv_put:
+ mov ({o_stage},a2),d0            /* the eight stores: cached first, then the uncached alias */
+ mov d0,(C)
+ mov ({o_stage}+4,a2),d0
+ mov d0,(C+4)
+ mov ({o_stage}+8,a2),d0
+ mov d0,(C+8)
+ mov ({o_stage}+12,a2),d0
+ mov d0,(C+12)
+ mov ({o_stage},a2),d0
+ mov d0,(U)
+ mov ({o_stage}+4,a2),d0
+ mov d0,(U+4)
+ mov ({o_stage}+8,a2),d0
+ mov d0,(U+8)
+ mov ({o_stage}+12,a2),d0
+ mov d0,(U+12)
+nv_put_end:
+ bra nv_unlock
+nv_chg:
+ mov {a_changed},d3
+nv_unlock:
+ mov a3,d0
+ call ep7_cpu_unlock,[d2],8
+ cmp {a_written},d3               /* read back, both addresses */
+ beq 1f
+ cmp {a_cleared},d3
+ bne nv_post
+1:
+ SAME 0, {o_stage}, nv_post
+ SAME 4, {o_stage}, nv_post
+ SAME 8, {o_stage}, nv_post
+ SAME 12, {o_stage}, nv_post
+ or {f_readback},d2
+
+/* ---------------------------------------------------------------- the file */
+nv_post:
+ mov (C),d0
+ mov d0,({o_post0},a2)
+ mov (C+4),d0
+ mov d0,({o_post1},a2)
+ mov (U+4),d0
+ mov d0,({o_upost1},a2)
+ mov {build},d0
+ mov d0,({o_build},a2)
+ mov d3,d0
+ asl 24,d0
+ or d2,d0
+ mov d0,({o_flags},a2)
+ mov a2,a0
+ mov -1,d0
+ mov {o_crc},d1
+ call ep7_sd_crc,[d2,d3],12
+ not d0
+ mov d0,({o_crc},a2)
+ mov nv_path,a0
+ mov nv_wmode,a1
+ call ep7_fopen,[],4
+ mov a0,a3                        /* a3 = the handle */
+ cmp 0,a3
+ beq nv_free
+ mov a2,a0
+ mov 1,d0
+ mov {file_len},d1
+ mov a3,a1
+ call ep7_fwrite,[d2,d3,a2,a3],24
+ mov a3,a0
+ call ep7_fclose,[d2,a2,a3],16
+nv_free:
+ mov a2,a0
+ call ep7_free,[],4
+nv_done:
+ mov (4,sp),d0
+ mov (8,sp),d1
+ mov (12,sp),a0
+ mov (16,sp),a1
+ ret [d2,d3,a2,a3],36
+nv_path:
+ .asciz "C:\\EP7MOD\\NVPROBE.BIN"
+nv_fpath:
+ .asciz "C:\\EP7MOD\\FORGET.BIN"
+nv_wmode:
+ .asciz "w"
+nv_rmode:
+ .asciz "r"
+nv_end:

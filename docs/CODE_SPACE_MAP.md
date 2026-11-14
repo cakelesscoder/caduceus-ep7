@@ -306,3 +306,17 @@ grain_g2 in either order (checked: generated/halation_h6/with_g2).
 | 0x605b74a1 (5, inside the SD loader v3 edit) | 3, hook | sd_load's `mov a0,a2; cmp 0,a2; bne +5`, the three instructions after `mov 1024,d0; call ep7_malloc,[],4` -> `jmp cb_zero`. Replayed there; back to 0x605b74a9 (a block) or 0x605b74a6 (none: the loader's own `jmp sd_out`). **A layer that edits sd_load's first 37 B must chain.** Build checks: those bytes as mapped (the malloc call and its size, the site, `jmp sd_out`, `mov sd_path,a0; mov sd_mode,a1; call ep7_fopen`), the loader decodes linearly with the site as three whole instructions, no branch or reference into 0x605b74a2–0x605b74a5 |
 | heap P +0..+1023 | heap | Zero when the loader starts to fill it, on every load attempt. Every word above the loader's +0..+815 (editor +680.., split tone +848, movie +960.., AP +984.., grain +1000, mono +1004.., LOOKS +1016 / +1020) is 0 until its own layer writes it in this session. `ap_boot`'s clear of +960 / +980 / +984 / +992 is redundant now and stays |
 <!-- clean_boot: end -->
+
+<!-- nv_store: begin -->
+## nv_store (patches/nv_store, docs/INTERNAL_STORAGE.md §8; development layer after clean_boot; emulator-verified, not camera-tested)
+
+Steps S0 + S1 of "looks in the camera's own memory": a read-only probe of the camera's settings image and a 16-byte marker in its
+unused tail. Build: the v0.33 chain command with `--extra nv_store=patches/nv_store/build.py` last.
+
+| Range or site | Section | Owner |
+|---|---|---|
+| **0x607d7900–0x607d8000 (1792 B claim)** | 5 | **nv_store**. Dead `sdk api` handlers (CODE_SPACE_SURVEY §2); needs extras_pages' sdk cut. Inside the run 0x607d78ce–0x607d80dc, into which no reference from outside the dead code points (no pin needed). 16 B stock guards at both ends. Code 0x607d7910–0x607d7de7 (1239 B): `nv_load` and the paths `C:\EP7MOD\NVPROBE.BIN`, `C:\EP7MOD\FORGET.BIN`. **Free inside the claim: 0x607d7de7–0x607d7ff0** |
+| 0x601e045e (4, inside crash_log's code in the grain_cpu edit) | 1, hook | The displacement of cl_first's first instruction, `call sd_load,[d2,d3,a2,a3],36` -> `nv_load` (which calls sd_load on the same contract). **A layer that wraps the card load chains here**; clean_boot's hook inside sd_load (0x605b74a1) is untouched |
+| **0x62524400–0x62524410 and 0xa2524400–0xa2524410 (16 B, one place on two aliases)** | RAM: the camera's settings image | **The marker** (`EP7R`, counter, version, CRC-32): MODE image offset 0x3A000, the start of the 4 KB reserve 0x3A000–0x3B000 that docs/INTERNAL_STORAGE.md §3.1 sets aside. **The camera saves these bytes to its flash with its settings; the restore file does not remove them** (`EP7MOD/FORGET.BIN` does). Eight `mov d0,(abs)` inside cpu_lock, build-checked to be the layer's only stores outside its heap block and its frame. Nothing else of ours may store into 0x624ea400–0x6252a400 or 0xa24ea400–0xa252a400 |
+| heap: one class-0 block (128 B asked) | heap | The `NVPROBE.BIN` image, from its malloc to its free inside one half-press. No word of P is used: the layer keeps no state |
+<!-- nv_store: end -->

@@ -6220,6 +6220,16 @@
    "source": "patches/looks_split"
   },
   {
+   "addr": "0x607d7910",
+   "name": "nv_load",
+   "kind": "func",
+   "subsystem": "fileio",
+   "confidence": "V",
+   "sig": "called from cl_first 0x601e045d (its first instruction, `call sd_load`, re-pointed); sd_load's contract; ret [d2,d3,a2,a3],36",
+   "notes": "Ours (nv_store, sec 5, claim 0x607d7900..0x607d8000): calls sd_load; with a card table: the read-only probe of the settings image, the guarded 16-byte marker at mode_tail_block_cand (cached, then uncached, inside cpu_lock), C:\\EP7MOD\\NVPROBE.BIN (128 B, tools/ep7_nvprobe.py); C:\\EP7MOD\\FORGET.BIN clears the marker",
+   "source": "docs/INTERNAL_STORAGE.md §8"
+  },
+  {
    "addr": "0x607dd584",
    "name": "sdk_api_osd_cmds",
    "kind": "func",
@@ -9858,6 +9868,16 @@
    "sig": "7 x 28 B bank objects",
    "notes": "Pointers: 0xa2711a88 CONST records, 0xa2711a8c CPRAM ROM, 0xa2711a90 FLASH, 0xa2711a94 BKRAM, 0xa2711a98 EEROM, 0xa2711a9c MODE, 0xa2711aa0 DEVICE, 0xa2711aa4 FLASHD1, 0xa2711aa8 FLASHD2",
    "source": "docs/RE_SETTINGS.md §3"
+  },
+  {
+   "addr": "0xa26ff994",
+   "name": "mode_bank_obj",
+   "kind": "data",
+   "subsystem": "settings",
+   "confidence": "V",
+   "sig": "28 B: +0 u16 id 7, +2 u8 copy, +4 shadow 0xa2a78000, +12 ROM list, +16 RAM 0x624ea400, +20 size 0x40000",
+   "notes": "Stock: the MODE bank object, the 4th prm_bank_new of prm_banks_init (after FLASH, BKRAM, EEROM); its pointer is at 0xa2711a9c",
+   "source": "docs/INTERNAL_STORAGE.md §8"
   },
   {
    "addr": "0xa26ffa88",

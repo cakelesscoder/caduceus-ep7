@@ -9,7 +9,7 @@ addresses. It consolidates `docs/*.md`, `patches/*/`, `tools/*.py`, `generated/*
 - **Addresses** are E-P7 1.1 main CPU addresses (decoded offset + 0x60020020) unless marked RAM/OSD. **None carry to
   another body** ([FIRMWARE_GUIDE.md](FIRMWARE_GUIDE.md) §12).
 - **Tags** as in FIRMWARE_GUIDE: **V** code/bytes/emulator, **C** camera-proven (a stronger V), **I** inference.
-- **Machine-readable:** [atlas.json](atlas.json) (1002 symbols, incl. 137 static tasks).
+- **Machine-readable:** [atlas.json](atlas.json) (1004 symbols, incl. 137 static tasks).
   `tools/atlas_annotate.py START STOP` runs `tools/dis.sh` and names every atlas address in the listing.
 - **New in this atlas (checked against the bytes here):** the static task descriptor and name tables (§2.1), the
   mailbox-id table, and the corrected COLOR editor record bases (§4, §15).
@@ -432,6 +432,7 @@ Key sids: 111 effective picture mode (key 0x9481; GUI enum, Vivid 0), 1645/1646 
 | `0x62524400` | mode_tail_block_cand | data | I | image offset 0x3A000, 4 KB reserve; uncached 0xa2524400 | Ours, proposed, nothing built: the block that would hold BUNDLES / LOOKS / MOVIE / AP images (EP7I, 3,080 B). Not camera-proven | docs/INTERNAL_STORAGE.md §3.1 |
 | `0x98e00008` | bk_regs | data | V | u32 x 14 | Battery-backed registers for the BKRAM bank (0x60066e14 write, 0x60066e29 read) | docs/RE_SETTINGS.md §4 |
 | `0xa26ff940` | prm_banks | data | V | 7 x 28 B bank objects | Pointers: 0xa2711a88 CONST records, 0xa2711a8c CPRAM ROM, 0xa2711a90 FLASH, 0xa2711a94 BKRAM, 0xa2711a98 EEROM, 0xa2711a9c MODE, 0xa2711aa0 DEVICE, 0xa2711aa4 FLASHD1, 0xa2711aa8 FLASHD2 | docs/RE_SETTINGS.md §3 |
+| `0xa26ff994` | mode_bank_obj | data | V | 28 B: +0 u16 id 7, +2 u8 copy, +4 shadow 0xa2a78000, +12 ROM list, +16 RAM 0x624ea400, +20 size 0x40000 | Stock: the MODE bank object, the 4th prm_bank_new of prm_banks_init (after FLASH, BKRAM, EEROM); its pointer is at 0xa2711a9c | docs/INTERNAL_STORAGE.md §8 |
 | `0xa26ffa88` | prop_registry | table | V | 8 B per key>>4 | RAM property registry | docs/PROFILE_INDEX_WB.md |
 | `0xa2707a88` | prop_overlay_registry | table | V | 4096 x 8 B | CSV overlay; active when 0xa26ffa84 != 0 (prop_lookup checks it first) | docs/RE_SETTINGS.md §6 |
 | `0xa2715ab8` | mode_bank_end_cursor | data | V | u32 | First free address after the packed MODE records, stored by prm_bank_fill_defaults (0x6250f9b0). 0xa2715abc EEROM, 0xa2715ac0 BKRAM. Read only by the debug shell `size`; a normal load does not write it | docs/INTERNAL_STORAGE.md §2.8 |
@@ -1087,6 +1088,7 @@ fileif API in section 4. From an ordinary CPU0 task each call is a synchronous R
 | `0x6077d590` | media_status_set | func | V | d0 media type, d1 status (0xF000 MOUNT OK); ret [d2],20 | Called by 0x60863da7 (0x60863e90, dead for our use) | docs/SD_BUNDLES.md, docs/REVIEW_v04.md |
 | `0x607d5510` | ls_chk | func | V | jmp from 0x6143a4ed; a3 = L, d3 = size, a2 = P | Ours (looks_split, sec-5 dead sdk-api claim 0x607d5500..0x607d5900): ls_sc, then call fm_check, jmp 0x6143a4f2 | patches/looks_split |
 | `0x607d5521` | ls_sc | func | V | [d2,d3,a2,a3],20 | Ours: CRC first; each record +61/+62 = 0, or +60 = 0 and both split bytes in range; then stash L+2568+2j, zero them in the record, rewrite CRC +16, L+2564 = P, L+2560 EP7W last. Any miss: file untouched (fm_check rejects split bytes after the name NUL) | patches/looks_split |
+| `0x607d7910` | nv_load | func | V | called from cl_first 0x601e045d (its first instruction, `call sd_load`, re-pointed); sd_load's contract; ret [d2,d3,a2,a3],36 | Ours (nv_store, sec 5, claim 0x607d7900..0x607d8000): calls sd_load; with a card table: the read-only probe of the settings image, the guarded 16-byte marker at mode_tail_block_cand (cached, then uncached, inside cpu_lock), C:\EP7MOD\NVPROBE.BIN (128 B, tools/ep7_nvprobe.py); C:\EP7MOD\FORGET.BIN clears the marker | docs/INTERNAL_STORAGE.md §8 |
 | `0x6143a410` | fm_load | func | V | CALLS, a2 = P | Ours (film_menu_v2 fm_core, sec 9): once per power-on LOOKS.BIN -> L (malloc 2640 from v0.32, was 2560), fm_check, slot resume by name, publish P+1016 / P+1020 EP7F. v0.32: its fm_check call goes through ls_chk (split stash) | patches/looks_split |
 | `0x6143a4ed` | fm_load_call_fm_check | site | V | 5 B `call fm_check,[d2,d3,a2,a3],20` (cd b9 00 f0 14) | Ours (film_menu_v2 fm_core). After it: cmp 0,d0 at 0x6143a4f2; size test and 63 / cmp 128 / cmp 2113 at 0x6143a49e..a4b5; malloc 2560 at 0x6143a439 | docs/SPLIT_TONE_G1.md §1.2 |
 | `0x6143a5a6` | fm_check | func | V | a3 = L (file), d3 = size -> d0 0 valid; [d2,d3,a2,a3],20 | Ours (fm_core): header template, CRC (bytes 0..15, 20..end), per-record range table 0..44, class/mask, tint, name rule (NUL tail to +63). Unchanged in v0.32: ls_sc hands it a file whose +61/+62 are already 0 | patches/looks_split |

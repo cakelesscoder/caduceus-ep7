@@ -1,6 +1,14 @@
 # Looks in the camera's own memory (research and design, E-P7 1.1)
 
-Research and design only: **nothing is built, no patch, no camera test.** Issue: every look lives on the card today
+> **Parked (owner, 2026-11-14).** The research and design below are complete, and stages S0 + S1 (read-only probe plus a
+> 16-byte marker, `patches/nv_store`, decoder `tools/ep7_nvprobe.py`, as built in §8) are built and emulator-verified as a
+> development layer labelled 0.34. **Nothing has been run on a camera**, so the settings memory has never been written.
+> The owner weighed it as a convenience feature against a risk the restore file can't undo, and chose to wait. To resume:
+> rebuild with the command in §8, then run the camera round there (S1 is the first real risk). The layer is not part of
+> any release.
+
+Research and design (§0 to §7), then the first two steps built as a development layer (§8: a read-only probe and a 16-byte
+marker, `patches/nv_store`, emulator-verified). **Nothing here is camera-tested.** Issue: every look lives on the card today
 (`EP7MOD/LOOKS.BIN` 2112 B, `BUNDLES.BIN` 680 B, `MOVIE.BIN` 96 B, `AP.BIN` 96 B, loaded at the first half-press). The goal is
 looks kept in the camera, so any card works and no `EP7MOD` folder is needed.
 
@@ -389,7 +397,7 @@ Risk level is for the camera's settings. Each step is one layer on the current b
 | **S3 on-camera changes** | Block write at the save points, the ring rule, `FORGET.BIN`, card copies per decision 1 | Medium | 1 |
 | **S4 release** | Control Panel wording (Install, Export), guides, CHANGELOG, a beta | Low | 0.5 |
 
-**Total: 4 to 5 agent sessions, 4 short camera rounds.**
+**Total: 4 to 5 agent sessions, 4 short camera rounds.** S0 and S1 are built as one layer: §8 has what differs from this table.
 
 **Making S1 as safe as it can be:**
 - Before it, S0 must show: MODE id 7, the two generations equal, HLS_EVENT on CPU 0, the tail all zero, `C` and `U` reading the
@@ -453,3 +461,125 @@ to v0.32b and forward again.
   OM-3's rule (§3.3).
 - Loading at switch-on is **not** part of this. With the block in RAM it needs no card, but boot-time work has failed on both
   bodies ([AUTOLOAD.md](AUTOLOAD.md) stays shelved).
+
+## 8. S0 + S1 as built (`patches/nv_store`, 2026-11-14)
+
+Built and emulator-verified, **not camera-tested**. One development layer on the v0.33 chain after clean_boot (build command:
+the docstring of `patches/nv_store/build.py`). Decoder and format: `tools/ep7_nvprobe.py`. Code space: CODE_SPACE_MAP "nv_store".
+
+**Where it runs.** `nv_load` takes the place of `sd_load` in crash_log's `cl_first` (the card loader's one load of a power-on,
+first half-press, HLS_EVENT): it calls `sd_load` itself, gives its results back, and `cl_first` then goes on as before. Nothing of
+ours runs unless that load left a card table, so with no card, no `EP7MOD` folder or no valid `BUNDLES.BIN` there is not one read
+of the settings image and no store.
+
+**S0, reads only.** The CPU word, the MODE bank object, the image's id and generation in RAM and in the shadow, every word of
+the tail outside the reserve, the reserve (zero after its first 16 bytes; cached against uncached; RAM against shadow), the 16
+bytes at its start in RAM and in the shadow, the two flash-slot bytes and the "image refused" flag.
+
+**S1, the stores.** The marker is 16 bytes at MODE image offset 0x3A000: `EP7R`, a counter, version 1, the CRC-32 of those 12
+bytes. A power-on with no marker writes counter 1; with a right marker, its counter + 1. With `EP7MOD/FORGET.BIN` on the card the
+marker (right or damaged) is zeroed instead, and none is written while the file is there. The layer makes **eight word stores
+into the settings image and no others**: four to `0x62524400..0c`, then the same four to `0xa2524400..0c`.
+
+**Every condition before those stores, all tested on the same power-on:**
+
+| # | Condition | If it fails |
+|---:|---|---|
+| 1 | `BUNDLES.BIN` loaded on this half-press (so: a card with `EP7MOD`) | The layer does nothing at all |
+| 2 | 128 B of heap for the file image | Nothing at all |
+| 3 | The half-press runs on CPU 0 | File only |
+| 4 | The MODE bank object pointer is `0xa26ff994`, and the object says RAM `0x624ea400`, size 0x40000, shadow `0xa2a78000`, id 7. Another pointer is not followed | File only |
+| 5 | The image's first halfword is 7 | File only |
+| 6 | RAM generation = shadow generation | File only |
+| 7 | Every word of the tail outside the reserve is zero (0x255b0..0x3A000 and 0x3B000..0x3fffc) | File only |
+| 8 | The reserve is zero after its first 16 bytes | File only |
+| 9 | The reserve reads the same at the cached and at the uncached address | File only |
+| 10 | The reserve in RAM equals the reserve in the shadow (so a marker found there came from flash) | File only |
+| 11 | The 16 bytes are zero or a right marker (to write), or carry our magic (to clear). Foreign bytes and a damaged marker are left alone | File only |
+| 12 | **Inside `cpu_lock`:** RAM generation still = shadow generation | "Put off"; nothing stored |
+| 13 | **Inside `cpu_lock`:** the 16 bytes at both addresses are still the ones judged | "Put off"; nothing stored |
+
+So the answer to "can S0 be evaluated safely in the same build as S1" is: **the write is conditional on S0 at run time.** A camera
+on which any S0 condition fails writes the file and never the marker.
+
+**Differences from §3.4 and §4, and why:**
+- **No state at all, so no word of P.** The load the layer follows happens once per power-on by the loader's own state word, as
+  for `cl_first`. There is no "written" or "pending" mark to keep, in P or anywhere, and nothing for a restart with stale DRAM
+  to find. (§3.4's word of P is for S2 and S3, which do have a pending write.) clean_boot's `cb_zero` runs inside the `sd_load`
+  we call, untouched.
+- **A refused write is not retried on a later half-press.** It waits for the next power-on, which writes the same counter.
+- **No staging block of its own:** the 16 bytes are built inside the 128-byte file image.
+- **`NVPROBE.BIN` is 128 B, not 96**, and is written after the stores, so it also says what was done and what reads back.
+- **The reserve check is stricter than "zero or our magic":** conditions 8 to 10.
+- **Only the 16 marker bytes are cleared by `FORGET.BIN`**, since the rest of the reserve is zero by condition 8.
+
+**The file write.** One `NVPROBE.BIN` (128 B) per power-on with a card table, through the stock `fopen` / `fwrite` / `fclose`
+as crash_log's `CRASH.BIN`. One more `fopen` looks for `FORGET.BIN`.
+
+**Cost:** about 190,000 instructions at the first half-press (most of it the 109 KB tail scan), interrupts masked for about
+60 of them. Stack: 36 B more under the `BUNDLES.BIN` read than v0.33 [I: HLS_EVENT's margin is not known].
+
+**Verify** (`patches/nv_store/verify.py generated/nv_store/base.json generated/nv_store/edits.json generated/nv_store/rel`, all
+pass; BASE = the same chain as 0.34 without the layer). The harness is clean_boot's: one half-press on the real code of every
+layer, services as logged stubs. The settings image is two separate memories (cached, uncached), and **only the 16 marker
+bytes are writable**; the shadow, the bank object and the rest of the image are read-only, so a stray store is a fault.
+- **M** 8 steps, with the **stock** `prm_bank_save` (to its flash call) and `prm_bank_load` between half-presses: no marker →
+  marker 1 at both addresses → saved (tail-only change seen, generation + 1, sum 0), loaded → marker 1 found in RAM and in
+  the shadow, marker 2 written → `FORGET.BIN`: cleared at both addresses → `FORGET.BIN` again: nothing to clear, no lock.
+- **G, Z, B** 34 cases, each ending with the file the model predicts and no store: generations differ; a save that starts
+  between the check and the lock (the lock stub raises the generation); the 16 bytes changing in that window; non-zero
+  words at both ends of each tail range and in the reserve; foreign bytes; a damaged marker (left; cleared with
+  `FORGET.BIN`); cached ≠ uncached; RAM ≠ shadow; another bank pointer (0: a read through it would fault), RAM, size,
+  shadow, id; another image id; CPU 1.
+- **S** control: with the marker bytes read-only the first power-on faults at the layer's first store (cached); with only
+  the cached ones writable, at the fifth (uncached).
+- **N** 5: no card, no `BUNDLES.BIN`, a `BUNDLES.BIN` that fails its check, no memory for P: registers, calls, heap and live
+  stack == BASE, with **no settings memory mapped at all**. No memory for our 128 B: one refused malloc, the rest as BASE.
+- **C** 2: clean power-on = BASE's 28 calls with ours in one place (malloc, `FORGET.BIN` not found, lock, unlock, file
+  written, free), the same tables, registers, state and live stack. The half-press after a fault: our file, then
+  crash_log's, its record and file as BASE's.
+- **X** the layer by itself, every one of its 188,644 instructions traced (three scenarios): 100,458 memory accesses, all
+  aligned; stores to 44 addresses, all in the block, the frame or the 16 bytes; 372 of 404 instructions reached (the rest
+  are the refusal paths G / Z / B run).
+- **D** 41 decoder verdicts as expected; a cut or changed file is refused.
+- **P** package == the emulated image, restore == stock, 1233 B differ from BASE (the code, 4 B at `cl_first`), no stray byte.
+- Build checks (`build.py`): the stock bytes the layer relies on (bank set-up, save order, the stock "cached, then uncached"
+  store, slot table, lock, file calls), the MODE record walk (tail at 0x255b0), the claim, and on the assembled code: the 13
+  calls in order, one `ret`, **exactly eight absolute stores**, one straight run between the lock and the unlock with no
+  branch into it and no call under the lock, every other store through the block or the frame.
+
+Package: `generated/nv_store/rel/patched.pkg.bin` sha256
+`70e13ad96b416321055221e3d12b9cdc83dc3240d629f05ae2882bae09acdfcb`, restore `963f4dfe…2327`. Firmware screen `Caduceus: 0.34`.
+
+**Not proven (all of it is what the camera round is for):**
+- That the tail is zero and unused on a real camera, and that the power-off and sleep saves carry it.
+- That the cached and the uncached view agree at the first half-press (a line still held only in the cache would read as
+  "STOP: views differ", not as a wrong write).
+- That HLS_EVENT runs on CPU 0, and that `cpu_lock` there keeps the saving task out (the emulator runs no tasks; a save on
+  another CPU is not excluded by the lock).
+- The real `fopen` / `fwrite` on these two paths (stubs here; the same calls as crash_log's and the loader's).
+- HLS_EVENT's stack margin for the 36 B.
+- What a menu Reset, the restore file and a refused image do to the marker on the camera (§2.6, §2.7: from code).
+
+**Camera round** (the card is your usual one, with `EP7MOD`; decode each file with
+`tools/ep7_nvprobe.py FILE --version 0.34`; the camera overwrites `NVPROBE.BIN` at every power-on, so copy it off as told):
+1. Switch on, half-press once, check that your looks are there as usual, switch off with the power switch. **Card to the
+   reader now:** copy `EP7MOD/NVPROBE.BIN` (file 1). Expected: every line "pass", "none", "marker written, counter 1", GO.
+   **On STOP, stop here** and keep the file.
+2. Card back. Switch on, half-press, switch off. **Card to the reader:** file 2. Expected: "present, counter 1 … it came
+   from flash", "marker written, counter 2". This is the proof that the power-off save carries the tail. "none" again:
+   stop, the design doesn't hold on the camera.
+3. Camera off, battery out for 30 s, battery in. Card back. Switch on, half-press, switch off. **Card to the reader:**
+   file 3. Expected: counter 2 from flash, counter 3 written.
+4. Sleep (optional, tells whether sleep saves): switch on, half-press, leave the camera until it sleeps, then take the
+   battery out **without switching off**; 30 s; battery in. Switch on, half-press, switch off. **Card to the reader:**
+   file 4. Counter 4 from flash: sleep saves. Counter 3: only power-off does (not a failure).
+5. Reset (optional, it resets your settings): menu Reset, then switch off, on, half-press, off. **Card to the reader:**
+   file 5. Expected: the marker is still there.
+6. Put a file named `FORGET.BIN` (any content) in `EP7MOD`. Card back. Switch on, half-press, switch off. **Card to the
+   reader:** file 6: "marker cleared". Card back, switch on, half-press, switch off. **Card to the reader:** file 7:
+   "none … in the copy read from flash: no marker", "nothing to clear". The camera's settings memory is then as it was
+   before step 1. Leave `FORGET.BIN` on the card until the next step of the work is ready, or delete it to go on counting.
+
+After every step: the camera's own settings are as you left them. If the camera ever resets its settings by itself, stop and
+keep the last file.
