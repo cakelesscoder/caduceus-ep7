@@ -8,6 +8,9 @@ patches/overlay_probe (Extras text-overlay probe; docs/EXTRAS_OVERLAY.md) -> pat
 Firmware-screen L/O readout; docs/PLUGINS.md §10). Offline.
 
   .venv/bin/python -I patches/v032/build.py releases/v0.31d/edits.json --out generated/v032/edits.json
+
+v0.32b (release) = the same chain plus patches/grain_g2 (faster grain, no heap; docs/GRAIN_PORT.md "g2"):
+  ... --version 0.32b --extra grain_g2=patches/grain_g2/build.py
 """
 import argparse, importlib.util, json
 from pathlib import Path
@@ -22,7 +25,8 @@ def _load(name, path):
     return m
 
 
-def apply(spec, version='0.32', plugins=True, keyhook=True, overlay=True, diag=True, extras=None):
+def apply(spec, version='0.32', plugins=True, keyhook=True, overlay=True, diag=True, extras=None, extra=()):
+    """extra: dev layers [(name, repo-relative build.py)], applied after lv_grid and before fw_version."""
     if extras is None:                        # the release build is plugins=False (plugins shelved), which has the Extras pages
         extras = not plugins
     if extras and plugins:
@@ -36,6 +40,8 @@ def apply(spec, version='0.32', plugins=True, keyhook=True, overlay=True, diag=T
             raise SystemExit('L request overlaps split_tone S at L+2688')
         spec = _load('i18n_zh', ROOT / 'patches/i18n_zh/build.py').apply(spec, version)  # after every guide-word layer
     spec = _load('lv_grid', ROOT / 'patches/lv_grid/build.py').apply(spec)
+    for name, path in extra:
+        spec = _load(name, ROOT / path).apply(spec, version)
     spec = _load('fw_version', ROOT / 'patches/fw_version/build.py').apply(spec, version) or spec
     if plugins:                               # last: plugin_loader needs fw_version's fw_val and refuses a re-run
         spec = _load('plugin_loader', ROOT / 'patches/plugin_loader/build.py').apply(spec, version)
@@ -68,6 +74,8 @@ if __name__ == '__main__':
     ap.add_argument('--out', type=Path, required=True)
     ap.add_argument('--version', default='0.32')
     ap.add_argument('--plugins', action='store_true', help='shelved plugin layers (no Extras pages)')
+    ap.add_argument('--extra', action='append', default=[], metavar='NAME=PATH', help='dev layer build.py, before fw_version (repeatable)')
     a = ap.parse_args()
     a.out.parent.mkdir(parents=True, exist_ok=True)
-    a.out.write_text(json.dumps(apply(json.loads(a.spec.read_text()), a.version, plugins=a.plugins), indent=1))
+    a.out.write_text(json.dumps(apply(json.loads(a.spec.read_text()), a.version, plugins=a.plugins,
+                                      extra=[tuple(e.split('=', 1)) for e in a.extra]), indent=1))

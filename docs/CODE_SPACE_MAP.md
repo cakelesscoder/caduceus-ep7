@@ -258,3 +258,14 @@ ap_custom, and 0x601e1d78–0x601e1e3c is mostly aspect_scp / halation `.hll`.
 **Left after v0.32a (sec 1):** nothing of the two pieces above (both went to split_tone v0.32a). The dead EVF 0x601e1a8c–0x601e1b3c (176 B) went to plugin_loader
 `.plb`; #32 now needs a code-space round too, or can ship as a plugin. Outside sec 1 nothing usable is left except sec 4's 30 B after `.ste`. The Extras v2 table (~0.5 KB) needs a
 code-space round first.
+
+<!-- grain_g2: begin -->
+## grain_g2 (patches/grain_g2, docs/GRAIN_PORT.md "g2"; plugins=False builds; released in v0.32b, camera-tested)
+
+| Range or site | Section | Owner |
+|---|---|---|
+| **0x607b6420–0x607c6420 (64 KB claim)** | 5 | **grain_g2**. Dead `sdk api` handlers (CODE_SPACE_SURVEY §2); needs extras_pages' sdk cut. **This is the shelved keyhook claim (0x607b6420–0x607b8420) and the first 56 KB of the shelved overlay / diag claim (0x607b8420–0x607c8420)**: those layers are not in plugins=False builds, and the build refuses a spec that has them. 16 B stock guards at both ends. Code 0x607b6430–0x607b6c36 (2054 B: g2_grain, g2_offs, g2_row); `g2_tile` 0x607b7420–0x607bb420 (16384 B); `g2_T` 0x607bb420–0x607c1420 (Low, Med, High, 8192 B each). **Free inside the claim: 0x607b6c36–0x607b7410 (2010 B) and 0x607c1420–0x607c6410 (20464 B)**, stock bytes, already covered by the claim's reference check. Reference check: KH.scan over the whole claim on the four aliases; its 394 naive hits are pinned in `patches/grain_g2/pins.txt`, each classed by disassembly (`build.py --pins SPEC`). 0x607c6420–0x607c8420 is halation_h6's |
+| 0x601e01e5 (6, inside the grain_cpu r2 block) | hook | gc_grain's first three instructions -> `jmp g2_grain; nop` |
+| 0x601e01eb–0x601e0572 (903 B), 0x601e05c3–0x601e06c2 (255 B), 0x601e06ce–0x601e06d4 (6 B), 0x601e074d–0x601e084d (256 B) | 1 | **r2 bytes, unused from g2 on (1420 B, reclaimable)**: the rest of gc_grain; gc_fill, gc_next, gc_p2, gc_cach, gc_tbl; gc_stab; gc_G. Nothing outside refers to them but the dead EVF step-table words (0x601e3b50, 60, 64, 70, 74, 78) and r2's pinned false positives. gc_open, gc_cls, gc_btab, gc_mtab, gc_blk, gc_mark, gc_cnt stay in use (g2, halation) |
+| stack, 176 B below gc_grain's 144-B frame | REC_IMAGE | g2_grain's locals and the 86 block offsets (u16) |
+<!-- grain_g2: end -->

@@ -145,7 +145,7 @@ Example: COLOR2 has Grain Med and Sharp Off. Switching COLOR2 from Portra 400 to
 | Files ignored after copying | Eject the card properly and copy again; a cut-short file is skipped |
 | LED blinks fast at once when flashing | The camera rejected the file and wrote nothing. Rebuild and copy again |
 | Edits lost | Half-press after closing the editor; that's when it saves |
-| Keys stop responding or the camera restarts after a shot | Effects are processed on the camera's own CPU; several heavy ones together (Grain + Halo + strong glow) can occasionally stall it. Power off and on, and drop one effect on that profile if it repeats |
+| Keys stop responding or the camera restarts after a shot | Update to v0.32b or later first (it fixed a freeze with Grain). Effects are processed on the camera's own CPU; several heavy ones together (Grain + Halo + strong glow) can occasionally stall it. Power off and on, and drop one effect on that profile if it repeats |
 | Effect missing in live view | Grain, Halo, Star Light and some effects show only in the saved photo |
 
 More: [INSTALL.md › troubleshooting and FAQ](INSTALL.md). Bugs: [issues](https://github.com/cakelesscoder/caduceus-ep7/issues).

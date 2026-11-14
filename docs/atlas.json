@@ -640,6 +640,16 @@
    "source": "docs/GRAIN_PORT.md"
   },
   {
+   "addr": "0x60054dc0",
+   "name": "psw_restore",
+   "kind": "func",
+   "subsystem": "rtos",
+   "confidence": "V",
+   "sig": "d0 = PSW; retf [],0",
+   "notes": "mov d0,psw + 2 nop: cpu_unlock gives back the PSW that psw_mask returned. Between the two leaves this CPU takes no maskable interrupt (IM = 0 for cpu_lock(0))",
+   "source": "patches/grain_g2"
+  },
+  {
    "addr": "0x60055250",
    "name": "nmi_stub_cpu0",
    "kind": "func",
@@ -1818,6 +1828,16 @@
    "sig": "`call d16,[d2,d3,a2,a3],24` (5 B)",
    "notes": "ap_post's only call to ap_load 0x601df7cd, retargeted to pl_ap. Reached once per power-on behind P+992 'EP7U'",
    "source": "docs/PLUGINS.md §1"
+  },
+  {
+   "addr": "0x601e01e5",
+   "name": "gc_grain",
+   "kind": "site",
+   "subsystem": "pipeline",
+   "confidence": "V",
+   "sig": "a0 = buffer record, d0 = level 1..3; frame [d2,d3,a2,a3],144",
+   "notes": "Ours (grain_cpu r2): the CPU grain pass, called by gc_ob and reached by jmp from halation hl_grain. g2: its first 6 B are `jmp g2_grain; nop`; the body to gc_cls 0x601e0572, gc_fill 0x601e05c3, gc_next 0x601e060d, gc_p2 0x601e0640, gc_cach 0x601e0669, gc_tbl 0x601e0686, gc_stab 0x601e06ce and gc_G 0x601e074d stay in place, unused",
+   "source": "patches/grain_g2"
   },
   {
    "addr": "0x601e1a8c",
@@ -5431,6 +5451,16 @@
   },
   {
    "addr": "0x607b6430",
+   "name": "g2_grain",
+   "kind": "func",
+   "subsystem": "pipeline",
+   "confidence": "V",
+   "sig": "a0 = buffer record, d0 = level 1..3; on gc_grain's frame, ret [d2,d3,a2,a3],144",
+   "notes": "Ours (grain_g2, sec-5 dead sdk-api claim 0x607b6420..0x607c6420): r2's guards (+ 0x33 level), record fields, stage marks, lock / window / flush protocol, K rows per lock (build constant), slice-edge split. Noise from g2_tile, tables from g2_T, 176 B more stack, no malloc / free",
+   "source": "patches/grain_g2"
+  },
+  {
+   "addr": "0x607b6430",
    "name": "kh_ret0",
    "kind": "func",
    "subsystem": "ui",
@@ -5488,6 +5518,46 @@
    "sig": "u16 1, u16 6, fw_text, prop_get, text_set, ka_sel, ka_get, features (bit 0 key hook)",
    "notes": "Plugin API v1.1; pl_chk passes it to init (mov at 0x601e1ace)",
    "source": "docs/PLUGINS.md §9"
+  },
+  {
+   "addr": "0x607b678f",
+   "name": "g2_offs",
+   "kind": "func",
+   "subsystem": "pipeline",
+   "confidence": "V",
+   "sig": "calls, shares the frame: blocks (80,sp), r (48,sp)",
+   "notes": "Ours: one block row's offsets. Per block tx then ty = ((r >> 8) & 0xffff) * 65 >> 16 from the photo's xorshift32; off[b] = ty * 128 + tx, u16 at (128 + 2b, sp). Runs outside the lock, every 64 rows",
+   "source": "patches/grain_g2"
+  },
+  {
+   "addr": "0x607b67f6",
+   "name": "g2_row",
+   "kind": "func",
+   "subsystem": "pipeline",
+   "confidence": "V",
+   "sig": "calls, shares the frame: pointer (52,sp), pixels (56), x (76), tile row (84), T (8)",
+   "notes": "Ours: one row piece from any x. Whole 64-px blocks through g2_blk; the pixels before a block edge or after the last whole block one at a time",
+   "source": "patches/grain_g2"
+  },
+  {
+   "addr": "0x607b6834",
+   "name": "g2_blk",
+   "kind": "site",
+   "subsystem": "pipeline",
+   "confidence": "V",
+   "sig": "a0 image, a2 off[b], d2 tile row, d3 blocks, a3 T",
+   "notes": "Ours: the block loop, 392 instructions for 64 px: a1 = tile row + off[b], then per pixel n = (k,a1), Y = (2k,a0), T[(Y << 5) + n] back to (2k,a0)",
+   "source": "patches/grain_g2"
+  },
+  {
+   "addr": "0x607b7420",
+   "name": "g2_tile",
+   "kind": "data",
+   "subsystem": "pipeline",
+   "confidence": "V",
+   "sig": "u8[128][128], values 0..30",
+   "notes": "Ours: the noise tile (model.py tile(), xorshift seed 4880): r2's ring statistics in two dimensions. A block reads the 64 x 64 window at (tx, ty), 0..64",
+   "source": "patches/grain_g2"
   },
   {
    "addr": "0x607b8430",
@@ -5608,6 +5678,16 @@
    "sig": "call [d2,d3,a2,a3],56; a2 = P -> d0 1 written / 0 fopen failed",
    "notes": "EP7MOD/TRACE.TXT: title, header (-1, build id, L/flag/kstage, entries), ring oldest first as hex lines",
    "source": "docs/PLUGINS.md §13"
+  },
+  {
+   "addr": "0x607bb420",
+   "name": "g2_T",
+   "kind": "data",
+   "subsystem": "pipeline",
+   "confidence": "V",
+   "sig": "u8[3][256][32]: level, Y, n",
+   "notes": "Ours: the Low / Med / High tables, the bytes r2's gc_tbl builds for strengths 23 / 55 / 91, centre 991 (verify T)",
+   "source": "patches/grain_g2"
   },
   {
    "addr": "0x607d5510",

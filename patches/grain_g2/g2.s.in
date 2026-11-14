@@ -1,0 +1,486 @@
+/* grain g2: the film-grain pass without the heap (patches/grain_g2; ep7-firmware, our own code). docs/GRAIN_PORT.md "g2". Model: model.py expected().
+ * It replaces r2's gc_grain (patches/grain_cpu/gr2.s.in), entered by a jmp at gc_grain's first bytes and so with its frame. Kept from r2: the
+ * guards and their ids, the record fields, the stage marks, the lock / window / flush protocol, rows per lock (K, a build constant), the split at
+ * 128 MB slice edges, the photo's xorshift and its seed at record +44. New: where the noise comes from, and no malloc or free.
+ *   g2_tile  128 x 128 u8 in ROM, with the statistics of r2's ring pair; values 0..30;
+ *   blocks   64 x 64 px. For each block row every block draws tx, then ty = ((r >> 8) & 0xffff) * 65 >> 16 (0..64); off[b] = ty * 128 + tx,
+ *            a halfword on the stack, drawn outside the lock (64 % K == 0, so a block row starts a pass);
+ *   pixel    n = tile[off[x >> 6] + (y & 63) * 128 + (x & 63)], Y' = T[(Y << 5) + n], x and y in the active image, T = g2_T + 8192 (level - 1),
+ *            the bytes r2's gc_tbl builds for 23 / 55 / 91. Six instructions a pixel, 64 pixels in a row without a loop.
+ * A row piece (rows split at a slice edge, widths that aren't a multiple of 64) starts at any x: n depends only on (x, y) and the seed.
+ * Byte access only to the tile, T and the image. Halfword access: off[] (even stack addresses) and the record, as r2. No data tables here.
+ * Section 5: reached only with the grain record, which exists after the card loader ran, when every section is loaded.
+ * Locals after `add -FR,sp` (r2's 144-B frame is above them): (0) call slot, (4) buffer record, (8) T, (12) row, (16) bus, (20) pitch, (24) Hw,
+ * (28) rows, (32) token, (36) window mode to restore, (40) grain record, (44) level, (48) r, (52) row pointer, (56) pixels, (60) rows this pass,
+ * (64) bus address, (68) pixels left, (72) row in pass, (76) x, (80) blocks, (84) tile row, (92) pixels in the piece, (OFS) off[86].
+ * Buffer record (0x60354aee): +8 format, +10 stride, +12 w, +14 h, +16 active w, +18 active h, +20 x, +22 y. */
+ .text
+ .global _start
+_start:
+ .set HW_MAX, {hw_max}
+ .set FR, 176
+ .set OFS, 128
+ .set K, {k}
+
+/* g2_grain: a0 = buffer record, d0 = level 1..3, on the frame of `call gc_grain,[d2,d3,a2,a3],144`. Stage 4 checks, 5 tables, 6 rows, 7 done. */
+g2_grain:
+ add -FR,sp
+ mov a0,(4,sp)
+ mov d0,(44,sp)
+ mov 1,d0
+ call gc_cnt,[d2],12
+ call gc_blk,[],8
+ mov a1,(40,sp)
+ cmp 0,a1
+ bne 1f
+ jmp 99f
+1:
+ mov (44,sp),d0
+ movbu d0,(38,a1)
+ mov (4,sp),a0
+ movhu (8,a0),d0
+ movhu d0,(16,a1)
+ movhu (10,a0),d0
+ movhu d0,(18,a1)
+ movhu (12,a0),d0
+ movhu d0,(20,a1)
+ movhu (14,a0),d0
+ movhu d0,(22,a1)
+ movhu (16,a0),d0
+ movhu d0,(10,a1)
+ movhu (18,a0),d0
+ movhu d0,(56,a1)
+ movhu (20,a0),d0
+ movhu d0,(24,a1)
+ movhu (22,a0),d0
+ movhu d0,(26,a1)
+ mov (a0),d0
+ mov d0,(28,a1)
+ mov (72,a0),d0
+ mov d0,(32,a1)
+ mov 4,d0
+ clr d1
+ call gc_mark,[d2,d3,a2,a3],32
+ mov (4,sp),a0
+ movhu (8,a0),d0
+ mov 0x20,d1
+ cmp 0x0302,d0
+ bne 60f
+ movhu (20,a0),d0
+ mov 0x21,d1
+ cmp 0,d0
+ bne 60f
+ movhu (22,a0),d0
+ mov 0x22,d1
+ cmp 0,d0
+ bne 60f
+ movhu (12,a0),d0
+ mov d0,(24,sp)
+ mov 0x23,d1
+ cmp 4,d0
+ bcs 60f
+ mov 0x24,d1
+ cmp HW_MAX+1,d0
+ bcc 60f
+ mov 0x25,d1
+ btst 3,d0
+ bne 60f
+ movhu (10,a0),d1
+ mov d1,d3
+ mov 0x26,d1
+ cmp d0,d3
+ bcs 60f
+ add d3,d3
+ mov d3,(20,sp)
+ movhu (14,a0),d2
+ mov d2,(28,sp)
+ mov 0x27,d1
+ cmp 0,d2
+ beq 60f
+ mov 0x28,d1
+ cmp 8193,d2
+ bcc 60f
+ mov d3,d0
+ mul d2,d0
+ mov d0,d3                        /* the whole image, bytes */
+ mov (72,a0),d2
+ mov 0x29,d1
+ cmp d2,d3
+ bhi 60f
+ mov (a0),d2
+ mov d2,(16,sp)
+ mov 0x2a,d1
+ cmp 0xa0000000,d2
+ bcs 60f
+ cmp 0xb0000000,d2
+ bcc 2f
+ add d3,d2
+ mov 0x2b,d1
+ cmp 0xb0000001,d2
+ bcc 60f
+ bra 3f
+2:
+ mov 0x2c,d1
+ cmp 0xe0000000,d2
+ bcc 60f
+ mov d2,d0
+ add d3,d0                        /* the end: the whole buffer in the mapper's range */
+ mov 0x32,d1
+ cmp 0xe0000001,d0
+ bcc 60f
+ mov 0x2d,d1
+ cmp 0xc4000000,d2                /* and clear of 0xc0000000..0xc3ffffff */
+ bcc 3f
+ cmp 0xc0000001,d0
+ bcc 60f
+3:
+ mov (44,sp),d0                   /* the level's table; 0x33: not 1..3 (r2 read past gc_stab) */
+ add -1,d0
+ mov 0x33,d1
+ cmp 3,d0
+ bcc 60f
+ asl 13,d0
+ add g2_T,d0
+ mov d0,(8,sp)
+ mov (24,sp),d0
+ add 63,d0
+ lsr 6,d0
+ mov d0,(80,sp)                   /* blocks in a row, 1..86 */
+ mov 5,d0
+ clr d1
+ call gc_mark,[d2,d3,a2,a3],32
+ call ep7_flush,[d2,d3],16        /* as r2: no stale lines under the cached aliases */
+ mov (40,sp),a1
+ mov (44,a1),d0
+ cmp 0,d0
+ bne 2f
+ mov 0x12345678,d0
+2:
+ mov d0,(48,sp)
+ clr d0
+ mov d0,(12,sp)
+ mov 6,d0
+ clr d1
+ call gc_mark,[d2,d3,a2,a3],32
+3:                                /* a pass: K rows, fewer at the end */
+ mov (28,sp),d0
+ mov (12,sp),d1
+ sub d1,d0
+ mov K,d1
+ cmp d1,d0
+ bcc 1f
+ mov d0,d1
+1:
+ mov d1,(60,sp)
+ mov (12,sp),d0
+ and 63,d0
+ bne 2f
+ calls g2_offs                    /* a new block row */
+2:
+ mov (12,sp),d0                   /* first byte of this pass */
+ mov (20,sp),d1
+ mul d1,d0
+ mov (16,sp),d1
+ add d1,d0
+ mov d0,(64,sp)
+ mov (60,sp),d1                   /* its last byte, same 128 MB slice? */
+ add -1,d1
+ mov (20,sp),d2
+ mul d2,d1
+ mov (24,sp),d2
+ add d2,d2
+ add d2,d1
+ add -1,d1
+ add d0,d1
+ lsr 27,d0
+ lsr 27,d1
+ cmp d0,d1
+ bne 30f
+ mov (64,sp),d0
+ mov d0,d3
+ call gc_open,[d2,d3,a2,a3],32
+ mov d0,(32,sp)
+ mov d1,(36,sp)
+ mov (40,sp),a1
+ call gc_cls,[],8
+ cmp 0,a0
+ beq 6f
+ mov a0,d0
+ add -0x40000000,d0
+ mov d0,(52,sp)
+ clr d0
+ mov d0,(72,sp)
+20:
+ mov (72,sp),d0
+ mov (12,sp),d1
+ add d1,d0
+ and 63,d0
+ asl 7,d0
+ add g2_tile,d0
+ mov d0,(84,sp)                   /* tile + 128 (y & 63) */
+ mov (24,sp),d0
+ mov d0,(56,sp)
+ clr d0
+ mov d0,(76,sp)
+ calls g2_row
+ mov (52,sp),d0
+ mov (20,sp),d1
+ add d1,d0
+ mov d0,(52,sp)
+ mov (72,sp),d0
+ inc d0
+ mov d0,(72,sp)
+ mov (60,sp),d1
+ cmp d1,d0
+ bcs 20b
+ bra 45f
+30:                               /* the pass crosses a slice edge: one row at a time, each split where it must be */
+ clr d0
+ mov d0,(72,sp)
+31:
+ mov (72,sp),d0
+ mov (12,sp),d1
+ add d1,d0
+ mov d0,d2
+ and 63,d2
+ asl 7,d2
+ add g2_tile,d2
+ mov d2,(84,sp)
+ mov (20,sp),d1
+ mul d1,d0
+ mov (16,sp),d1
+ add d1,d0
+ mov d0,(64,sp)
+ mov (24,sp),d0
+ mov d0,(68,sp)
+ clr d0
+ mov d0,(76,sp)
+32:
+ mov (64,sp),d0
+ mov d0,d3
+ call gc_open,[d2,d3,a2,a3],32
+ mov d0,(32,sp)
+ mov d1,(36,sp)
+ mov (40,sp),a1
+ call gc_cls,[],8
+ cmp 0,a0
+ beq 6f
+ mov a0,d0
+ add -0x40000000,d0
+ mov d0,(52,sp)
+ mov (64,sp),d0                   /* pixels to this slice's end */
+ and 0x07ffffff,d0
+ mov 0x08000000,d1
+ sub d0,d1
+ lsr 1,d1
+ mov (68,sp),d0
+ cmp d0,d1
+ bcc 1f
+ mov d1,d0
+ mov (40,sp),a1
+ movbu (61,a1),d1
+ inc d1
+ movbu d1,(61,a1)
+1:
+ mov d0,(56,sp)
+ mov d0,(92,sp)
+ calls g2_row                     /* x moves on by the piece */
+ mov (36,sp),d0
+ cmp -1,d0
+ bne 41f
+ call ep7_flush,[d2,d3],16
+ bra 42f
+41:
+ call ep7_modeset,[d2,d3,a2],20   /* flushes first */
+42:
+ mov (32,sp),d0
+ call ep7_unlock,[d2],8
+ mov (92,sp),d0
+ mov (68,sp),d1
+ sub d0,d1
+ mov d1,(68,sp)
+ cmp 0,d1
+ beq 33f
+ add d0,d0
+ mov (64,sp),d1
+ add d0,d1
+ mov d1,(64,sp)
+ bra 32b
+33:
+ mov (72,sp),d0
+ inc d0
+ mov d0,(72,sp)
+ mov (60,sp),d1
+ cmp d1,d0
+ bcs 31b
+ bra 40f
+45:
+ mov (36,sp),d0
+ cmp -1,d0
+ bne 41f
+ call ep7_flush,[d2,d3],16        /* the rows' lines written back before the lock goes */
+ bra 42f
+41:
+ call ep7_modeset,[d2,d3,a2],20   /* flushes first */
+42:
+ mov (32,sp),d0
+ call ep7_unlock,[d2],8
+40:
+ mov (12,sp),d0
+ mov (60,sp),d1
+ add d1,d0
+ mov d0,(12,sp)
+ mov (40,sp),a1
+ movhu d0,(14,a1)
+ mov (28,sp),d1
+ cmp d1,d0
+ bcs 3b
+ mov 7,d0
+ clr d1
+ call gc_mark,[d2,d3,a2,a3],32
+ bra 7f
+6:                                /* the mapper refused: stop, the rest stays as it is */
+ mov (32,sp),d0
+ call ep7_unlock,[d2],8
+ mov 6,d0
+ mov 0x31,d1
+ call gc_mark,[d2,d3,a2,a3],32
+7:
+ mov (40,sp),a1
+ mov (48,sp),d0
+ mov d0,(44,a1)
+ call ep7_flush,[d2,d3],16        /* as r2 */
+ bra 99f
+60:
+ mov 4,d0
+ call gc_mark,[d2,d3,a2,a3],32
+99:
+ add FR,sp
+ ret [d2,d3,a2,a3],144
+
+/* g2_offs: `calls`, no call inside (it shares the frame, (0,sp) holds its return). One block row's offsets: blocks (80,sp), r (48). */
+g2_offs:
+ mov sp,a0
+ add OFS,a0
+ mov (80,sp),d3
+ mov (48,sp),d0
+1:
+ mov d0,d2                        /* tx */
+ asl 13,d2
+ xor d2,d0
+ mov d0,d2
+ lsr 17,d2
+ xor d2,d0
+ mov d0,d2
+ asl 5,d2
+ xor d2,d0
+ mov d0,a1
+ lsr 8,d0
+ and 0xffff,d0
+ mov d0,d1
+ asl 6,d0
+ add d1,d0                        /* 65 v */
+ lsr 16,d0
+ mov d0,a2
+ mov a1,d0                        /* ty */
+ mov d0,d2
+ asl 13,d2
+ xor d2,d0
+ mov d0,d2
+ lsr 17,d2
+ xor d2,d0
+ mov d0,d2
+ asl 5,d2
+ xor d2,d0
+ mov d0,a1
+ lsr 8,d0
+ and 0xffff,d0
+ mov d0,d1
+ asl 6,d0
+ add d1,d0
+ lsr 16,d0
+ asl 7,d0
+ mov a2,d1
+ add d1,d0
+ movhu d0,(a0)
+ add 2,a0
+ mov a1,d0
+ add -1,d3
+ bne 1b
+ mov d0,(48,sp)
+ rets
+
+/* g2_row: `calls`, no call inside. One row piece: pointer (52,sp), pixels (56), x (76), tile row (84), T (8). On return x has moved on by the
+ * pixels and (56) is 0. Whole blocks run the 64 unrolled pixels; the pixels before a block edge, or after the last whole block, one at a time. */
+g2_row:
+ mov (52,sp),a0
+ mov (8,sp),a3
+1:
+ mov (56,sp),d3
+ cmp 0,d3
+ beq 9f
+ mov (76,sp),d1
+ mov d1,d0
+ lsr 6,d0
+ add d0,d0
+ mov sp,a2
+ add OFS,a2
+ add d0,a2                        /* off[x >> 6] */
+ mov (84,sp),d2
+ and 63,d1
+ bne 4f
+ cmp 64,d3
+ bcs 4f
+ mov d3,d0                        /* whole blocks */
+ and 63,d0
+ mov d0,(56,sp)
+ lsr 6,d3
+ mov d3,d0
+ asl 6,d0
+ mov (76,sp),d1
+ add d0,d1
+ mov d1,(76,sp)
+g2_blk:                           /* a block: its tile pointer, 64 pixels, the next block */
+ movhu (a2),d0
+ add d2,d0
+ mov d0,a1
+{px64}
+ add 128,a0
+ add 2,a2
+ add -1,d3
+ beq 3f
+ jmp g2_blk
+3:
+ jmp 1b
+4:                                /* part of a block: d1 = x & 63, d3 = pixels left */
+ movhu (a2),d0
+ add d2,d0
+ add d1,d0
+ mov d0,a1
+ mov 64,d0
+ sub d1,d0
+ cmp d0,d3
+ bcc 5f
+ mov d3,d0
+5:
+ sub d0,d3
+ mov d3,(56,sp)
+ mov (76,sp),d1
+ add d0,d1
+ mov d1,(76,sp)
+ mov d0,d3
+6:
+ movbu (a1),d1
+ movbu (a0),d0
+ asl 5,d0
+ add d1,d0
+ movbu (d0,a3),d0
+ movbu d0,(a0)
+ add 2,a0
+ inc a1
+ add -1,d3
+ bne 6b
+ jmp 1b
+9:
+ rets
+g2_end:

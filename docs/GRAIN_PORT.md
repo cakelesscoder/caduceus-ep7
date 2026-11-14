@@ -564,6 +564,107 @@ forced branch with a type other than 0x1000. Record +58 is the Mode.
 **Not a grain_cpu source change.** It is a layer, so the camera-tested r2 bytes and the v0.27→v0.30 chain are untouched. The
 committed chain (`patches/v030/build.py releases/v0.28/edits.json`) rebuilds `releases/v0.30/edits.json` exactly.
 
+## g2: noise from ROM, no heap (2026-11-14; released as v0.32b)
+
+**Camera result (owner, 2026-11-14, the 0.33-labelled build `d371615a…`, byte-identical to v0.32b except the version text):** grain works and the freeze-and-restart has not come back.
+
+Layer `patches/grain_g2` (`g2.s.in`, `model.py`, `build.py`, `verify.py`, `pins.txt`), applied by
+`patches/v032/build.py releases/v0.31d/edits.json --version 0.33 --extra grain_g2=patches/grain_g2/build.py`.
+Output `generated/grain_g2/`: package `rel/patched.pkg.bin` `d371615a…2271`, restore `963f4dfe…2327`, `preview.png`.
+Reliability and speed, no new feature.
+
+**Why.** The owner's camera still freezes and then restarts by itself on some Grain shots. Cause unproven. Two
+mechanisms fit, and this layer removes one and shrinks the other:
+- r2 keeps this CPU's interrupts masked for about 311,000 instructions per lock, 976 times a photo, and REC_IMAGE
+  busy for 303 M instructions (RE_CAPTURE §0–3).
+- r2 takes two blocks of the 43-block class-2 pool at capture time (GRAIN_HANG).
+
+**What it does.** `gc_grain`'s first 6 B become `jmp g2_grain; nop`, so both routes (gc_ob's call, and halation's
+`hl_grain`, which jumps there from gc_gs) arrive with r2's frame. `g2_grain` is r2's pass with a new noise source:
+- **Noise:** a 128 × 128 u8 tile in ROM, built as r2 fills its ring (nibble sums, averaged along x, then along y).
+  The image is covered by 64 × 64 px blocks. Each block reads the tile at its own (tx, ty), 0..64, drawn from the
+  photo's xorshift for every block row. So n depends only on (x, y) and the seed at record +44.
+- **Tables:** the Low / Med / High T tables are in ROM, byte for byte what `gc_tbl` builds for 23 / 55 / 91 (verify T
+  runs the old `gc_tbl` in the emulator against them).
+- **Loop:** 6 instructions a pixel, 64 pixels in a row without a loop (392 instructions a block, 6.125 a pixel).
+- **No malloc, no free.** The block offsets (86 × u16) are on the stack: 176 B below gc_grain's frame.
+- **Kept from r2:** guards and their ids, record fields, stage marks, the lock / window / flush protocol and its two
+  flushes outside the lock, the split at 128 MB slice edges, Grain Off = no call at all.
+- **K, rows per lock,** is the constant `K` in `build.py` (4 as r2; 2 and 1 give the same pixels, verify K).
+
+| 5184 × 3888, emulator | r2 | g2, K = 4 | g2, K = 2 | g2, K = 1 |
+|---|---|---|---|---|
+| Instructions per pixel | 15.02 | 6.15 | 6.16 | 6.17 |
+| Whole pass | 303 M | 124 M | 124 M | 124 M |
+| Instructions under one lock (flush not counted) | 311,295 | 127,297 | 63,687 | 31,882 |
+| Locks a photo (bus 0xce9d4b80, one row split at 0xd0000000) | 976 | 976 | 1946 | 3889 |
+| Flushes a photo (2 a lock on this window class, + 2) | 1954 | 1954 | 3894 | 7780 |
+| Setup before the first row | 458,324 | 767 | same code | same code |
+| malloc / free calls | 2 / 2 | 0 / 0 | same code | same code |
+
+Lower K costs flushes: at the OM-3's 0.15 ms a flush `[I]`, K = 2 adds about 0.3 s a photo and K = 1 about 0.9 s.
+
+**Statistics**, flat Y 128, 5184 × 3888, models (`model.py --stats`). "Exact" is r2's distribution worked out from
+its definition; r2 draws a new ring for every photo, so one r2 photo is itself a sample around it.
+
+| | Mean shift | Std | Corr. right / down / 2 down / diagonal | Other lags, max | Std of 64 × 64 block means |
+|---|---|---|---|---|---|
+| Low, r2 exact | 0.000 | 4.691 | | | |
+| Low, r2 at 8 more seeds | −0.07 .. +0.09 | 4.66 .. 4.71 | | | |
+| Low, r2 (seed 0x12345678) | −0.146 | 4.671 | 0.4932 / 0.4949 / −0.0003 / 0.2471 | 0.0059 | 0.151 |
+| Low, g2 | −0.005 | 4.708 | 0.4919 / 0.4883 / +0.0011 / 0.2471 | 0.0082 | 0.090 |
+| Med, r2 exact | +0.002 | 11.229 | | | |
+| Med, r2 at 8 more seeds | −0.16 .. +0.22 | 11.15 .. 11.26 | | | |
+| Med, r2 (seed 0x12345678) | −0.348 | 11.181 | 0.4948 / 0.4964 / −0.0002 / 0.2479 | 0.0059 | 0.361 |
+| Med, g2 | −0.009 | 11.265 | 0.4937 / 0.4901 / +0.0013 / 0.2478 | 0.0079 | 0.218 |
+| High, r2 exact | +0.167 | 18.554 | | | |
+| High, r2 at 8 more seeds | −0.11 .. +0.52 | 18.42 .. 18.61 | | | |
+| High, r2 (seed 0x12345678) | −0.410 | 18.475 | 0.4950 / 0.4967 / −0.0002 / 0.2480 | 0.0059 | 0.596 |
+| High, g2 | +0.146 | 18.620 | 0.4941 / 0.4905 / +0.0013 / 0.2480 | 0.0075 | 0.364 |
+
+- Std is within 0.4 % of r2's exact value, and the mean shift within 0.03. Correlations against r2: right −0.2 to
+  −0.3 %, down −1.3 %, diagonal equal.
+- The tile seed (4880) was picked from 1..120000 for these numbers, with the loss at block edges counted in.
+- **Block edges:** the two pixels either side of a block edge are independent (r2: correlation 0.5). That is one
+  pixel pair in 64 each way. Their mean step is 1.43 × the usual one (21.1 against 14.8 at High). No grid shows in
+  the flat-field renders at 1× and 3×, nor in the preview. **Look for it on the camera** (check 1 below).
+- Block means vary less than r2's, so there is no patchwork either.
+
+**Deviations from the brief.**
+- Unrolled by 64 (a whole block), not by 4: 6.125 instructions a pixel instead of 7.0, and no group counter.
+  Costs 0.9 KB. Pixels before a block edge or after the last whole block go one at a time (10 a pixel): only at
+  slice-edge splits and on widths that aren't a multiple of 64.
+- The tile wraps at its edges (x − 1 and y − 1 modulo 128) and its seed was searched for, not arbitrary.
+- One guard more: 0x33, level not 1..3 (r2 read past `gc_stab`). And no record: return at once (r2 would store
+  through 0). Neither can happen through gc_ob / gc_gs.
+- `pins.txt` is a fifth file. The claim has 394 naive scan hits, too many to pin by hand. `build.py --pins SPEC`
+  derives each from disassembly: 16 sweeps that start one byte apart must agree on the instruction over the hit, and
+  the hit must not be that instruction's address operand (335 run across two instructions, 59 are opcode, register
+  or displacement bytes). The same method reproduces the true instruction boundaries on all 178 hits that lie in
+  functions with a known entry. 251 of the hits also "point" into the middle of an instruction of the dead code.
+- Mean shift is compared with r2's exact value, not with one r2 photo: r2 at the verifier's seed is itself 0.58
+  off its own exact value.
+
+**r2 bytes left in place, unused (1420 B, reclaimable):** 0x601e01eb–0x601e0572 (the rest of `gc_grain`),
+0x601e05c3–0x601e06c2 (`gc_fill`, `gc_next`, `gc_p2`, `gc_cach`, `gc_tbl`), 0x601e06ce–0x601e06d4 (`gc_stab`),
+0x601e074d–0x601e084d (`gc_G`). Nothing outside refers to them but the dead EVF step-table words and r2's pinned
+false positives `[V scan of the built image]`. `gc_open`, `gc_cls`, `gc_blk`, `gc_mark`, `gc_cnt` stay in use.
+
+**Verifier** (`patches/grain_g2/verify.py BASE NEW PKGDIR`, BASE = the chain without the layer): T 4, M 13 (bit-exact
+to `model.py`: plain and blend routes, three levels, widths 4 / 100 / 200 / 5460, a carried seed, five window
+classes, the camera's 0xd0000000 edge residue and a split in the middle of a block), K 10, H 1 (a halation look
+with Grain: g2's grain over the halation model), G 22, I 20, X 10,304 aligned accesses, S 3, P: all pass.
+`patches/v027/verify.py` M and the "halation + Grain" case of `patches/halation/verify.py` still expect r2's pixels:
+on a build with g2 they fail by design; this verifier replaces them for the pass.
+
+**Camera checks (new behaviour only).**
+1. Grain Low, Med, High on a plain COLOR look, JPEG, a flat wall in the frame: grain as on v0.32a (same strength and
+   size), and no 64-px grid at 100 %.
+2. The save after a Grain shot is clearly shorter than on v0.32a (time shutter to card lamp off, both builds).
+3. The freeze: the owner's usual look with Grain Low, 30 or more shots including a short burst, hands off between
+   shots. No freeze, no restart. If it still happens, build K = 2, then K = 1.
+4. A Glow or Halo look with Grain (the blend route) still gets grain, and Grain Off gives none.
+
 ## Open: RAW+JPEG (2026-11-10)
 
 Grain (and halation) have not been camera-tested with RAW+JPEG. The OM-3 port's texture-grain route freezes with RAW+JPEG

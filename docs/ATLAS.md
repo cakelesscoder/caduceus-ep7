@@ -9,7 +9,7 @@ addresses. It consolidates `docs/*.md`, `patches/*/`, `tools/*.py`, `generated/*
 - **Addresses** are E-P7 1.1 main CPU addresses (decoded offset + 0x60020020) unless marked RAM/OSD. **None carry to
   another body** ([FIRMWARE_GUIDE.md](FIRMWARE_GUIDE.md) §12).
 - **Tags** as in FIRMWARE_GUIDE: **V** code/bytes/emulator, **C** camera-proven (a stronger V), **I** inference.
-- **Machine-readable:** [atlas.json](atlas.json) (929 symbols, incl. 137 static tasks).
+- **Machine-readable:** [atlas.json](atlas.json) (937 symbols, incl. 137 static tasks).
   `tools/atlas_annotate.py START STOP` runs `tools/dis.sh` and names every atlas address in the listing.
 - **New in this atlas (checked against the bytes here):** the static task descriptor and name tables (§2.1), the
   mailbox-id table, and the corrected COLOR editor record bases (§4, §15).
@@ -125,6 +125,7 @@ watchdog is kicked only by SYS_WDT; a CPU-bound pass in a higher-priority task s
 | `0x60051d66` | task_create | func | V | a0 name, a1 entry, d0/d1, (4,sp) prio, (8,sp) stack -> d0 tid | Dynamic task create (HLS_EVENT) | docs/SD_BUNDLES_V2.md |
 | `0x60054b33` | sync_rpc | func | V | d0 mailbox id, d1 arg, a0 msg; `call ..,[d2,d3,a2,a3],72` | Temp reply mailbox, post, wait forever, delete. Used by fileif, SYS_WDT requests (d1 0 off / 1 on+kick / 2 timeout) | docs/SD_BUNDLES.md, docs/HALATION_RED.md §21 |
 | `0x60054d9f` | psw_mask | func | V |  | Interrupt mask via PSW (level 0), used by lock | docs/GRAIN_PORT.md |
+| `0x60054dc0` | psw_restore | func | V | d0 = PSW; retf [],0 | mov d0,psw + 2 nop: cpu_unlock gives back the PSW that psw_mask returned. Between the two leaves this CPU takes no maskable interrupt (IM = 0 for cpu_lock(0)) | patches/grain_g2 |
 | `0x60055250` | nmi_stub_cpu0 | func | V | saves regs to frame, calls 0x60059a9d, rti | CPU1 0x600552c0, CPU2 0x60055330 | docs/RE_CAPTURE.md §4 |
 | `0x60056138` | addec_irq_handler | func | V |  | ADDEC (bus/address decode) error: prints ADDR/RDATA/WDATA/STATUS from 0x9a000000+0x100*cpu, clears, returns. Registered by 0x600560a9 via 0x6006aa25 | docs/RE_CAPTURE.md §4 |
 | `0x6005633f` | alarm_start | func | I | a0 callback, a1 delay, d0 mode | Deferred callback (cyclic/alarm handler [I]); ~30 callers | docs/RE_LIVEVIEW.md §1 |
@@ -876,6 +877,7 @@ CPU access to buffers only through the window mapper, lock, flush ([FIRMWARE_GUI
 | Address | Name | Kind | Tag | Signature / layout | Notes | Source |
 |---|---|---|---|---|---|---|
 | `0x601de740` | st_w | func | V | d0 = P+1020, a0 = P | Ours (split_tone v0.32a .sti): EP7X (no LOOKS.BIN, or fm_load still reading) -> capture mallocs at once, live view counts 240 split passes in P+848 (tag 0x5354xxxx) first; fm_load not run -> no split | patches/split_tone |
+| `0x601e01e5` | gc_grain | site | V | a0 = buffer record, d0 = level 1..3; frame [d2,d3,a2,a3],144 | Ours (grain_cpu r2): the CPU grain pass, called by gc_ob and reached by jmp from halation hl_grain. g2: its first 6 B are `jmp g2_grain; nop`; the body to gc_cls 0x601e0572, gc_fill 0x601e05c3, gc_next 0x601e060d, gc_p2 0x601e0640, gc_cach 0x601e0669, gc_tbl 0x601e0686, gc_stab 0x601e06ce and gc_G 0x601e074d stay in place, unused | patches/grain_g2 |
 | `0x60210e90` | st_h | func | V | jmp from st_c; (4,sp) P, (24,sp) kind | Ours (split_tone v0.32a .sth): no S at P+848 -> with LOOKS.BIN (P+1020 EP7F, L valid) S = L+2688 in the unused tail of the LOOKS block, no malloc; else jmp st_w | patches/split_tone |
 | `0x603397e0` | dev_stage_list | func | V | a0 ctx | Stage builder; 0x60339b8e gates the lens shading stage 0x6039d19a -> 0x6039e54e | docs/VIGNETTE_FIX.md |
 | `0x60339b8e` | gate_lens_shading | func | V | a0 ctx -> d0 | On when ctx+0xc4 == 0 and 0x603b54b0(request) != 0 and byte 1 != 0xff | docs/VIGNETTE_FIX.md |
@@ -968,6 +970,12 @@ CPU access to buffers only through the window mapper, lock, flush ([FIRMWARE_GUI
 | `0x60530b6c` | gamma_ptr_table | table | V | 25 rows x 8 u32 (4 cols x {normal, variant}) | Row 0 base 0x604ede78; 5-7 Cross Process I R/G/B; 9-11 CP II; 12-14 Vintage I; 15-17 Vintage II; 18-20 Vintage III; 21-23 Bleach Bypass II; 24 used when R+1838 == 257 | docs/RE_LIVEVIEW.md §4 |
 | `0x60532110` | gamma_effect_hash | table | V | 16 x {u32 id-1999, u32 handler} | id 2000 Flat, 2001 log, 0x0101006b/0x0102006b/0x01010079/0x01020079/0x01030079/0x0102007b three-curve, others single | docs/RE_LIVEVIEW.md §4 |
 | `0x60532738` | mask_tone_lut | table | V |  | Key 12 stage 0x0900 tone | docs/GRAIN_PORT.md |
+| `0x607b6430` | g2_grain | func | V | a0 = buffer record, d0 = level 1..3; on gc_grain's frame, ret [d2,d3,a2,a3],144 | Ours (grain_g2, sec-5 dead sdk-api claim 0x607b6420..0x607c6420): r2's guards (+ 0x33 level), record fields, stage marks, lock / window / flush protocol, K rows per lock (build constant), slice-edge split. Noise from g2_tile, tables from g2_T, 176 B more stack, no malloc / free | patches/grain_g2 |
+| `0x607b678f` | g2_offs | func | V | calls, shares the frame: blocks (80,sp), r (48,sp) | Ours: one block row's offsets. Per block tx then ty = ((r >> 8) & 0xffff) * 65 >> 16 from the photo's xorshift32; off[b] = ty * 128 + tx, u16 at (128 + 2b, sp). Runs outside the lock, every 64 rows | patches/grain_g2 |
+| `0x607b67f6` | g2_row | func | V | calls, shares the frame: pointer (52,sp), pixels (56), x (76), tile row (84), T (8) | Ours: one row piece from any x. Whole 64-px blocks through g2_blk; the pixels before a block edge or after the last whole block one at a time | patches/grain_g2 |
+| `0x607b6834` | g2_blk | site | V | a0 image, a2 off[b], d2 tile row, d3 blocks, a3 T | Ours: the block loop, 392 instructions for 64 px: a1 = tile row + off[b], then per pixel n = (k,a1), Y = (2k,a0), T[(Y << 5) + n] back to (2k,a0) | patches/grain_g2 |
+| `0x607b7420` | g2_tile | data | V | u8[128][128], values 0..30 | Ours: the noise tile (model.py tile(), xorshift seed 4880): r2's ring statistics in two dimensions. A block reads the 64 x 64 window at (tx, ty), 0..64 | patches/grain_g2 |
+| `0x607bb420` | g2_T | data | V | u8[3][256][32]: level, Y, n | Ours: the Low / Med / High tables, the bytes r2's gc_tbl builds for strengths 23 / 55 / 91, centre 991 (verify T) | patches/grain_g2 |
 
 ## 9. JPEG and EXIF
 
