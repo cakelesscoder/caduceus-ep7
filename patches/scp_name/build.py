@@ -41,6 +41,7 @@ SITE_PRE = {0x60e27564: bytes.fromhex('2cc40a'), 0x60e2757a: bytes.fromhex('2cc3
 BACK_BYTES = bytes.fromhex('5c08')        # 0x60e27589: mov (8,sp),a0 (then call 0x60e27950)
 GD_WORD = 0x6025aa98                      # Colour view part 3 init word (stock 0x60decbfc)
 GD_STOCK = 0x60decbfc
+GD_LIVE = 0x61fc27d8                      # its live .data copy (0x61fc27d0 part table + 8 = init + 0x01d67d40): what sn_gd reads at runtime (#48)
 BAD = {'mul', 'mulu', 'div', 'divu', 'setlb', 'llt', 'lne', 'leq', 'lra', 'lcc', 'lcs', 'trap'}
 
 
@@ -117,7 +118,7 @@ def apply(spec, version='0.31e'):
     check_free(spec, im)
     sub = dict(state=hex(SB3.STATE), lim=hex(SB3.LIM), pool=hex(SB3.POOL), bmagic=hex(SB3.MAGIC))
     src = SB3.subst((HERE / 'sn.s.in').read_text(), sub)
-    code, lst, s, _ = SB3.assemble(src, AT, dict(ep7_gd_word=GD_WORD, ep7_back=BACK))
+    code, lst, s, _ = SB3.assemble(src, AT, dict(ep7_gd_word=GD_LIVE, ep7_back=BACK))
     if s['sn_gd'] != AT or AT + len(code) > END:
         raise SystemExit(f'{len(code)} B does not fit {END - AT}')
     ins = SB3.disasm(code, AT, s['sn_end'])

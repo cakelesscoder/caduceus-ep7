@@ -55,7 +55,12 @@ sn_gd:
  mov d0,(132,sp)                  /* fake+128 = 1: colour-profile mode */
  mov sp,a0
  add 4,a0
- mov (ep7_gd_word),a1             /* the guide part chain, as the Colour view calls it (flash init word) */
+ mov (ep7_gd_word),a1             /* the guide part chain: the LIVE .data word 0x61fc27d8 (part 3), as the Colour view copies it.
+                                     The flash init image word 0x6025aa98 is not valid at runtime: the camera read 0 there and
+                                     faulted at PC 0 (#48, CRASH.BIN 2026-11-15) */
+ mov a1,d0
+ cmp 0,d0
+ beq 9f                           /* no chain: stock label */
  calls (a1)                       /* a0 = fake view; keeps d2/d3/a2/a3 */
  movhu (48,sp),d0                 /* fake+44: label kind */
  cmp 5,d0

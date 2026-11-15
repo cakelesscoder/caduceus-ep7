@@ -31,6 +31,7 @@ W = _load('ep7_wb_v_sn', ROOT / 'tools/ep7_verify_wb.py')
 SB3 = _load('ep7_sd_bundles_v3_build_snv', ROOT / 'patches/sd_bundles_v3/build.py')
 Region, execute = W.Region, W.execute
 BASE, SITE, BACK, GD_WORD = 0x60020020, 0x60e2757d, 0x60e27589, 0x6025aa98
+DATA_OFF = 0x01d67d40                    # .data = init image + this (0x6025aa98 -> 0x61fc27d8)
 POOL, HANDLE = 0xa1f8d800, 0x41
 P = POOL + HANDLE - 1
 LBL, REC = 0x13000000, 0x13100000
@@ -80,14 +81,17 @@ def label0(idv):
     return b'\xee' * 80                                              # the page's label before the site (id written by it)
 
 
-def run(im, idv, handle=HANDLE, magic=b'EP7B', kind=5):
+def run(im, idv, handle=HANDLE, magic=b'EP7B', kind=5, zero=False):
     sl = lambda lo, hi: im[lo - BASE:hi - BASE]
     word = struct.unpack_from('<I', im, GD_WORD - BASE)[0]
+    gd = bytearray(sl(0x6025aa80, 0x6025aac0))          # boot copies the init image to .data (+0x01d67d40)
+    if zero:
+        gd[0x18:0x1c] = bytes(4)                         # a zero live word: sn_gd must keep the stock label, no fault
     st = bytearray([W.STACK_FILL] * 0x2000)
     p = bytearray(1024); p[0:4] = magic
     rg = [Region('site', 0x60e27540, sl(0x60e27540, 0x60e275c0), 'rx'),
           Region('sn', 0x61242c00, sl(0x61242c00, 0x61242d00), 'rx'),
-          Region('gdw', 0x6025aa80, sl(0x6025aa80, 0x6025aac0), 'r'),
+          Region('gdw', 0x6025aa80 + DATA_OFF, bytes(gd), 'r'),   # only the live .data copy; the flash init image is unmapped (#48)
           Region('state', 0x622cbcc0, struct.pack('<HHI', 0, handle, 0), 'r'),
           Region('pool', P, bytes(p), 'r'),
           Region('stack', W.STACK, bytes(st), 'rw', True),
@@ -103,11 +107,11 @@ def run(im, idv, handle=HANDLE, magic=b'EP7B', kind=5):
 def t_x(base, new):
     n, bad, hits = 0, [], 0
     for idv in (2755, 2756):
-        for c in (dict(), dict(kind=4), dict(handle=0), dict(handle=0xffff), dict(handle=HANDLE + 2), dict(magic=b'EP7Q')):
+        for c in (dict(), dict(kind=4), dict(handle=0), dict(handle=0xffff), dict(handle=HANDLE + 2), dict(magic=b'EP7Q'), dict(zero=True)):
             r0, m0 = run(base, idv, **c)
             r1, m1 = run(new, idv, **c)
             g0, g1 = r0['registers'], r1['registers']
-            on = c.get('handle', HANDLE) == HANDLE and c.get('magic', b'EP7B') == b'EP7B'
+            on = c.get('handle', HANDLE) == HANDLE and c.get('magic', b'EP7B') == b'EP7B' and not c.get('zero')
             stock_lbl = bytearray(label0(idv)); struct.pack_into('<HHHH', stock_lbl, 0, 4, 0xeeee, idv, 2)
             want = bytearray(stock_lbl)
             ok = not r0['fault'] and not r1['fault'] and g0['pc'] == BACK == g1['pc'] and m0['lbl'] == bytes(stock_lbl)

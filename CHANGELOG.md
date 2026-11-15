@@ -13,6 +13,11 @@ were early-development pre-releases. Use at your own risk (see the README).
 
 - **Preset look packs:** pick **Standard 1.1** (new default: split tone where the real stock has a shadow/highlight cast, halation only on rem-jet-free film) or **Standard 1.0** (the previous library, unchanged) from **New**, or mix looks from several packs with **+ Add look › From a preset pack…**. Looks get a **Split tone** editor and the preview shows it. Saved packs and share links work as before. See `docs/PACKS.md`.
 
+## v0.33a — 2026-11-15 (beta)
+
+- **Fixed: pressing Down on the Colour Profile page crashed the camera ([#48](https://github.com/cakelesscoder/caduceus-ep7/issues/48)).** After a half-press, opening the Colour Profile page (for example with the Shortcut button) and pressing Down, or Up three times, to reach the colour wheel froze and restarted the camera, sometimes needing a battery pull. Since v0.32 the page's `Film:` label read one setting from a copy of camera memory that is only valid while the camera starts up; later it could read empty and the camera jumped to nothing. It now reads the live copy, and keeps the stock label if that is ever empty. Found with the v0.33 crash record. Thanks to codefist for the report and the bisection, and to OwenYHZ for pinning down the exact trigger.
+- Firmware screen shows `Caduceus: 0.33a`. Card files unchanged from v0.32.
+
 ## v0.33 — 2026-11-14 (beta)
 
 - **Grain without tiling:** v0.32b's faster grain laid its noise down in 64-pixel blocks, and at High a faint repeating pattern could show, most when a photo is viewed zoomed out. The grain now uses the same noise pattern as v0.32a and earlier again, with no blocks and no repeats, and the same strength at Low, Med and High. It keeps what made v0.32b stable: no shared camera memory during a shot and short interrupt holds. A photo with Grain saves about 1.85 times faster than on v0.32a (v0.32b was 2.4 times).

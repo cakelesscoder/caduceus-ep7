@@ -4,7 +4,20 @@
 d-pad over to change the film look, press Down: the camera crashes, reboots, and needs a battery pull. Follow-up:
 pressing Down "right away" on that screen also crashes, sometimes.
 
-**Result: no cause found.** Every v0.32 code path that this key sequence can reach runs clean in the emulator on the
+**Owner repro (2026-11-15, E-P7):** open the Colour Profile screen with the Shortcut button, press Down: crash.
+No look change is needed first.
+
+**Cause [V], from `EP7MOD/CRASH.BIN` (v0.33):** `FATAL_SYSTEM_ERROR: MEM`, CPU0, **PC 0**. Stack +8 = `sn_gd+0x5c` (the
+return of its `calls (a1)`), a1 = 0, a0 = the zeroed fake view, d0 = 1. `sn_gd` loaded the guide chain from
+`0x6025aa98`, the part table's **flash init image** word, at runtime, and it read 0 there. Every other guide layer
+bakes its next link in at build time; only sn_gd read the word live. The emulator maps the whole image, so it always
+saw the patched value (hence "ruled out" below). The init image is presumably reused after boot [I], which fits
+"sometimes".
+**Fix (v0.33a):** sn_gd reads the live `.data` copy `0x61fc27d8` (`0x61fc27d0` part table + 8, init + 0x01d67d40)
+and keeps the stock label if that word is 0. `patches/scp_name/verify.py` now maps only the `.data` copy (flash
+init unmapped) and adds a zero-word case: v0.33 faults at the `0x6025aa98` read, v0.33a passes X/Y.
+
+**Earlier result (before the crash record): no cause found.** Every v0.32 code path that this key sequence can reach runs clean in the emulator on the
 real v0.32a image. What's left is either a stock path the emulator stubs, or code outside the GUI. No fix was built.
 [V] = bytes, code or emulator. [I] = inference.
 
