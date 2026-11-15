@@ -411,3 +411,13 @@ movie_quality and shortcut_cycle_v2 (no shared bytes).
 | 0x605b775d (1 B, inside the SD loader v3 edit) | 3, data | SD loader range span of slot +60: 0 -> 84 (lo stays 0) |
 | slot +60 (COLOR slots of P+32) | heap | look_hw_ui: the Extras Mix / Strength memory, 8 (10 - strength) + mix. +61 is the last free COLOR slot byte |
 <!-- look_hw_ui: end -->
+
+<!-- i18n_ja: begin -->
+### i18n_ja (Japanese guide labels, docs/I18N_JA.md; layer after look_hw_ui, shipped in v0.34a)
+
+| Range (end exclusive) | Section | Owner |
+|---|---|---|
+| **0x607e1b00–0x607e2100 (1536 B claim)** | 5 | **i18n_ja** code `ja_gd` + whole-label table `z_tab`, 1356 B at 0x607e1b10. Dead `sdk api` handlers (CODE_SPACE_SURVEY §2; needs extras_pages' sdk cut). Inside the run 0x607e1add–0x607e21dc into which no reference from outside the dead code points (full scan of 0x607c9c20–0x607e87c5 on the v0.35a image, all four aliases + d16 / d32 call / calls / jmp, false positives included, no pin); build check `CL.refs` over the claim. 16 B stock guards; **free inside: 0x607e205c–0x607e20f0** |
+| **0x607ccf62–0x607cd660 (1790 B claim)** | 5 | **i18n_ja** token table (data only, read by `ja_gd` through `mov ep7_tok,a2`), 1740 B at 0x607ccf72. The whole run 0x607ccf61–0x607cd660 of the same scan less its first byte. 16 B stock guards; **free inside: 0x607cd63e–0x607cd650** (18 B: more tokens need another run) |
+| 0x6025aa98 (data) | .data init image | guide part word lu_guide -> ja_gd (runs lu_guide's chain first, then translates kind-5 labels when the loaded strings are Japanese) |
+<!-- i18n_ja: end -->

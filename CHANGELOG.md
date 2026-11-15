@@ -3,6 +3,12 @@
 Caduceus firmware patches for the Olympus PEN E-P7 (firmware 1.1). Releases from v0.25 are betas; earlier ones
 were early-development pre-releases. Use at your own risk (see the README).
 
+## v0.34a — 2026-11-16 (beta)
+
+- **Halation on brighter scenes:** halation used to be skipped when more than a third of the frame was bright; the faster halation code now applies it up to four fifths of the frame. The heaviest frame it now allows still costs less than the heaviest the old code ran (`docs/HALATION_RED.md` §24).
+- **Japanese labels:** with the camera language set to 日本語, the Colour editor, its Extras pages and the Colour Profile page show Caduceus labels in Japanese (`docs/I18N_JA.md`). Native-speaker corrections are welcome.
+- Firmware screen shows `Caduceus: 0.34a`. Card files unchanged from v0.34.
+
 ## v0.34 — 2026-11-16 (beta)
 
 - **Colour mix (colour matrix) per look:** a look can now carry a 3×3 colour matrix that the camera's own image hardware applies, in photos and live view, with no extra processing time. It gives real film colour character: channel cross-talk and colour separation (Kodachrome's deep reds and cyan-leaning blues, Portra's warm skin, CineStill's teal and orange). Each row keeps summing to 1.0, so greys stay neutral.

@@ -12,7 +12,7 @@ stills, and longer video recording.
 
 *Named after the caduceus, the staff of Hermes: messenger between gods and mortals and guide of travellers.*
 
-**Latest release: [v0.34](https://github.com/cakelesscoder/caduceus-ep7/releases/tag/v0.34)** ·
+**Latest release: [v0.34a](https://github.com/cakelesscoder/caduceus-ep7/releases/tag/v0.34a)** ·
 **[Install guide](docs/INSTALL.md)** · **[Changelog](CHANGELOG.md)** · **[Caduceus Control Panel](https://cakelesscoder.github.io/caduceus-ep7/)** (make and share looks in your browser) · The camera's Setup › Firmware screen shows the Caduceus version.
 
 > [!WARNING]
@@ -56,8 +56,9 @@ halation aren't drawn.*
 | **Split toning** | Tint the shadows and the highlights separately (12 colours, strength −5..+5 each), per COLOR profile, set on the new **Colour & Light** page or in the Control Panel. Looks carry their own (Standard 1.1 pack), and it shows in live view and photos. Same formula as Caduceus for OM-3. | **New in v0.32** |
 | **Two Extras pages** | INFO past Light gives **Effects** (Grain, Glow/Clarity, Halo, Art, Sharp, NR, VigFix), then **Colour & Light** (WB, Blacks, Whites, shadow and highlight tone). | **New in v0.32** |
 | **Framing lines** | With Displayed Grid on the diagonal grid, live view shows 65:24 and 21:9 frame lines; the Panorama aspect gets a rule-of-thirds grid. | **New in v0.32** |
+| **Japanese labels** | With the camera in 日本語, Caduceus's own editor labels show in Japanese (`docs/I18N_JA.md`, native-speaker review welcome). | **New in v0.34a** |
 | **Simplified Chinese labels** | With the camera in 简体中文, Caduceus's own editor labels show in Chinese ([#46](https://github.com/cakelesscoder/caduceus-ep7/issues/46), review welcome). | **New in v0.32** |
-| **Tinted halation** | A red/orange glow around bright lights, as on CineStill. Extras sector 11 **Halo** Off / Low / Med / High per profile; looks set their own (CineStill 800T Med, a few others Low). White cores stay white; adds 1–2 s to night shots with lights; stills only. | **New in v0.31** |
+| **Tinted halation** | A red/orange glow around bright lights, as on CineStill. Extras sector 11 **Halo** Off / Low / Med / High per profile; looks set their own (CineStill 800T Med, a few others Low). White cores stay white; adds 1–2 s to night shots with lights; stills only. Since v0.34a it also applies when up to 4/5 of the frame is bright (was 1/3). | **New in v0.31** |
 | **Sharpening off per profile** | Extras sector 10 **Sharp**: **Camera** (your Sharpness setting) or **Off**, which turns the camera's sharpening fully off for that COLOR profile, for a softer, unsharpened look with no edge halos. Sharpness −2 still leaves about 40% of it on. Stills, and the Movie profile. Set by you, never by a look. | **New in v0.28** |
 | **Noise reduction per profile** | The camera's own noise reduction (Noise Filter) per COLOR profile: Extras sector 9 **NR** Camera / Std / Low / Off (most texture). It applies at each photo and follows a profile switch, without changing the menu setting. | Camera-tested |
 | **Lens vignette correction off per look** | Picking a look turns the camera's lens shading correction off for that profile, for natural corners, without changing the menu setting. Extras sector 8 changes it (**VigFix Off** / **VigFix Camera**), and a look can keep the correction in the Control Panel. | **New in v0.25, please report:** not yet confirmed on photos. See [how to test](#vignette-correction-reports-wanted) |
@@ -91,8 +92,8 @@ The builder downloads OM's official 1.1 firmware from OM's server, checks it, an
   - Windows: `Build Caduceus (Windows).bat`
   - macOS: `Build Caduceus (Mac).command` (the first time: right-click › **Open**)
   - Linux: `build-caduceus-linux.sh`
-- **Or from a terminal** in that folder: `python3 caduceus.py build --release v0.34`
-  (Windows: `py caduceus.py build --release v0.34`).
+- **Or from a terminal** in that folder: `python3 caduceus.py build --release v0.34a`
+  (Windows: `py caduceus.py build --release v0.34a`).
 
 It creates a folder with:
 

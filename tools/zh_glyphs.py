@@ -16,6 +16,7 @@ Stock Chinese strings mix both (e.g. string 2749 '色彩配置文件 1'), so the
   .venv/bin/python -I tools/zh_glyphs.py                    # summary + the character list
   .venv/bin/python -I tools/zh_glyphs.py --check 颗粒 暗角校正  # glyphs OK / missing per argument
   .venv/bin/python -I tools/zh_glyphs.py --json out.json
+  .venv/bin/python -I tools/zh_glyphs.py --font 51 --strings 17 --check 彩度  # Japanese (docs/I18N_JA.md)
 """
 import argparse, json, struct, sys
 from pathlib import Path
@@ -72,10 +73,11 @@ def fonts(o, res=FONT_RES):
     return out
 
 
-def available(o=None):
+def available(o=None, res=FONT_RES):
+    """res: font resource (36 Simplified Chinese; 51 Japanese, docs/I18N_JA.md)."""
     o = o or OSD()
     cps = set()
-    for _d, cmap in fonts(o):
+    for _d, cmap in fonts(o, res):
         cps |= set(cmap)
     return {chr(c) for c in cps}
 
@@ -84,19 +86,21 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--check', nargs='*', help='strings to test against the glyph set')
     ap.add_argument('--json', type=Path)
+    ap.add_argument('--font', type=int, default=FONT_RES, help='font resource (36 zh-Hans, 51 Japanese)')
+    ap.add_argument('--strings', type=int, default=STRING_RES, help='string resource (2 zh-Hans, 17 Japanese)')
     a = ap.parse_args()
     o = OSD()
-    fl = fonts(o)
+    fl = fonts(o, a.font)
     have = set()
     for d, cmap in fl:
         hs = sorted({v[1] for v in cmap.values()})
-        print(f'font dir res{FONT_RES}+{d:#x}: {len(cmap)} glyphs, height {hs}, pages '
+        print(f'font dir res{a.font}+{d:#x}: {len(cmap)} glyphs, height {hs}, pages '
               + ' '.join(f'{p:02x}' for p in sorted({c >> 8 for c in cmap})))
         have |= {chr(c) for c in cmap}
-    _b, strs = o.strings(STRING_RES)
+    _b, strs = o.strings(a.strings)
     used = {ch for s in strs if s for ch in s if ord(ch) > 0x7e}
     cjk = sorted(c for c in have if ord(c) > 0x7e)
-    print(f'{len(have)} characters; {len(cjk)} beyond ASCII. String table {STRING_RES} uses {len(used)} beyond ASCII, '
+    print(f'{len(have)} characters; {len(cjk)} beyond ASCII. String table {a.strings} uses {len(used)} beyond ASCII, '
           f'{len(used - have)} of them without a glyph (shared table text this body does not draw).')
     if a.check:
         bad = 0
@@ -106,7 +110,7 @@ def main():
             print(f'{s}\t{"OK" if not miss else "MISSING " + "".join(miss)}')
         sys.exit(1 if bad else 0)
     if a.json:
-        a.json.write_text(json.dumps(dict(font_res=FONT_RES, chars=''.join(sorted(have))), ensure_ascii=False) + '\n')
+        a.json.write_text(json.dumps(dict(font_res=a.font, chars=''.join(sorted(have))), ensure_ascii=False) + '\n')
     else:
         print(''.join(cjk))
 

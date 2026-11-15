@@ -3,7 +3,7 @@
  *   A  Y of every 2nd pixel on every 4th row: cell += (Y - T) >> 2, saturating at 248 (64 x 64 px cells, u8). Eight samples
  *      are OR-ed and compared once (an OR below T + 4 means none of them adds anything); a cell at 248 is skipped;
  *   B  two [1 2 1] / 4 passes per axis, in place; u = min(255, 21 v >> 3), g = (u (511 - u) >> 8) gmax >> 8;
- *      no halation when no cell or more than a third of the cells have g >= 16 (the h2 cap);
+ *      no halation when no cell or more than {cov_num}/{cov_den} of the cells have g >= 16 (build.py COVER; h2: 1/3);
  *   C  per row, per 32-pair strip k between cell centres k - 1 and k: a = lv(k - 1), b = lv(k), v = 64 a + 2 (b - a) j,
  *      g = v >> 6, with lv(c) = (64 r0[c] + (r1[c] - r0[c]) t) >> 6. Strips whose g is 0 throughout are skipped, the others
  *      run from their first to their last pair with g >= 1 (h6_z), so no pair with g = 0 is ever visited:
@@ -244,15 +244,8 @@ h6_pb:
  inc a0
  add -1,d3
  bne 3b
- mov a1,d0                        /* cells with g >= 16: none, or 3 count > cells: no halation */
- cmp 0,d0
- beq h6_exit
- mov d0,d1
- add d0,d0
- add d1,d0
- mov (44,sp),d1
- cmp d1,d0
- bhi h6_exit
+ mov a1,d0                        /* cells with g >= 16: none, or more than {cov_num}/{cov_den} of the cells: no halation (build.py COVER) */
+{cov_test}
 
 /* ------------------------------------------------------------------ pass C: bands of rows that share two cell rows */
 h6_pc:

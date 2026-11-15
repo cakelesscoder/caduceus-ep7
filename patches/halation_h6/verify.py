@@ -11,7 +11,8 @@ BASE is the same chain without the layer (the shipped h2 halation), NEW the chai
   S  odd sizes: one strip, a last strip cut short, less than a band of rows
   G  gate: Halo Off, looks without halation, MONO, no record -> photo, result and mallocs == BASE (untouched);
      halation + Grain == BASE's bytes (halation first, then the same grain)
-  C  the coverage cap and an empty grid: photo untouched
+  C  the coverage cap (build.py COVER): over it, and an empty grid, photo untouched; between h2's 1/3 and COVER, NEW == the model
+     and BASE untouched; the last frame under the cap (sky rows in steps of 4) still gets its halation
   F  memory: with a LOOKS.BIN block no malloc and nothing written outside L+5824..16383; without one (EP7X, wrong tag, wrong
      back pointer, misplaced L, a grid too big for the tail) one malloc, freed, L untouched; a failed malloc and bad records:
      photo untouched, nothing to free
@@ -51,7 +52,7 @@ FRAMES = (('night with lights', 'testdata/camera_v025/PB061747.JPG'), ('daylight
 
 
 # ------------------------------------------------------------------ the model, vectorised for whole frames (== HV.model, checked in M)
-def model_np(pic, w, h, st, tint, gmax):
+def model_np(pic, w, h, st, tint, gmax, cover=(1, 3)):
     a = np.frombuffer(pic, dtype=np.uint8).reshape(h, st * 2)
     gw, gh = (w + 63) >> 6, (h + 63) >> 6
     ys = np.arange(2, h, 4)
@@ -68,7 +69,7 @@ def model_np(pic, w, h, st, tint, gmax):
     u = np.minimum(255, (21 * g) >> 3)
     g = (((u * (511 - u)) >> 8) * gmax) >> 8
     cnt = int((g >= 16).sum())
-    if cnt == 0 or 3 * cnt > gw * gh:
+    if cnt == 0 or cover[1] * cnt > cover[0] * gw * gh:
         return pic, cnt, None
     fy = np.arange(h) - 32
     g0 = np.where(fy >= 0, fy >> 6, 0); t = np.where(fy >= 0, fy & 63, 0); g1 = np.minimum(g0 + 1, gh - 1)
@@ -249,7 +250,12 @@ def masked(q, gc, pic, w, h, st, tbl, at, nth, **kw):
 
 
 TINT = HV.TINT
-slots, gm, scene, model = HV.slots, HV.gm, HV.scene, HV.model
+slots, gm, scene = HV.slots, HV.gm, HV.scene
+COVER = tuple(H6.COVER)                           # main() takes NEW's (build.py COVER); BASE (h2) is 1/3
+
+
+def model(*a):
+    return HV.model(*a, cover=COVER)
 LIGHTS = [(300, 260, 6), (1400, 800, 14), (840, 1300, 3)]
 
 
@@ -264,7 +270,7 @@ def t_model(qo, q, gc):
         n += 1
         good = r['ok'] and r['pic'] == want and want != pic and (r['mallocs'], r['frees']) == ((0, 0) if looks else (1, 1)) and r['modes'] == 0
         if good and cls == 'direct' and tint == 1:
-            good = model_np(pic, w, h, st, TINT['red'], gm(eff, strength, tint))[0] == want                    # the whole-frame model R uses
+            good = model_np(pic, w, h, st, TINT['red'], gm(eff, strength, tint), cover=COVER)[0] == want                    # the whole-frame model R uses
         if good and old:
             a = run(qo, gc, pic, w, h, st, slots(eff, strength, tint), bus=bus, looks=looks)
             good = a['ok'] and a['pic'] == r['pic'] and a['d0'] == r['d0'] and a['mallocs'] == 3
@@ -340,14 +346,42 @@ def t_gate(qo, q, gc):
 
 
 def t_cover(qo, q, gc):
+    """Over COVER: untouched (both). Between h2's 1/3 and COVER: NEW == the model, BASE untouched, also on the last sky frame under COVER."""
     bad, n = [], 0
     w, h, st = 256, 192, 256
-    for name, pic in (('daylight', scene(w, h, st, [], wall=0.6, seed=4)), ('no highlights', scene(w, h, st, [], seed=6))):
+    for name, pic in (('no highlights', scene(w, h, st, [], seed=6)),):
         r = run(q, gc, pic, w, h, st, slots(2, 5, 1))
         a = run(qo, gc, pic, w, h, st, slots(2, 5, 1))
         n += 1
         if not (r['ok'] and r['pic'] == pic == a['pic'] and r['mallocs'] == 0 and r['m']['lblk'][:H6.L_LO] == a['m']['lblk'][:H6.L_LO]):
             bad.append((name, r['fault'], r['pic'] == pic))
+    w, h, st = 1024, 768, 1024                            # 16 x 12 cells; the top rows clipped, as a sky
+    cells = ((w + 63) >> 6) * ((h + 63) >> 6)
+    tg = HB.GMAX[2]
+    seen = {}
+    for k in range(4, h, 4):
+        pic = scene(w, h, st, [], wall=k / h, seed=4)
+        _, cnt = HV.model(pic, w, h, st, TINT['red'], tg, cover=(1, 1))
+        over_new = COVER[1] * cnt > COVER[0] * cells
+        cls = 'over COVER' if over_new else 'over 1/3, under COVER' if 3 * cnt > cells else None
+        if cls and cls not in seen:
+            seen[cls] = (pic, cnt)
+        if over_new and 'under COVER, last' in seen:
+            break
+        if cls == 'over 1/3, under COVER':
+            seen['under COVER, last'] = (pic, cnt)
+    for name in ('over COVER', 'over 1/3, under COVER', 'under COVER, last'):
+        if name not in seen:
+            continue
+        pic, cnt = seen[name]
+        want, _ = model(pic, w, h, st, TINT['red'], tg)
+        r = run(q, gc, pic, w, h, st, slots(2, 5, 1))
+        a = run(qo, gc, pic, w, h, st, slots(2, 5, 1))
+        n += 1
+        if not (r['ok'] and a['ok'] and r['pic'] == want and a['pic'] == pic and (want == pic) == (name == 'over COVER') and r['mallocs'] == 0):
+            bad.append((name, cnt, cells, r['fault'], r['pic'] == want, a['pic'] == pic))
+    if COVER != (1, 3) and len(seen) < 3:
+        bad.append(('frames', sorted(seen)))
     return bad, n
 
 
@@ -463,7 +497,7 @@ def t_frames(qo, q, gc, so, sn):
         if path is not None and not path.exists():
             out.append(f'      {name}: {path.name} not here, skipped'); continue
         pic = frame_from_jpeg(path) if path else led_frame()
-        want, cnt, gp = model_np(pic, 5184, 3888, 5184, TINT['red'], HB.GMAX[2])
+        want, cnt, gp = model_np(pic, 5184, 3888, 5184, TINT['red'], HB.GMAX[2], cover=COVER)
         res = []
         for tag, qq, ph in (('BASE', qo, [so[k] for k in ('hl_pa', 'hl_pb', 'hl_pc', 'hl_x98')]), ('NEW', q, [sn[k] for k in ('h6_pa', 'h6_pb', 'h6_pc', 'h6_exit')])):
             r = run(qq, gc, pic, 5184, 3888, 5184, slots(2, 5, 1), bus=REAL_BUS, phases=ph)
@@ -507,6 +541,8 @@ def main():
     old, *_ = V.image(base_s)
     new, pkg, rst, info = V.image(new_s)
     gc = new_s['grain_cpu']['symbols']
+    global COVER
+    COVER = tuple(new_s['halation_h6'].get('cover', (1, 3)))
     so = {k: int(v, 16) for k, v in base_s['halation']['symbols'].items()}
     sn = {k: int(v, 16) for k, v in new_s['halation_h6']['symbols'].items()}
     qo, q = stub(old, gc), stub(new, gc)

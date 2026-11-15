@@ -74,6 +74,13 @@ HL_RUN, ENTRY_OLD = 0x601de917, bytes.fromhex('4304420800')   # hl_run: mov a0,(
 HL_CALL = (0x601de902, bytes.fromhex('cd1500f060'))            # hl_grain: call hl_run,[d2,d3,a2,a3],96, its only caller
 BAD = T1.BAD                              # mul is used (every return is `ret`)
 
+# ---- the coverage cap: no halation when more than COVER of the cells have g >= 16
+COVER = (4, 5)                            # (num, den); docs/HALATION_RED.md §24 "Coverage cap 4/5" (h2 and v0.33-v0.34: 1/3)
+COVER_TEST = {                            # d0 = count of cells with g >= 16; 18 B either way (both branches long), so nothing after it moves
+    (1, 3): ' cmp 0,d0\n beq h6_exit\n mov d0,d1\n add d0,d0\n add d1,d0\n mov (44,sp),d1\n cmp d1,d0\n bhi h6_exit',   # 3 count > cells
+    (4, 5): ' mov d0,d1\n asl2 d0\n add d1,d0\n beq h6_exit\n mov (44,sp),d1\n asl2 d1\n cmp d1,d0\n bhi h6_exit\n nop',  # 5 count: 0, or > 4 cells
+    (1, 1): ' cmp 0,d0\n beq h6_exit\n mov (44,sp),d1\n cmp d1,d0\n bhi h6_exit\n nop\n nop\n nop',                    # measurement only: no cap
+}
 # ---- the lock budget
 HL_CAP = 120000                           # instructions of our own work under one lock, at most (a row over it alone goes alone)
 E_LOCK = 300                              # the lock's own share: gc_open after the lock is taken, the close before the unlock
@@ -215,7 +222,7 @@ def check_l(spec):
 def source(hl):
     tl = '\n'.join(' .long ' + ','.join(str(v) for v in r) for r in HB.tint_rows(hl['swap']))
     s = (HERE / 'h6.s.in').read_text()
-    sub = dict(thr=hl['thr'], cap=HL_CAP, e_lock=E_LOCK, ea_sample=EA_SAMPLE, ea_row=EA_ROW, ec_pair=EC_PAIR, ec_seg=EC_SEG, ec_row=EC_ROW,
+    sub = dict(thr=hl['thr'], cap=HL_CAP, cov_num=COVER[0], cov_den=COVER[1], cov_test=COVER_TEST[COVER], e_lock=E_LOCK, ea_sample=EA_SAMPLE, ea_row=EA_ROW, ec_pair=EC_PAIR, ec_seg=EC_SEG, ec_row=EC_ROW,
                fmagic=hex(ST.FMAGIC), lmagic=hex(ST.LMAGIC), ltag=ST.LTAG, lback=ST.LBACK, loff=L_LO, tailw=(L_HI - L_LO) // 4,
                npool2=hex(-ST.POOL2 & 0xffffffff), liml=hex(ST.POOL2_END - ST.POOL2 - L_HI + 1),
                tint=tl, gmax=','.join(map(str, hl['gmax'])), ztab=','.join(map(str, ztab())))
@@ -279,7 +286,7 @@ def apply(spec, version='0.33'):
                                   f'claim {CLAIM[0]:#x}..{CLAIM[1]:#x})'))
     ST.put(spec, stock, HL_RUN, ENTRY_OLD, b'\xdc' + struct.pack('<i', sy['h6_run'] - HL_RUN), 'halation h6: hl_run -> jmp h6_run (same frame)')
     spec['halation_h6'] = dict(built_by=SRC, test='h6', version=version, claim=[hex(CLAIM[0]), hex(CLAIM[1])], code=[hex(AT), len(code)],
-                               site=dict(hl_run=hex(HL_RUN)), cap=HL_CAP,
+                               site=dict(hl_run=hex(HL_RUN)), cap=HL_CAP, cover=list(COVER),
                                bounds=dict(e_lock=E_LOCK, ea_sample=EA_SAMPLE, ea_row=EA_ROW, ec_pair=EC_PAIR, ec_seg=EC_SEG, ec_row=EC_ROW),
                                L_tail=dict(lo=L_LO, hi=L_HI, use='the cell grid, while the passes run (nothing is kept)'),
                                reclaim=[[n, hex(lo), hex(hi), why] for n, lo, hi, why in RECLAIM],

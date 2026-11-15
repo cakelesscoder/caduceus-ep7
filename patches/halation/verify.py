@@ -35,7 +35,7 @@ GDIA = 0x41494447
 
 
 # ------------------------------------------------------------------ the model (hl.s.in, integer for integer)
-def model(pic, w, h, st, tint, gmax):
+def model(pic, w, h, st, tint, gmax, cover=(1, 3)):
     a = np.frombuffer(pic, dtype=np.uint8).copy().reshape(h, st * 2).astype(np.int64)
     gw, gh = (w + 63) >> 6, (h + 63) >> 6
     g = np.zeros((gh, gw), dtype=np.int64)
@@ -58,7 +58,7 @@ def model(pic, w, h, st, tint, gmax):
     u = np.minimum(255, (21 * g) >> 3)
     g = (((u * (511 - u)) >> 8) * gmax) >> 8
     cnt = int((g >= 16).sum())
-    if cnt == 0 or 3 * cnt > gw * gh:
+    if cnt == 0 or cover[1] * cnt > cover[0] * gw * gh:              # h2: 1/3 (halation_h6 build.py COVER)
         return pic, cnt
     dy, d0, d1 = tint
     for y in range(h):

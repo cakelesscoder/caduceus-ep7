@@ -1012,3 +1012,73 @@ generated/halation_h6/rel --frames`, all pass):
 3. A bright daylight scene with CineStill 800: saves at its usual speed, no crash.
 4. A COLOR slot with split toning and Halo on: the split tone is still right after several halation shots. Then one
    shot without LOOKS.BIN on the card still gets its halo.
+
+## 24. Coverage cap 4/5 (0.34a, 2026-11-16; emulator-measured; camera-tested by the owner, shipped in v0.34a)
+
+**Which cap.** The cap in v0.33–v0.34 is h1/h2's: no halation when no cell, or more than **1/3** of the cells, have
+g ≥ 16 after the blur and knee (h6.s.in, `3 count > cells`). b3's `hl_cap` (30 % of the cells with any g > 0, §20) was
+dropped in 0.31b4 (§22) and never reached h6. Frames over 1/3 are bright daylight: skies, white walls, sunlit
+water.
+
+**Rule.** At the new cap, h6's work must stay within h2's worst case under the 1/3 cap, on every metric: instructions per
+pass and in total, locks, flushes, the longest lock and mallocs. Same harness as §23: real code, 5184 × 3888 at the camera
+bus 0xce9d4b80, Halo High red, LOOKS.BIN loaded. For the frames over 1/3, h6 was built with the cap test made a no-op.
+Synthetic frames: **sky** has the top rows at Y 246–254 over a Y 70–150 scene. **patch** has random clipped 2 × 2-cell
+blocks, so more of the frame is halo edge. **wash** is a sky plus two Y 228 specks per cell, which puts g = 8 on every
+cell, so every pair glows and both chroma bytes clamp (red: Cb 0, Cr 255); it is the worst case for pass C. Coverage =
+cells with g ≥ 16 / all cells. Cells: instructions (M), photo locks / flushes.
+
+| Frame | Cover | Code | Pass A | Pass C | Total | Locks / flushes |
+|---|---|---|---|---|---|---|
+| sky | 29.5 % | h2 | 23.55 | 171.47 | 195.51 | 2157 / 4314 |
+| sky | 32.8 % | h2 | 24.24 | 189.62 | 214.35 | 2285 / 4570 |
+| patch | 33.1 % | h2 | 19.04 | 328.33 | 347.86 | 4862 / 9724 |
+| PA211062 (dense) | 27.5 % | h2 | 18.19 | 337.79 | 356.47 | 4862 / 9724 |
+| PA221205 (Milky Way, 53 % of pairs glow) | 19.2 % | h2 | 17.94 | **354.92** | **373.35** | 4398 / 8796 |
+| **h2 envelope, real frames and sky/patch** | ≤ 33 % | h2 | 24.24 | 354.92 | 373.35 | 4862 / 9724 |
+| wash (adversarial) | 32.8 % | h2 | 24.30 | 575.57 | 600.35 | 4862 / 9724 |
+| sky | 29.5 / 39.3 / 50.8 / 60.7 / 70.5 / 75.4 / 80.3 / 100 % | h6 | 12.0 … 3.3 | 118.0 / 156.3 / 200.9 / 239.2 / 277.5 / 296.6 / 315.7 / 387.5 | 130.5 / 167.5 / 210.8 / 247.8 / 284.8 / 303.4 / 321.9 / 391.2 | 1429 / 2858 … 4134 / 8268 |
+| patch | 30.1 / 39.8 / 49.9 / 59.9 / 69.9 / 75.0 / 80.0 / 100 % | h6 | 14.7 … 6.7 | 152.3 / 196.2 / 238.0 / 278.2 / 314.9 / 330.5 / **344.3** / 387.5 | 167.5 / 211.1 / 252.7 / 292.5 / 329.0 / 344.4 / **357.8** / 394.6 | 2382 / 4764 … 4134 / 8268 |
+| PA211063 (turbines and light) | 44.6 % | h6 | 6.71 | 187.94 | 195.07 | 2303 / 4606 |
+| PA221247 (swans in flowers) | 57.5 % | h6 | 9.51 | 286.67 | 296.59 | 3430 / 6860 |
+| PA211089 (cockatoo) | 75.3 % | h6 | 9.81 | 332.03 | 342.25 | 3979 / 7958 |
+| wash | 32.8 / 50.8 / 70.5 / 100 % | h6 | 11.9 … 3.3 | 424.6 / 423.7 / 422.7 / 421.3 | 436.9 / 433.5 / 430.1 / 425.0 | 4134 / 8268 |
+
+Every run gives the model's photo. h2 always makes 3 mallocs; h6 makes none.
+
+- **h6 is the same price at any cap in the worst case.** On the wash, every pair is walked whatever the coverage: about
+  430 M with no cap at all, against 600 M for h2 on the same frame under its cap. The cap mostly limits the ordinary
+  case.
+- **Longest lock and interrupt hold don't depend on the cap.** The cap only decides whether pass C runs. Each lock holds
+  ≤ HL_CAP of our work, and a row too big to share goes alone. That worst row (every pair glows and clamps) can
+  already happen under the 1/3 cap. Verify I, re-run on 0.34a: h6 109.8 K vs h2 124.5 K.
+- **Locks and flushes** top out at 4134 / 8268 (245 pass A locks + one per row), below h2's 4862 / 9724.
+- **Where it crosses.** Pass C is the metric that binds. The patch curve reaches h2's 354.9 M near 85 % coverage, the
+  sky curve near 91 %, and the total (373.4 M) is reached near 88 %. **Rounded down to 4/5:** at 80 % the patch frame
+  is 344.3 M in pass C (−3 %) and 357.8 M in total (−4 %), and every other metric has more room.
+- **What changes for photos.** Frames from 1/3 to 4/5 of the cells now get halation: PA211063/64 (45–47 %), PA221247
+  (58 %), PA211089 (75 %). Only near-white frames over 80 % are still skipped.
+- **Time [I]** (§23 rate): the 80 % patch frame is about 3.6–5.7 s + 1.2 s of flushes, within h2's dense frame (5.0–7.2 s).
+  The watchdog has been at 30 s since 0.31b4.
+
+**Change.** build.py `COVER = (4, 5)`. `COVER_TEST` holds the test, 18 B either way (`5 count` is 0, or more than
+`4 cells`, unsigned), so no other byte of h6 moves. `COVER = (1, 3)` rebuilds v0.34's h6 byte for byte.
+patches/halation/verify.py `model()` and h6 verify's `model_np()` take the cap. h6 verify's C test now checks the
+frames between 1/3 and the cap: NEW gives the model's halation and BASE leaves the photo alone. It also checks the last
+sky frame under the cap and one over it.
+
+**Verified (0.34a)** (`generated/v034a_halo`, the v0.34 chain at `--version 0.34a`). The h6 checks were run against
+BASE = the v0.32 chain + grain_g2, which has h2:
+- **C** 4/4: no highlights; over 4/5; between 1/3 and 4/5; the last sky frame under 4/5 (both: NEW == model, BASE
+  untouched).
+- **M** 4/4, **G** 11/11, **N** 24/24.
+- **I:** the worst lock is pass C 109,776 against h2's 124,473, and pass A 97,183, both within HL_CAP 120,000.
+- **Package:** decoded == stock + edits (0x100 and 0x101), and restore == stock. Against `releases/v0.34`, 25 bytes
+  differ: this test (0x607c6629..0x607c663a, 18 B), the version text (`0.34` → `0.34a`, 4 B) and crash_log's build tag
+  (4 B).
+- `patched.pkg.bin` SHA-256 `19f78f667f1ff1dfad69345717ee6a876b621503500e7e1fe6b2e0a83f9ed150`, restore `963f4dfe…2327`.
+
+**Camera test:** a bright daylight scene that v0.34 skipped, with about half to three quarters of the frame clipped or near
+white, Halo High, Grain Off then Grain Med. Examples: sunlit white walls or sky with a dark subject, or a sun-lit
+cockatoo or swan like PA211089 or PA221247. On v0.34 it saves with no halation. On 0.34a it gets the halo and saves
+within the usual few seconds. Then ten shots in a row with no freeze or restart.
