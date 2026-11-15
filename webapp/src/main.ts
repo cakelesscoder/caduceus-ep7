@@ -2,7 +2,7 @@ import './style.css';
 import { decodeLooksBin, encodeBundlesBin, hasTone, nameProblem, PackError, validatePack, type Problem, FW_LATEST, firmware, setFirmware, type Fw } from './format';
 import {
   ARTS, HALO_STAGES, HALO_TINTS, MAX_LOOKS, MONO_FILTERS, NAME_MAX, NOTE_MAX, PACK_SCHEMA, SECTORS, SLOT_NAMES, TONE_KEYS, blankLook, cloneLook, lookHalo, setLookHalo,
-  exportable, defaultProfile, parseLook, parsePack, toneIsZero, toneLimit, profileOf, type FilmGrain, type Grain, type Halo, type HaloStage, type Look, type Pack, type Sharp, type SlotName, type Tone,
+  exportable, defaultProfile, parsePack, toneIsZero, toneLimit, profileOf, type FilmGrain, type Grain, type Halo, type HaloStage, type Look, type Pack, type Sharp, type SlotName, type Tone,
   CURVES, CURVE_LABEL, MATRIX_MAX, matrixIsZero, NAMED_MIXES, type Curve,
 } from './pack';
 import { History } from './history';
@@ -12,9 +12,9 @@ import { renderLook } from './preview';
 import { decodeLookCode, decodePackCode, encodeLookCode, encodePackCode, isPackCode } from './sharecode';
 import { makeZip } from './zip';
 import { namesBin } from './om3names';
-import { COLORS, OM3, PER, SHARP, parseBank, profilesBin, sharpLabel, toOm3, validateBank, type Fw as Om3Fw } from './om3';
+import { COLORS, OM3, PER, SHARP, profilesBin, sharpLabel, validateBank, type Fw as Om3Fw } from './om3';
 import { CAMERAS, type Cam } from './cameras';
-import { OM3_FWS, OM3_REPO, bankToPack, decodeOm3Code, isOm3Code, looksBinToPack, om3Fw, packToBank, setOm3Fw } from './targets/om3';
+import { OM3_FWS, OM3_REPO, decodeOm3Code, isOm3Code, looksBinImport, om3Fw, om3LinkBank, om3LinkLook, om3PreviewLook, packToBank, setOm3Fw } from './targets/om3';
 import { rrpreset } from './rapidraw';
 import { TARGETS, targetById } from './targets';
 import { recipeCard } from './targets/recipe';
@@ -681,7 +681,7 @@ function lookThumb(p: PresetPack, l: Look): HTMLCanvasElement {
       thumbSrc = { key: sk, data: ctx.getImageData(0, 0, 96, 64) };
     }
     const ctx = c.getContext('2d')!, out = ctx.createImageData(96, 64);
-    renderLook(thumbSrc.data, out, CAM === 'om3' ? toOm3(l).look ?? l : l, { advice: true, nr: cam().lookNr, grain: 'off' });
+    renderLook(thumbSrc.data, out, CAM === 'om3' ? om3PreviewLook(l) : l, { advice: true, nr: cam().lookNr, grain: 'off' });
     ctx.putImageData(out, 0, 0);
     thumbCache.set(key, c);
   }
@@ -873,7 +873,7 @@ function foldSummary(id: string, l: Look): string {
     case 'mono-colour-filter': { const f = l.advice.mono_filter; return f && f.colour !== 'none' ? `${f.colour[0].toUpperCase()}${f.colour.slice(1)} ${f.strength}` : 'None'; }
     case 'glow-clarity-and-halo': case 'glow-and-clarity': {
       const e = l.effect, base = !e ? 'Off' : e.type === 'clarity' ? `Clarity ${e.strength}` : `Glow ${e.strength}`;
-      const halo = cam().tints ? lookHalo(l).stage : 'off';
+      const halo = cam().halo ? lookHalo(l).stage : 'off';
       return halo !== 'off' ? `${base} · Halo ${halo}` : base;
     }
     case 'lens-vignette-correction': return l.lens_correction ? 'Keep camera\'s' : 'Off';
@@ -1124,7 +1124,7 @@ function splitPanel(l: Look, changed: () => void): HTMLElement {
   return h('div', { class: 'group' },
     groupHead('Split tone', hasSplit(l) ? resetLink(() => { delete l.split; renderEditor(); changed(); }) : null),
     row('Shadows', 'sh_color', 'sh'), row('Highlights', 'hl_color', 'hl'),
-    h('p', { class: 'help' }, CAM === 'om3' ? 'Saved in LOOKS.BIN (Caduceus for OM-3 v0.26 or later). A minus strength tints toward the opposite colour.'
+    h('p', { class: 'help' }, CAM === 'om3' ? 'Saved in LOOKS.BIN (Caduceus for OM-3 v0.26 or later). A minus strength tints toward the opposite colour (written as the opposite wheel colour, as v0.28 has no minus).'
       : 'E-P7 v0.32 or later: picking this look on the camera sets the profile\'s split tone (LOOKS.BIN), and COLOR slots of the starter BUNDLES.BIN get it. Older firmware: not written. Look codes leave it out; pack links keep it.'));
 }
 
@@ -1227,7 +1227,7 @@ function effectPanel(l: Look, changed: () => void): HTMLElement {
   const tintRow = pickRow('Halo colour', tintSel);
   const haloRow = pickRow('Halo', stageSel);
   haloRow.title = 'Red/orange glow around bright lights, like CineStill. Uses the Glow channel: Low, Med and High set Glow 2, 4 and 5.';
-  const show = () => { haloRow.hidden = !cam().tints; tintRow.hidden = !cam().tints || (stageSel as HTMLSelectElement).value === 'off'; };
+  const show = () => { haloRow.hidden = !cam().halo; tintRow.hidden = !cam().tints || (stageSel as HTMLSelectElement).value === 'off'; };
   const { inp, out } = slider(-5, 5, v0(), (x) => {
     if (x === 0) l.effect = null;
     else if (x > 0) l.effect = { type: 'clarity', strength: x };
@@ -1250,10 +1250,11 @@ function effectPanel(l: Look, changed: () => void): HTMLElement {
   stageSel.addEventListener('change', apply);
   tintSel.addEventListener('change', apply);
   show();
-  return group(cam().tints ? 'Glow, clarity and halo' : 'Glow and clarity', [],
+  return group(cam().halo ? 'Glow, clarity and halo' : 'Glow and clarity', [],
     sliderRow('Glow ↔ Clarity', { inp, out }, undefined, 'wide-out'),
     haloRow, tintRow,
-    h('p', { class: 'help' }, 'Left of centre: Glow (a soft bloom); right: Clarity (local contrast).', cam().tints ? ' Halo is a red or amber glow around bright lights; it uses the Glow strength (Low, Med, High = Glow 2, 4, 5).' : ''));
+    h('p', { class: 'help' }, 'Left of centre: Glow (a soft bloom); right: Clarity (local contrast).', cam().tints ? ' Halo is a red or amber glow around bright lights; it uses the Glow strength (Low, Med, High = Glow 2, 4, 5).'
+      : cam().halo ? ' Halo is a red glow around bright lights: Caduceus for OM-3 v0.28 or later writes it as Halation at the Glow strength (older versions: Glow only).' : ''));
 }
 
 function wbPanel(l: Look, changed: () => void): HTMLElement {
@@ -1452,7 +1453,7 @@ function schedulePreview() {
     const l = S.peek?.look ?? cur();
     if (S.compare || !l) { ctx.putImageData(srcData, 0, 0); return; }
     const out = ctx.createImageData(srcData.width, srcData.height);
-    renderLook(srcData, out, CAM === 'om3' ? toOm3(l).look ?? l : l, { advice: S.advice, nr: cam().lookNr, grain: cam().lookNr ? 'off' : S.grain });
+    renderLook(srcData, out, CAM === 'om3' ? om3PreviewLook(l) : l, { advice: S.advice, nr: cam().lookNr, grain: cam().lookNr ? 'off' : S.grain });
     ctx.putImageData(out, 0, 0);
   });
 }
@@ -1468,8 +1469,8 @@ async function onFile(e: Event) {
   if (magic === 'OM3N') { toast('That is NAMES.BIN (name pictures). Open LOOKS.BIN instead: it holds the names too.', 'err'); return; }
   if (magic === 'OM3P') {
     try {
-      const p = looksBinToPack(bytes, f.name.replace(/\.bin$/i, '') || 'LOOKS.BIN');
-      replacePack(p, `Opened ${f.name} (${p.looks.length} OM-3 looks)`);
+      const { pack: p, notes } = looksBinImport(bytes, f.name.replace(/\.bin$/i, '') || 'LOOKS.BIN');
+      replacePack(p, `Opened ${f.name} (${p.looks.length} OM-3 looks)${notes.length ? `. Not in the shared look format: ${notes.join('; ')}` : ''}`);
     } catch (err) { toast((err as Error).message, 'err'); }
     return;
   }
@@ -1543,16 +1544,16 @@ async function importCode(text: string, fromLink = false): Promise<boolean> {
     if (isOm3Code(t)) {
       const v = await decodeOm3Code(t);
       if (/(^|#)\s*ob1_/.test(t)) {
-        const b = parseBank(v, parseLook), p = bankToPack(b.bank, b.name);
+        const { pack: p, notes } = om3LinkBank(v);
         if (!confirm(`Open the shared OM-3 looks "${p.name}" (${p.looks.length} looks)? They replace your current pack.`)) return false;
-        replacePack(p, `Opened "${p.name}"`);
+        replacePack(p, `Opened "${p.name}"${notes.length ? `. Not in the shared look format: ${notes.join('; ')}` : ''}`);
         return true;
       }
-      const l = parseLook(v, 'look');
+      const { look: l, changed } = om3LinkLook(v);
       if (S.pack.looks.length >= MAX_LOOKS) { fullDialog(l); return true; }
       l.name = uniqueName(l.name);
       addLook(l);
-      toast(`Added "${l.name}"`);
+      toast(`Added "${l.name}"${changed.length ? ` (${changed.join(', ')})` : ''}`);
       return true;
     }
     if (isPackCode(t)) {
@@ -1736,7 +1737,7 @@ function om3InstallDialog() {
     h('a', { class: 'btn primary', href: `${OM3_REPO}/releases/latest`, target: '_blank', rel: 'noopener' }, 'Latest release')]);
 }
 function om3Body(): HTMLElement {
-  const r = packToBank(S.pack), probs = validateBank(r.bank);
+  const r = packToBank(S.pack, om3Fw()), probs = validateBank(r.bank);
   const fname = (S.pack.name || 'pack').replace(/[^\w.-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'pack';
   const adjusted = r.placed.filter((p) => p.changed.length || p.dropped.length);
   const notes = [
@@ -1762,14 +1763,14 @@ function om3Body(): HTMLElement {
       h('select', { onchange: (e: Event) => { const sel = e.target as HTMLSelectElement; setOm3Fw(Number(sel.value) as Om3Fw); sel.closest('dialog')?.close(); exportDialog(); } },
         ...OM3_FWS.map(([f, label]) => h('option', { value: String(f), selected: f === om3Fw() }, label))),
       h('span', { class: 'help' }, 'Older firmware refuses newer settings, so they are left out for it.')),
-    h('p', { class: 'warn' }, 'This replaces the looks on the card, including ones made on the camera. To keep those, Open… the card\'s LOOKS.BIN first.'),
+    h('p', { class: 'warn' }, 'Up to v0.28 this replaces the looks on the card, including ones made on the camera: to keep those, Open… the card\'s LOOKS.BIN first. From v0.29 the camera keeps its films and changes in its own memory and takes a LOOKS.BIN only when it never had that set of films.'),
     ...Array.from({ length: COLORS }, (_, k) => h('p', { class: 'help' }, h('b', {}, `COLOR ${k + 1}: `),
       Array.from({ length: PER }, (_, v) => r.bank[k][v]?.name ?? 'Empty').join(' · '))),
     ...notes.map((n) => h('p', { class: 'help' }, n)),
     adjusted.length ? h('details', {}, h('summary', {}, `${adjusted.length} look(s) adjusted to fit the OM-3`),
       h('ul', { class: 'problems' }, ...adjusted.map((p) => h('li', {}, `${p.name}: ${[...p.changed.map((c) => `${c} limited or changed`), ...p.dropped.map((d) => `${d} left out`)].join(', ')}`)))) : null,
     h('div', { class: 'ex-row' },
-      h('div', {}, h('b', {}, 'Card folder (.zip)'), h('p', { class: 'help' }, 'OM3MOD/LOOKS.BIN, OM3MOD/NAMES.BIN and the pack file. Unzip at the card root (never into DCOLYMP/). Keep the GUIDES.BIN and LABELS.BIN from your OM-3 release.')),
+      h('div', {}, h('b', {}, 'Card folder (.zip)'), h('p', { class: 'help' }, 'OM3MOD/LOOKS.BIN, OM3MOD/NAMES.BIN and the pack file. Unzip at the card root (never into DCOLYMP/). Up to v0.28, keep the GUIDES.BIN and LABELS.BIN from your OM-3 release (v0.29 has them built in).')),
       zip),
     h('div', { class: 'ex-row' },
       h('div', {}, h('b', {}, 'Single files'), h('p', { class: 'help' }, 'Both go in OM3MOD/. NAMES.BIN holds the names the camera shows on the Film page.')),

@@ -7,13 +7,18 @@ This repository contains no Olympus / OM Digital Solutions firmware. The builder
 official firmware from OM's own server on the user's machine.
 
 Third-party:
-- external/oly_fw_analysis (git submodule, fishcu): PEN-F firmware research and MN103 emulator harness,
-  used by the developer verification tools only. It is not part of Caduceus and keeps its own licence
-  (GPL-3.0 for its code); it is not needed to build or install Caduceus.
+- external/oly_fw_analysis (git submodule, fishcu, pinned at a61498e): PEN-F firmware research, the container
+  format tools and the MN103 emulator harness, used by the developer build and verification tools only. It is not
+  part of Caduceus and keeps its own licences: its original contributions are Apache-2.0 (since a61498e), with the
+  exceptions it documents in its RIGHTS-AND-PROVENANCE.md (GPL-3.0 for the GNU simulator integration, font-derived
+  artwork, third-party material). It is not needed to build or install Caduceus.
 - webapp/src/om3.ts, webapp/src/om3names.ts, webapp/src/split.ts, webapp/src/om3films.ts, webapp/src/data/om3films.json
   (its film sims, androidfanman's own designs) and webapp/tests/om3.test.ts are from Caduceus for OM-3
-  (androidfanman/caduceus-om3 @ 87b3e6f, Apache-2.0, Copyright 2026 androidfanman), unchanged, with a source line added
-  to each .ts file.
+  (androidfanman/caduceus-om3 @ c209b69, its v0.29.5, Apache-2.0, Copyright 2026 androidfanman), unchanged, with a
+  source line added to each .ts file (the test file also has our library path and three cases skipped). The OM-3 WB
+  mode list, Kelvin range and film-WB parser in webapp/src/pack.ts (WB_MODES, KELVIN, parseFilmWb) are from its
+  webapp/src/pack.ts at the same commit. webapp/tests/om3-v0.29.5-looks.ts holds its releases/v0.29.5/LOOKS.BIN
+  (its 20 film sims) as base64, as a test fixture.
 - The colour-grain method (CPU grain on the developed photo through the bus window) follows Caduceus for OM-3
   (androidfanman/caduceus-om3, Apache-2.0), research/grain/model.py and firmware/src/xblock.s. The E-P7 code in
   patches/grain_cpu is our own.

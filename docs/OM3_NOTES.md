@@ -38,16 +38,18 @@ The OM-3 holds 5 looks for each of COLOR 1-4, in `OM3MOD/LOOKS.BIN` and `NAMES.B
 |---|---|
 | Hue, Light | Limited to ±5; hue numbers copied as they are (above) |
 | WB shift | ±7 for v0.26.1 or later, else limited to ±5 |
-| Saturation, tone, NR (High too), glow, clarity, Grain, split toning | Carried over |
+| Saturation, tone, NR (High too), glow, clarity, Grain | Carried over |
+| Split toning | Carried (v0.26 or later). A minus strength is written as the opposite wheel colour with a plus, as v0.28 has no minus |
 | Art Effects (Star Light, Pin Hole) | Carried for v0.24.1 and older; v0.25 and later have none (written as Off) |
 | Contrast, Sharpness | Real settings there: Contrast ±2, Sharp −5 (Off)..+2 from v0.22 |
 | Vignette | Becomes the camera's Shading |
-| Halation | Becomes plain glow; glow colour is dropped |
+| Halation (the Halo) | v0.28 or later: the camera's Halation at the same strength (a `halation` effect alone; a red or amber tinted Glow as Glow plus Halation). Older: plain glow, colour dropped |
+| Base curve, colour mix (`curve`, `matrix`) | Left out and reported: the OM-3 has no equivalent |
 | Blur | Left out |
 | Lens correction choice | Carried (v0.21 or later) |
 | Monochrome looks | Left out (COLOR only) |
 
-`webapp/src/om3.ts`, `om3names.ts`, `split.ts` and `om3films.ts` are vendored unchanged (`87b3e6f`); our glue is `webapp/src/targets/om3.ts`. One-look (`op1_`) and bank (`ob1_`) links from the OM-3 panel open here.
+`webapp/src/om3.ts`, `om3names.ts`, `split.ts` and `om3films.ts` are vendored unchanged (`c209b69`, their v0.29.5); our glue is `webapp/src/targets/om3.ts`. One-look (`op1_`) and bank (`ob1_`) links from the OM-3 panel open here. Firmware choice on export: v0.28 or later (default, also v0.29.x), v0.26.1–v0.27.1, v0.26, v0.25, v0.24.1, v0.22, v0.21, v0.20 or older.
 
 ## Update read 2026-11-10 (their `87b3e6f`, v0.26.1; research only, nothing built here)
 
@@ -139,3 +141,62 @@ Resynced 2026-11-10: `om3.ts`, `om3names.ts`, `split.ts`, `om3films.ts`, `data/o
 ### Licence and credit
 
 Still Apache-2.0: `LICENSE` and `NOTICE` are unchanged since `daa453b` `[V]`, and GitHub reports Apache-2.0. A texture-grain port written in our own code needs a `NOTICE` line next to the existing CPU-grain credit, for example: "The fast colour-grain method (Grainy Film's texture blended in development, combiner 1 with COLOR's chroma gains) follows Caduceus for OM-3 (androidfanman/caduceus-om3, Apache-2.0), firmware/src/xblock.s and research/NOTES.md." Re-vendored panel files keep their source line and extend the existing vendored-files line to the new files. The film sims would be credited as androidfanman's designs. Copy nothing from OM firmware.
+
+## Resync 2026-11-16 (their `c209b69`, v0.29.5)
+
+Read from a fresh clone as data; their code runs here only as the vendored panel files. 275 commits and the
+releases v0.26.2, v0.27, v0.27.1, v0.28-alpha, v0.28, v0.29-beta, v0.29 and v0.29.1–v0.29.5 since `87b3e6f`.
+
+### What changed in the card files
+
+- **`LOOKS.BIN` (same header, version 1, 1632 bytes), v0.28 record bytes:**
+  - `+39` / `+40` Blacks / Whites to ±7 (±5 before);
+  - `+54` / `+56` split strength as a code for 0..10 half steps (`splitCode`: v ≥ 0 means 2v, v < 0 means −2v − 1),
+    so whole v0.26 plus values read the same, and there is no "opposite colour" minus any more;
+  - `+57` Halation 0..5;
+  - `+58` Tone Balance −5..5;
+  - `+59..+62` film WB as balanced base-11 pairs (Custom WB Kelvin, mode index of 13).
+
+  Firmware before v0.28 refuses a file with `+57..+62` set or Blacks / Whites past ±5. A reader treats a file as
+  v0.28 when any record has `+57..+62` set.
+- **v0.29:** the camera keeps the films, its own changes (`EDITS.BIN`) and the Extras (`BUNDLES.BIN`) in a block of its
+  settings memory. A card `LOOKS.BIN` is read at the first half-press and taken only when the camera never had that
+  set of films (CRC-32 of bytes 32..1631). Nothing is written back to the card. `GUIDES.BIN`, `LABELS.BIN` and
+  `TONES.BIN` are built into the firmware. The `LOOKS.BIN` format is still v0.28's, and `NAMES.BIN` is unchanged.
+- **Photo code (v0.27):** `om3.1.` + 43 base64url characters in each FILM JPEG's UserComment, the 64-byte record as
+  nibbles. The vendored `om3.ts` reads and writes it (`lookFromPhotoCode`, `photoCodeOf`). Our panel doesn't offer it.
+
+### Their look JSON drifted from the shared format
+
+Their `pack.ts` now has a `caduceus-om3-look/1` schema field, `min_fw`, and the look fields `halation` (number),
+`tone_balance` and `film_wb`. It also changes `split` to 0..5 in half steps with no minus, and Blacks / Whites to ±7.
+None of these were proposed here. Our pack format and share codes are unchanged. The translation happens in
+`targets/om3.ts`:
+
+| Their field | Export (ours → OM-3) | Import (LOOKS.BIN, `op1_` / `ob1_` links → ours) |
+|---|---|---|
+| `split` | Minus → opposite wheel colour (`(c + 6) % 12`) with a plus; whole steps | Half steps rounded (reported) |
+| `halation` | From our halo, v0.28 or later | `halation` effect, or the red tint on an existing Glow (reported if the strengths differ, left out with Clarity) |
+| `tone_balance`, `film_wb` | Never written (no shared field) | Left out (reported) |
+| Blacks / Whites ±7 | Ours stay ±5 | Limited to ±5 (reported) |
+| `schema` | – | `caduceus-om3-look/1` read; a newer number is refused |
+
+The vendored `om3.ts` imports `WB_MODES`, `KELVIN`, `LOOK_SCHEMA` and `parseFilmWb` from `./pack`. Our `pack.ts` has
+them as OM-3-only names, along with type-only optional `Look` fields that `parseLook` never sets. The vendored
+`split.ts` now parses with the v0.28 meaning, so our `pack.ts` / `format.ts` use their own `parseLookSplit` /
+`lookSplitOk` for the shared field. Three cases in the copied `om3.test.ts` test their `pack.ts` behaviour and are
+skipped (`SKIP-HERE`).
+
+**Needs a decision (owner and androidfanman):**
+- whether the shared format takes Tone Balance, a per-look WB mode and half-step split toning;
+- whether their `halation` number and our halo effect should become one shared field;
+- whether `split` keeps its minus (the E-P7 v0.32 card files pack it as a signed nibble).
+
+Their panel is now named "LookLab" and is still a separate panel.
+
+### Tests
+
+- `tests/om3-target.test.ts`: their v0.29.5 release `LOOKS.BIN` (sha256 `ee3f1bde…`, stored as base64 in
+  `tests/om3-v0.29.5-looks.ts`) decodes and re-encodes byte for byte with the vendored code.
+- Standard 1.2 exports for v0.28 and reads back through their decoder to the same OM-3 looks.
+- Halo ↔ Halation both ways, curve and matrix left out, and their link JSON.

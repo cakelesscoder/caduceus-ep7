@@ -11,9 +11,9 @@
 // tests/encoder.test.ts checks the output against the Python tools and the released card files.
 import {
   ARTS, CURVES, MATRIX_MAX, matrixIsZero, EFFECTS, FILM_GRAINS, GRAINS, GRAIN_BYTE, grainFromByte, defaultProfile, profileOf, MAX_LOOKS, NAME_MAX, NOTE_MAX, PACK_SCHEMA, SLOT_NAMES, TINTS, TONE_BW_MAX, TONE_KEYS,
-  HALOS, blankLook, toneIsZero, toneLimit, zeroTone, type Look, type Pack, type ProfileSettings,
+  HALOS, blankLook, lookSplitOk, toneIsZero, toneLimit, zeroTone, type Look, type Pack, type ProfileSettings,
 } from './pack';
-import { hasSplit, splitOk } from './split';
+import { hasSplit } from './split';
 
 // ---- CRC-32 (zlib)
 const CRC_TABLE = (() => {
@@ -194,7 +194,7 @@ export function lookRecord(l: Look): Uint8Array {
   if (!mono && l.lens_correction && FW >= 25) r[MASK_OFF] |= MASK_KEEP_CORRECTION;
   const nm = new TextEncoder().encode(l.name);
   r.set(nm.subarray(0, NAME_MAX), NAME_OFF);
-  if (FW >= 32 && !mono && l.split && hasSplit(l) && splitOk(l.split)) {   // v0.32: a Film pick sets the profile's split
+  if (FW >= 32 && !mono && l.split && hasSplit(l) && lookSplitOk(l.split)) {   // v0.32: a Film pick sets the profile's split
     r[R_SPLIT_SH] = packSplit(l.split.sh_color, l.split.sh);
     r[R_SPLIT_HL] = packSplit(l.split.hl_color, l.split.hl);
   }
@@ -377,7 +377,7 @@ export function placeLook(l: Look, slot: string, prof: ProfileSettings = default
     b[B_ART] = ARTS.indexOf(l.art_effect);
     if (FW >= 25 && !l.lens_correction) b[B_SHADING] = 1;   // v0.25: lens vignette correction off, as a Film pick does
     if (hasTone(l)) { b[B_BLACKS] = u8(l.tone.blacks); b[B_WHITES] = u8(l.tone.whites); }
-    if (FW >= 32 && l.split && hasSplit(l) && splitOk(l.split)) {   // the shared `split` field, packed for the E-P7 slot
+    if (FW >= 32 && l.split && hasSplit(l) && lookSplitOk(l.split)) {   // the shared `split` field, packed for the E-P7 slot
       b[B_SPLIT_SH] = packSplit(l.split.sh_color, l.split.sh);
       b[B_SPLIT_HL] = packSplit(l.split.hl_color, l.split.hl);
     }

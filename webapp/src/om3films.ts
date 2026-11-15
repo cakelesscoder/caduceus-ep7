@@ -1,4 +1,4 @@
-// Vendored from androidfanman/caduceus-om3 @ 87b3e6f (Apache-2.0, see NOTICE), unchanged. Update by copying; our glue is in ./targets/om3.ts.
+// Vendored from androidfanman/caduceus-om3 @ c209b69 (Apache-2.0, see NOTICE), unchanged. Update by copying; our glue is in ./targets/om3.ts.
 // The film sims for the OM-3: our own looks, designed by hand from public descriptions of each film and tuned by eye
 // (scripts/films.py makes src/data/om3films.json from short recipes). Each becomes an ordinary OM-3 look: Hue / Light
 // / Saturation per sector, Highlights / Shadows / Midtones, Blacks / Whites, Contrast, Sharp and the WB shift. No grain,
@@ -12,6 +12,7 @@ export interface Film {
   tone: Look['tone']; contrast: number; wb: { a_b: number; g_m: number } | null;
   sharp: number;   // firmware v0.22 Sharp, the camera's numbers (0 = its normal)
   split?: { sh_color: number; sh: number; hl_color: number; hl: number };   // v0.26 split toning
+  matched?: boolean;   // colour matched: graded against film scans of a colour chart (else hand-tuned from descriptions)
 }
 export type FilmGroup = 'fuji' | 'slide' | 'neg' | 'instant' | 'print';
 export const FILM_GROUPS: [FilmGroup, string][] = [
@@ -27,8 +28,12 @@ export const CAMERA_FILMS: Film[] = DATA.camera.map((n) => FILMS.find((f) => f.n
  *  that replaced them. */
 export const FILM_ORIGIN = 'film:';
 export const filmByName = (name: string) => FILMS.find((f) => f.name === (DATA.aliases[name] ?? name));
+/** Starter (library) looks that a film sim replaced: a look taken from one keeps working as that film (Reset look). */
+const LIBRARY_TO_FILM: Record<string, string> = { 'Cuban Neg': 'Cuban Negative' };
+
 export function filmOf(l: Look): Film | undefined {
   if (l.origin?.startsWith(FILM_ORIGIN)) return filmByName(l.origin.slice(FILM_ORIGIN.length));
+  if (l.origin !== undefined && LIBRARY_TO_FILM[l.origin]) return filmByName(LIBRARY_TO_FILM[l.origin]);
   return l.origin === undefined ? filmByName(l.name) : undefined;
 }
 

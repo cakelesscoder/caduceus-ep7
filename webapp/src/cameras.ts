@@ -12,8 +12,9 @@ export interface CameraProfile {
   settings: boolean;                       // Contrast, Sharpness and Shading are saved in the look
   lookNr: boolean;                         // NR is saved in the look (OM-3); E-P7 v0.27: Grain and NR belong to each COLOR profile
   lookHw: boolean;                         // base curve + colour matrix (E-P7 v0.34, docs/LOOK_FORMAT_V4.md)
+  halo: boolean;                           // the Halo row (E-P7 0.31+; OM-3: Halation from its v0.28, translated in targets/om3.ts)
 }
 export const CAMERAS: Record<Cam, CameraProfile> = {
-  ep7: { short: 'E-P7', hl: 7, sat: 5, wb: 7, mono: true, tints: true, lensCorrection: true, arts: ['off', 'star_light', 'pin_hole'], settings: false, lookNr: false, lookHw: true },
-  om3: { short: 'OM-3', hl: OM3.hl, sat: OM3.sat, wb: OM3.wb, mono: false, tints: false, lensCorrection: true, arts: OM3_ARTS, settings: true, lookNr: true, lookHw: false },
+  ep7: { short: 'E-P7', hl: 7, sat: 5, wb: 7, mono: true, tints: true, lensCorrection: true, arts: ['off', 'star_light', 'pin_hole'], settings: false, lookNr: false, lookHw: true, halo: true },
+  om3: { short: 'OM-3', hl: OM3.hl, sat: OM3.sat, wb: OM3.wb, mono: false, tints: false, lensCorrection: true, arts: OM3_ARTS, settings: true, lookNr: true, lookHw: false, halo: true },
 };

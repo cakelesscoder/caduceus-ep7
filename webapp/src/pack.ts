@@ -1,6 +1,6 @@
 // Pack model (schema "caduceus-pack/1") and its structural parsing. The value vocabulary is the one of the repo's
 // library/bundle JSON (bundles/*.json, patches/bundles/build.py) so packs read naturally next to the Python tools.
-import { parseSplit, type Split } from './split';
+import { SPLIT_MAX, type Split } from './split';
 
 export const SECTORS = ['Yellow', 'Orange', 'Orange-red', 'Red', 'Magenta', 'Violet', 'Blue', 'Blue-cyan', 'Cyan',
   'Green-cyan', 'Green', 'Yellow-green'] as const;
@@ -120,6 +120,37 @@ export const toneLimit = (k: keyof Tone) => (k === 'blacks' || k === 'whites' ? 
 export const zeroTone = (): Tone => ({ highlights: 0, shadows: 0, midtones: 0, blacks: 0, whites: 0 });
 export const toneIsZero = (t: Tone) => TONE_KEYS.every((k) => t[k] === 0);
 
+/** The shared `split` field: colour 0..11, whole-number strength -5..5 (minus = the opposite colour). The E-P7 card
+ *  files pack it as signed nibbles; the OM-3 v0.28 meaning (0..5 in half steps, no minus) is translated in targets/om3.ts. */
+export const lookSplitOk = (s: Split) => [s.sh_color, s.hl_color].every((c) => Number.isInteger(c) && c >= 0 && c < 12)
+  && [s.sh, s.hl].every((v) => Number.isInteger(v) && Math.abs(v) <= SPLIT_MAX);
+/** A parsed shared `split` field, or undefined when it is missing, off or malformed. */
+export function parseLookSplit(v: unknown): Split | undefined {
+  if (!v || typeof v !== 'object') return undefined;
+  const o = v as Record<string, unknown>, n = (x: unknown) => (typeof x === 'number' ? x : NaN);
+  const s = { sh_color: n(o.sh_color), sh: n(o.sh), hl_color: n(o.hl_color), hl: n(o.hl) };
+  return lookSplitOk(s) && (s.sh || s.hl) ? s : undefined;
+}
+
+// Names the vendored ./om3.ts imports from here for its OM-3 card fields (above). Not shared look fields.
+/** OM-3 v0.28 film WB: the camera's 13 WB modes in its own order (LOOKS.BIN +61 / +62 = the index; 0 Auto = none). */
+export const WB_MODES = ['auto', 'sunny', 'shade', 'cloudy', 'incandescent', 'fluorescent', 'underwater', 'flash',
+  'one_touch_1', 'one_touch_2', 'one_touch_3', 'one_touch_4', 'custom'] as const;
+export type WbMode = (typeof WB_MODES)[number];
+/** OM-3 Custom WB Kelvin: the camera's own range and step. */
+export const KELVIN = { lo: 2000, hi: 14000, step: 100, dflt: 5400 } as const;
+export interface FilmWb { mode: Exclude<WbMode, 'auto'>; kelvin?: number }
+/** The OM-3 panel's one-look JSON format id (its op1_ links carry it; our parseLook ignores the field). */
+export const LOOK_SCHEMA = 'caduceus-om3-look/1';
+/** An OM-3 `film_wb` value, or undefined when missing, Auto or malformed (Kelvin kept to the camera's range and step). */
+export function parseFilmWb(v: unknown): FilmWb | undefined {
+  if (!isObj(v) || typeof v.mode !== 'string' || v.mode === 'auto' || !(WB_MODES as readonly string[]).includes(v.mode)) return undefined;
+  const mode = v.mode as FilmWb['mode'];
+  if (mode !== 'custom') return { mode };
+  const k = Number(v.kelvin);
+  return { mode, kelvin: Number.isFinite(k) ? Math.max(KELVIN.lo, Math.min(KELVIN.hi, Math.round(k / KELVIN.step) * KELVIN.step)) : KELVIN.dflt };
+}
+
 export interface Look {
   name: string;
   notes: string;
@@ -138,7 +169,13 @@ export interface Look {
   film_grain?: number; // OM-3 only: the look's Grain 1 Low, 2 Med, 3 High (absent = off). Not the E-P7's grain (a profile setting)
   curve?: Curve;       // v0.34: base curve (absent = the camera's own)
   matrix?: number[];   // v0.34: colour matrix off-diagonals m01 m02 m10 m12 m20 m21 in 1/128 (absent = identity)
-  split?: Split;       // OM-3 only (v0.26): split toning, Shadows / Highlights colour 0..11 and strength -5..5 (absent = off)
+  split?: Split;       // split toning: Shadows / Highlights colour 0..11 and whole-number strength -5..5, minus = the opposite colour (absent = off)
+  // OM-3 card fields (Caduceus for OM-3 v0.28): set only on the OM-3 bank looks that the vendored ./om3.ts writes and
+  // reads. Not part of the shared pack format: parseLook never sets them, and targets/om3.ts translates them to and from
+  // the shared fields at the OM-3 boundary, so they never reach a pack, a share code or an E-P7 file.
+  tone_balance?: number;   // OM-3 Tone Balance -5..5
+  halation?: number;       // OM-3 Halation 1..5 (ours is the `effect` halo)
+  film_wb?: FilmWb;        // OM-3 WB mode per film
   origin?: string;     // app-only: the built-in library look this one came from (for Reset look); not exported
   lib?: string;        // app-only: fingerprint of the library values it was copied from (unmodified = still equal)
 }
@@ -230,7 +267,7 @@ export function parseLook(v: unknown, what = 'look'): Look {
     tone,
     advice: adv,
     ...(Number.isInteger(v.film_grain) && (v.film_grain as number) > 0 ? { film_grain: Math.min(3, v.film_grain as number) } : {}),
-    ...(parseSplit(v.split) ? { split: parseSplit(v.split) } : {}),
+    ...(parseLookSplit(v.split) ? { split: parseLookSplit(v.split) } : {}),
     ...(typeof v.curve === 'string' && (CURVES as readonly string[]).includes(v.curve) ? { curve: v.curve as Curve } : {}),
     ...(Array.isArray(v.matrix) && v.matrix.length === 6 && v.matrix.every((x) => Number.isInteger(x)) && !matrixIsZero(v.matrix as number[])
       ? { matrix: [...(v.matrix as number[])] } : {}),

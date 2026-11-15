@@ -1,7 +1,11 @@
-// Vendored from androidfanman/caduceus-om3 @ 87b3e6f (Apache-2.0, see NOTICE), unchanged. Update by copying; our glue is in ./targets/om3.ts.
+// Vendored from androidfanman/caduceus-om3 @ c209b69 (Apache-2.0, see NOTICE), unchanged. Update by copying; our glue is in ./targets/om3.ts.
 // Split toning (Caduceus for OM-3 v0.26): a Shadows and a Highlights tint, each one of the camera wheel's 12 colours
-// with a strength -5..5 (minus = the opposite colour). The camera bends its R, G and B gamma curves (firmware st_run,
-// research/splittone/model.py); this module holds the same numbers for the preview and the editor.
+// with a strength. The camera bends its R, G and B gamma curves (firmware st_run, research/splittone/model.py); this
+// module holds the same numbers for the preview and the editor.
+// v0.28: the wheels run 0..10 in half the v0.26 step and only add a colour; a Tone Balance (-5..+5) moves the point
+// where the shadow tint hands over to the highlight tint. In a look, `sh` / `hl` stay in v0.26 steps, now in halves
+// (0, 0.5 .. 5): the camera's 0..10 is twice that, so a v0.26 look keeps its strength. v0.26's minus (the opposite
+// colour) is read as the opposite colour of the wheel with a plus.
 import type { Look } from './pack';
 
 export interface Split { sh_color: number; sh: number; hl_color: number; hl: number }
@@ -16,24 +20,39 @@ export const SPLIT_K: [number, number, number][] = [
   [-11, -5, 56], [-33, 9, 39], [-43, 18, 18], [-45, 24, -5], [-36, 25, -36], [-13, 17, -55],
 ];
 export const SPLIT_MAX = 5;
+/** v0.28: the camera's 0..10 (half steps) <-> a look's 0..5. */
+export const SPLIT_STEPS = 10;
+export const toSteps = (v: number) => Math.round(2 * v);
+export const fromSteps = (n: number) => Math.max(0, Math.min(SPLIT_STEPS, Math.round(n))) / 2;
+/** v0.28 LOOKS.BIN strength code (record +54 / +56, -5..5): even steps n -> n / 2, odd -> -(n + 1) / 2; and back. */
+export const splitCode = (v: number) => { const n = toSteps(v); return n % 2 ? -(n + 1) / 2 : n / 2; };
+export const splitFromCode = (c: number) => (c >= 0 ? 2 * c : -2 * c - 1) / 2;
+/** Tone Balance: -5 (the shadow colour reaches further) .. +5 (the highlight colour). */
+export const BALANCE_MAX = 5;
 export const hasSplit = (l: Look) => !!l.split && (l.split.sh !== 0 || l.split.hl !== 0);
-const ok = (c: number, s: number) => Number.isInteger(c) && c >= 0 && c < 12 && Number.isInteger(s) && Math.abs(s) <= SPLIT_MAX;
+const ok = (c: number, s: number) => Number.isInteger(c) && c >= 0 && c < 12 && Number.isInteger(2 * s) && s >= 0 && s <= SPLIT_MAX;
 export const splitOk = (s: Split) => ok(s.sh_color, s.sh) && ok(s.hl_color, s.hl);
-/** A parsed `split` field, or undefined when it is missing, off or malformed. */
+/** A parsed `split` field, or undefined when it is missing, off or malformed. A v0.26 minus (the opposite colour)
+ *  becomes the opposite colour of the wheel (6 colours on) with a plus. */
 export function parseSplit(v: unknown): Split | undefined {
   if (!v || typeof v !== 'object') return undefined;
   const o = v as Record<string, unknown>, n = (x: unknown) => (typeof x === 'number' ? x : NaN);
   const s = { sh_color: n(o.sh_color), sh: n(o.sh), hl_color: n(o.hl_color), hl: n(o.hl) };
+  if (s.sh < 0) { s.sh_color = (s.sh_color + 6) % 12; s.sh = -s.sh; }
+  if (s.hl < 0) { s.hl_color = (s.hl_color + 6) % 12; s.hl = -s.hl; }
   return splitOk(s) && (s.sh || s.hl) ? s : undefined;
 }
-/** The curve bend on [0,1] RGB in place (img: n x 3 floats), as the camera does it on its 12-bit gamma output. */
-export function bendSplit(img: Float32Array, n: number, s: Split) {
-  const ks = SPLIT_K[s.sh_color].map((k) => k * s.sh), kh = SPLIT_K[s.hl_color].map((k) => k * s.hl);
-  const lut = [0, 1, 2].map((c) => {
+/** The curve bend on [0,1] RGB in place (img: n x 3 floats), as the camera does it on its 12-bit gamma output
+ *  (research/splittone/model.py bend28): `balance` moves the hand-over point c = 2048 - 256 b. */
+export function bendSplit(img: Float32Array, n: number, s: Split, scale = 1, balance = 0) {
+  const ks = SPLIT_K[s.sh_color].map((k) => k * s.sh * scale), kh = SPLIT_K[s.hl_color].map((k) => k * s.hl * scale);
+  const b = Math.max(-BALANCE_MAX, Math.min(BALANCE_MAX, Math.round(balance) || 0)), c = 2048 - 256 * b;
+  const lut = [0, 1, 2].map((ch) => {
     const out = new Float32Array(256); let max = 0;
     for (let i = 0; i < 256; i++) {
-      const t = i * 4095 / 255, r = 4095 - t, ws = t * r / 4096 * r / 4096, wh = t * t / 4096 * r / 4096;
-      max = Math.max(max, Math.min(4095, Math.max(0, t + (ks[c] * ws + kh[c] * wh) / 256)));
+      const t = i * 4095 / 255, u = t < c ? t * 2048 / c : 2048 + (t - c) * 2047 / (4095 - c);
+      const r = 4095 - u, ws = u * r / 4096 * r / 4096, wh = u * u / 4096 * r / 4096;
+      max = Math.max(max, Math.min(4095, Math.max(0, t + (ks[ch] * ws + kh[ch] * wh) / 256)));
       out[i] = max / 4095;
     }
     return out;
