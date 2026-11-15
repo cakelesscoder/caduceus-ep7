@@ -366,6 +366,12 @@ Caduceus is free and open source. If it brings your E-P7 to life and you'd like 
 [buy me a coffee](https://buymeacoffee.com/cakelesscoder). Bug reports and camera test results are just as
 welcome: please open an issue.
 
+**Reporting a crash:** from v0.33, if the camera freezes and restarts by itself, the next half-press writes
+`EP7MOD/CRASH.BIN` to the card. It records where the camera stopped, which is usually enough to find the cause
+(it found [#48](https://github.com/cakelesscoder/caduceus-ep7/issues/48)). Please attach it to any crash or
+freeze report, zipped if GitHub won't take the .BIN. Say which version you're on and the steps that led to it. If no
+file appears after a crash and a half-press, mention that too.
+
 ## Credits
 
 - **Inspiration:** [u/fischgurke](https://www.reddit.com/user/fischgurke/) and his PEN-F HSL firmware mod, which
