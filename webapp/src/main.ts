@@ -2,7 +2,8 @@ import './style.css';
 import { decodeLooksBin, encodeBundlesBin, hasTone, nameProblem, PackError, validatePack, type Problem, FW_LATEST, firmware, setFirmware, type Fw } from './format';
 import {
   ARTS, HALO_STAGES, HALO_TINTS, MAX_LOOKS, MONO_FILTERS, NAME_MAX, NOTE_MAX, PACK_SCHEMA, SECTORS, SLOT_NAMES, TONE_KEYS, blankLook, cloneLook, lookHalo, setLookHalo,
-  exportable, parseLook, parsePack, toneIsZero, toneLimit, profileOf, type FilmGrain, type Grain, type Halo, type HaloStage, type Look, type Pack, type Sharp, type SlotName, type Tone,
+  exportable, defaultProfile, parseLook, parsePack, toneIsZero, toneLimit, profileOf, type FilmGrain, type Grain, type Halo, type HaloStage, type Look, type Pack, type Sharp, type SlotName, type Tone,
+  CURVES, CURVE_LABEL, MATRIX_MAX, matrixIsZero, NAMED_MIXES, type Curve,
 } from './pack';
 import { History } from './history';
 import { fromLibrary, libraryOrigin, migratePack, originRef, replaceRetiredLooks, resetLook, standardPack } from './reset';
@@ -19,6 +20,7 @@ import { TARGETS, targetById } from './targets';
 import { recipeCard } from './targets/recipe';
 import { previewToneLut } from './tone';
 import { SPLIT_COLOURS, SPLIT_MAX, hasSplit } from './split';
+import { MIX_ROWS, applyMix, fullMatrix, mixState, setMixEntry, testChart } from './colourmix';
 
 // ---------------------------------------------------------------- state
 // Standard 1.0 = the built-in library before preset packs: saved packs from then are migrated against it (below).
@@ -45,7 +47,10 @@ const S = {
   grain: 'off' as FilmGrain,   // preview only: the COLOR profile's Grain (E-P7)
   browse: false,               // the editor pane shows the preset pack browser
   peek: null as { look: Look; from: string } | null,   // a preset look shown in the preview without adding it
+  split: loadSplit(),          // preview: before / after divider on the photo
+  cut: 50,                     // its position, % of the preview width (original on the left)
 };
+function loadSplit() { try { return localStorage.getItem('caduceus-pv-split') !== '0'; } catch { return true; } }
 const GRAIN_OPTS: [FilmGrain, string][] = [['off', 'Off'], ['low', 'Low'], ['med', 'Med'], ['high', 'High']];
 const NR_OPTS: [Grain, string][] = [['off', 'Camera'], ['standard', 'Std'], ['fine', 'Low'], ['film', 'Off']];
 const SHARP_OPTS: [Sharp, string][] = [['camera', 'Camera'], ['off', 'Off']];
@@ -302,7 +307,7 @@ function renderList() {
   el.replaceChildren(
     h('label', { class: 'field' }, h('span', { class: 'lbl' }, 'Pack name'),
       h('input', { type: 'text', value: p.name, maxlength: 60, oninput: (e: Event) => draft(() => { p.name = (e.target as HTMLInputElement).value; save(); }), onchange: checkpoint, onkeydown: enterCommits })),
-    ...(slotsVisible() ? [slotStrip()] : []),
+    ...(slotsVisible() ? [slotStrip(), profilePanel()] : []),
     h('div', { class: 'list-head' }, h('span', { class: 'lbl' }, 'Looks'), h('span', { class: n > MAX_LOOKS ? 'count over' : 'count' }, `${n} / ${MAX_LOOKS}`)),
     ol,
     ...(n === 0 ? [h('p', { class: 'empty', 'data-drop': 'list' }, 'No looks yet. Add one below, or drag one in from a preset pack.')] : []),
@@ -341,6 +346,50 @@ function slotStrip(): HTMLElement {
     h('div', { class: 'slot-cols' },
       h('div', { class: 'slot-col' }, h('span', { class: 'slot-h' }, 'Colour'), ...SLOT_NAMES.filter((s) => s.startsWith('COLOR')).map(tile)),
       h('div', { class: 'slot-col' }, h('span', { class: 'slot-h' }, 'Mono'), ...SLOT_NAMES.filter((s) => s.startsWith('MONO')).map(tile))));
+}
+
+/** The E-P7's per-COLOR-profile settings (pack.profiles, written to the starter BUNDLES.BIN): the user's own choices,
+ *  never set by a look, so they live here beside the slots rather than in the look editor. */
+function profileSelect(s: SlotName, label: string, opts: [string, string][], key: 'grain' | 'nr' | 'sharp' | 'halo', dflt = ''): HTMLSelectElement {
+  return h('select', {
+    'aria-label': `${s} ${label}`,
+    onchange: (e: Event) => {
+      const v = (e.target as HTMLSelectElement).value;
+      S.pack.profiles = { ...S.pack.profiles, [s]: { ...profileOf(S.pack, s), [key]: v } };
+      save();
+    },
+  }, ...opts.map(([v, t]) => h('option', { value: v, selected: (profileOf(S.pack, s)[key] ?? dflt) === v }, t)));
+}
+const PROFILE_COLS = () => [
+  ['Grain', GRAIN_OPTS, 'grain', ''], ['NR', NR_OPTS, 'nr', ''],
+  ...(firmware() >= 28 ? [['Sharp', SHARP_OPTS, 'sharp', 'camera']] : []),
+  ...(firmware() >= 31 ? [['Halo', HALO_OPTS, 'halo', 'look']] : []),
+] as [string, [string, string][], 'grain' | 'nr' | 'sharp' | 'halo', string][];
+/** One line for the folded Profile settings: what differs from the defaults. */
+function profileSummary(cols: ReturnType<typeof PROFILE_COLS>, colour: SlotName[]): string {
+  const bits: string[] = [];
+  for (const s of colour) for (const [t, o, k, df] of cols) {
+    const v = profileOf(S.pack, s)[k] ?? df, d = (defaultProfile() as unknown as Record<string, string | undefined>)[k] ?? (df || o[0][0]);
+    if (v !== d) bits.push(`C${s.slice(-1)} ${t} ${o.find(([x]) => x === v)?.[1] ?? v}`);
+  }
+  return bits.length ? (bits.length > 2 ? `${bits.slice(0, 2).join(' · ')} +${bits.length - 2}` : bits.join(' · ')) : 'C1–C4 at defaults';
+}
+let profilesOpen = (() => { try { return localStorage.getItem('caduceus-profiles-open') === '1'; } catch { return false; } })();
+function profilePanel(): HTMLElement {
+  const cols = PROFILE_COLS();
+  const colour = SLOT_NAMES.filter((s) => s.startsWith('COLOR'));
+  const d = h('details', { class: 'prof-panel', open: profilesOpen || undefined },
+    h('summary', {}, h('span', { class: 'lbl' }, 'Profile settings'), h('span', { class: 'count' }, profileSummary(cols, colour))),
+    h('div', { class: 'prof-grid', style: `--cols:${cols.length}`, role: 'table', 'aria-label': 'Settings for each COLOR profile' },
+      h('div', { class: 'prof-row prof-h', role: 'row' }, h('span', { role: 'columnheader' }), ...cols.map(([t]) => h('span', { role: 'columnheader' }, t))),
+      ...colour.map((s) => h('div', { class: 'prof-row', role: 'row' },
+        h('span', { class: 'slot-k', role: 'rowheader', title: s }, `C${s.slice(-1)}`),
+        ...cols.map(([t, o, k, df]) => profileSelect(s, t, o, k, df))))),
+    h('p', { class: 'help' }, h('b', {}, 'Yours, not the look\'s. '), 'Grain, NR, Sharp and Halo belong to each COLOR profile (C1–C4), not to a look: picking a look keeps them. ',
+      'Written to the starter BUNDLES.BIN on export. On the camera: Extras sector 1 (Grain) and 9 (NR). Grain needs v0.27 or later. ',
+      'The preview\'s Profile grain shows one of these.'));
+  d.addEventListener('toggle', () => { profilesOpen = d.open; try { localStorage.setItem('caduceus-profiles-open', d.open ? '1' : '0'); } catch { /* private mode */ } });
+  return d;
 }
 
 // ---------------------------------------------------------------- drag and drop
@@ -728,49 +777,146 @@ function renderEditor() {
           title: presetOf(l) && libraryOrigin(l, presetOf(l)!.pack) ? `Restore the ${presetOf(l)!.label} "${libraryOrigin(l, presetOf(l)!.pack)!.name}" values` : 'Set every value to neutral',
         }, 'Reset look'),
         h('button', { class: 'share-btn', onclick: () => shareLook(l), title: 'Share this look as a short code' }, 'Share'))),
+    h('div', { class: 'ed-view' }, h('button', {
+      class: 'link', 'aria-pressed': String(compactPref),
+      title: 'Fold every group to a one-line summary (always on at phone width)',
+      onclick: () => { compactPref = !compactPref; lsSet('caduceus-compact', compactPref ? '1' : '0'); renderEditor(); },
+    }, compactPref ? 'Show all groups open' : 'Compact view: fold groups')),
     ...(!cam().mono && l.kind === 'mono' ? [h('p', { class: 'warn' }, `The ${cam().short} editor is colour only: this look stays in your pack but is left out of the export.`)] : []),
     ...(!cam().mono && l.kind === 'colour' ? [] : [seg('Type', [['colour', 'Colour'], ['mono', 'Monochrome']], l.kind, (v) => {
       l.kind = v as Look['kind'];
       if (l.kind === 'mono') { l.art_effect = 'off'; l.advice.mono_filter ??= { colour: 'none', strength: 1 }; }
       renderList(); renderEditor(); changed();
     })]),
-    l.kind === 'colour' ? sectorPanel(l, changed) : monoPanel(l, changed),
-    ...(l.kind === 'colour' ? [tonePanel(l, changed)] : []),
-    ...(l.kind === 'colour' ? [splitPanel(l, changed)] : []),
-    ...(cam().lookNr ? [h('div', { class: 'group' },
-      seg('Noise reduction', [['off', 'Camera'], ['standard', 'Standard'], ['fine', 'Low'], ['film', 'Off (most texture)'], ...(CAM === 'om3' ? [['high', 'High']] as [string, string][] : [])], l.grain, (v) => { l.grain = v as Look['grain']; renderEditor(); changed(); }))] : []),
-    effectPanel(l, changed),
-    wbPanel(l, changed),
-    ...(l.kind === 'colour' && cam().settings ? [settingsPanel(l, changed)] : []),
-    ...(l.kind === 'colour' && cam().lensCorrection ? [h('div', { class: 'group' },
-      seg('Lens vignette correction', [['off', 'Off (default)'], ['on', 'Keep camera\'s']], l.lens_correction ? 'on' : 'off', (v) => {
-        if (v === 'on') l.lens_correction = true; else delete l.lens_correction;
-        renderEditor(); changed();
-      }),
-      h('span', { class: 'help' }, CAM === 'om3'
-        ? 'Picking this look on the camera turns the lens\'s vignette correction off, unless you keep it here. Needs Caduceus for OM-3 v0.21 or later. Not shown in the preview.'
-        : 'Picking this look on the camera turns the lens\'s vignette correction off, so corners stay natural, unless you keep it here. Needs Caduceus v0.25 or later. Change it on the camera in Extras sector 8. Not shown in the preview.'))] : []),
-    ...(l.kind === 'colour' ? [h('label', { class: 'field' }, h('span', { class: 'lbl' }, 'Art Effect'),
-      h('select', { onchange: (e: Event) => { l.art_effect = (e.target as HTMLSelectElement).value as Look['art_effect']; changed(); } },
-        ...ARTS.filter((a) => cam().arts.includes(a) || a === l.art_effect).map((a) =>
-          h('option', { value: a, selected: a === l.art_effect }, CAM === 'om3' ? artLabel(a).replace(/ \(.*\)$/, '') : artLabel(a)))),
-      h('span', { class: 'help' }, CAM === 'om3' ? 'Saved in LOOKS.BIN. Not shown in the preview.' : 'Kept in the pack file, share codes and the starter BUNDLES.BIN (COLOR slots). LOOKS.BIN has no Art Effect field. Not shown in the preview.'))] : []),
-    h('label', { class: 'field' }, h('span', { class: 'lbl' }, 'Notes'),
-      h('textarea', {
-        rows: 3, maxlength: 400, placeholder: 'What the look is for, settings advice…', onchange: checkpoint,
-        oninput: (e: Event) => draft(() => {
-          l.notes = (e.target as HTMLTextAreaElement).value;
-          const b = notesBytes();
-          $('#notes-help').textContent = `${b} / ${NOTE_MAX} bytes · kept in the pack file (not on the card)`;
-          $('#notes-help').className = b > NOTE_MAX ? 'help err' : 'help';
-          changed();
+    ...(l.kind === 'colour' ? [edSection('Tone', '', tonePanel(l, changed))] : []),
+    edSection('Colour', '',
+      wbPanel(l, changed),
+      ...(l.kind === 'colour'
+        ? [cam().lookHw ? colourMixPanel(l, changed) : null, sectorPanel(l, changed), splitPanel(l, changed)]
+        : [monoPanel(l, changed)])),
+    edSection('Effects', '',
+      effectPanel(l, changed),
+      ...(l.kind === 'colour' && cam().lensCorrection ? [group('Lens vignette correction', [],
+        segCtl('Lens vignette correction', [['off', 'Off (default)'], ['on', 'Keep camera\'s']], l.lens_correction ? 'on' : 'off', (v) => {
+          if (v === 'on') l.lens_correction = true; else delete l.lens_correction;
+          renderEditor(); changed();
         }),
-      }, l.notes),
-      h('span', { id: 'notes-help', class: notesBytes() > NOTE_MAX ? 'help err' : 'help' }, `${notesBytes()} / ${NOTE_MAX} bytes · kept in the pack file (not on the card)`)),
-    lookCodePanel(l),
+        h('p', { class: 'help' }, CAM === 'om3'
+          ? 'Picking this look on the camera turns the lens\'s vignette correction off, unless you keep it here. Needs Caduceus for OM-3 v0.21 or later. Not shown in the preview.'
+          : 'Picking this look on the camera turns the lens\'s vignette correction off, so corners stay natural, unless you keep it here. Needs Caduceus v0.25 or later. Change it on the camera in Extras sector 8. Not shown in the preview.'))] : []),
+      ...(l.kind === 'colour' ? [group('Art Effect', [],
+        pickRow('Art Effect', h('select', { onchange: (e: Event) => { l.art_effect = (e.target as HTMLSelectElement).value as Look['art_effect']; changed(); } },
+          ...ARTS.filter((a) => cam().arts.includes(a) || a === l.art_effect).map((a) =>
+            h('option', { value: a, selected: a === l.art_effect }, CAM === 'om3' ? artLabel(a).replace(/ \(.*\)$/, '') : artLabel(a))))),
+        h('p', { class: 'help' }, CAM === 'om3' ? 'Saved in LOOKS.BIN. Not shown in the preview.' : 'Kept in the pack file, share codes and the starter BUNDLES.BIN (COLOR slots). LOOKS.BIN has no Art Effect field. Not shown in the preview.'))] : [])),
+    // OM-3: NR, contrast, sharpness and shading are saved in each look there (on the E-P7 Grain, NR and Sharp are the
+    // user's per-profile settings: the Profile settings panel beside the starter slots).
+    ...(cam().lookNr || (l.kind === 'colour' && cam().settings) ? [edSection('Camera settings', `saved in the look on the ${cam().short}`,
+      ...(cam().lookNr ? [group('Noise reduction', [],
+        segCtl('Noise reduction', [['off', 'Camera'], ['standard', 'Standard'], ['fine', 'Low'], ['film', 'Off (most texture)'], ...(CAM === 'om3' ? [['high', 'High']] as [string, string][] : [])], l.grain, (v) => { l.grain = v as Look['grain']; renderEditor(); changed(); }))] : []),
+      ...(l.kind === 'colour' && cam().settings ? [settingsPanel(l, changed)] : []))] : []),
+    edSection('Notes and sharing', '',
+      group('Notes', [],
+        h('textarea', {
+          rows: 3, maxlength: 400, placeholder: 'What the look is for, settings advice…', onchange: checkpoint, 'aria-label': 'Notes',
+          oninput: (e: Event) => draft(() => {
+            l.notes = (e.target as HTMLTextAreaElement).value;
+            const b = notesBytes();
+            $('#notes-help').textContent = `${b} / ${NOTE_MAX} bytes · kept in the pack file (not on the card)`;
+            $('#notes-help').className = b > NOTE_MAX ? 'help err' : 'help';
+            changed();
+          }),
+        }, l.notes),
+        h('p', { id: 'notes-help', class: notesBytes() > NOTE_MAX ? 'help err' : 'help' }, `${notesBytes()} / ${NOTE_MAX} bytes · kept in the pack file (not on the card)`)),
+      lookCodePanel(l)),
     h('div', { id: 'problems' }));
+  foldGroups(el, l);
   refreshProblems();
   refreshLookCode();
+}
+
+// ---- compact editor: on phones (or by choice on desktop) every group folds to its header plus a one-line summary.
+// Open / closed state is remembered per browser; on phones opening one group closes the others (accordion).
+const phoneMq = window.matchMedia('(max-width: 760px)');
+const lsGet = (k: string) => { try { return localStorage.getItem(k); } catch { return null; } };
+const lsSet = (k: string, v: string) => { try { localStorage.setItem(k, v); } catch { /* private mode */ } };
+let compactPref = lsGet('caduceus-compact') === '1';
+const isCompact = () => phoneMq.matches || compactPref;
+let foldOpen: Record<string, boolean> = (() => { try { return JSON.parse(lsGet('caduceus-fold') ?? '{}') ?? {}; } catch { return {}; } })();
+const foldDefault = (id: string) => id === (cam().lookHw ? 'colour-mix' : 'hsl');
+const foldIsOpen = (id: string) => foldOpen[id] ?? foldDefault(id);
+phoneMq.addEventListener?.('change', () => renderEditor());
+
+/** The one-line summary a folded group shows. */
+function foldSummary(id: string, l: Look): string {
+  const sgn = (v: number) => (v > 0 ? `+${v}` : String(v));
+  switch (id) {
+    case 'curve-and-levels': {
+      const t = TONE_KEYS.filter((k) => l.tone[k]).map((k) => `${TONE_LABEL[k]} ${sgn(l.tone[k])}`);
+      return [cam().lookHw ? `Curve ${l.curve ? CURVE_LABEL[l.curve] : 'Camera'}` : '', ...t].filter(Boolean).join(' · ') || 'No change';
+    }
+    case 'white-balance': return l.wb ? `A–B ${sgn(l.wb.a_b)} · G–M ${sgn(l.wb.g_m)}` : 'Off';
+    case 'colour-mix': {
+      if (matrixIsZero(l.matrix)) return 'Off';
+      const st = mixState(l.matrix, mixPick.get(l));
+      return st ? `${st.name} ${st.pct} %` : 'Own numbers';
+    }
+    case 'hsl': {
+      const n = SECTORS.filter((_, k) => l.hue[k] || l.light[k] || l.sat[k]).length;
+      return n ? `${n} sector${n > 1 ? 's' : ''} changed` : 'No change';
+    }
+    case 'split-tone': {
+      const sp = l.split;
+      if (!hasSplit(l) || !sp) return 'Off';
+      return [sp.sh ? `Shadows ${SPLIT_COLOURS[sp.sh_color]?.[0]} ${sgn(sp.sh)}` : '', sp.hl ? `Highlights ${SPLIT_COLOURS[sp.hl_color]?.[0]} ${sgn(sp.hl)}` : ''].filter(Boolean).join(' / ');
+    }
+    case 'mono-colour-filter': { const f = l.advice.mono_filter; return f && f.colour !== 'none' ? `${f.colour[0].toUpperCase()}${f.colour.slice(1)} ${f.strength}` : 'None'; }
+    case 'glow-clarity-and-halo': case 'glow-and-clarity': {
+      const e = l.effect, base = !e ? 'Off' : e.type === 'clarity' ? `Clarity ${e.strength}` : `Glow ${e.strength}`;
+      const halo = cam().tints ? lookHalo(l).stage : 'off';
+      return halo !== 'off' ? `${base} · Halo ${halo}` : base;
+    }
+    case 'lens-vignette-correction': return l.lens_correction ? 'Keep camera\'s' : 'Off';
+    case 'art-effect': return artLabel(l.art_effect).replace(/ \(.*\)$/, '');
+    case 'noise-reduction': return ({ off: 'Camera', standard: 'Standard', fine: 'Low', film: 'Off', high: 'High' } as Record<string, string>)[l.grain] ?? l.grain;
+    case 'contrast-sharpness-shading': return `Contrast ${sgn(l.advice.contrast ?? 0)} · Sharp ${sgn(l.advice.sharpness ?? 0)} · Shading ${sgn(l.vignette)}`;
+    case 'notes': return l.notes ? (l.notes.length > 40 ? `${l.notes.slice(0, 40)}…` : l.notes) : 'Empty';
+    default: return '';
+  }
+}
+function foldGroups(root: HTMLElement, l: Look) {
+  const compact = isCompact();
+  root.classList.toggle('compact', compact);
+  const groups = [...root.querySelectorAll<HTMLElement>('.group')].filter((g) => g.querySelector(':scope > .g-head'));
+  for (const g of groups) {
+    const head = g.querySelector<HTMLElement>(':scope > .g-head')!, h3 = head.querySelector('h3')!;
+    const id = (h3.textContent ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+    g.dataset.fold = id;
+    if (!compact) { g.classList.remove('closed'); continue; }
+    const sum = h('span', { class: 'g-sum' });
+    const btn = h('button', { class: 'g-fold', type: 'button', 'aria-controls': `fold-${id}` }, h('span', { class: 'g-chev', 'aria-hidden': 'true' }), h3.textContent ?? '', sum);
+    g.id = `fold-${id}`;
+    h3.replaceChildren(btn);
+    const paint = (open: boolean) => {
+      g.classList.toggle('closed', !open);
+      btn.setAttribute('aria-expanded', String(open));
+      sum.textContent = open ? '' : foldSummary(id, l);
+    };
+    paint(foldIsOpen(id));
+    btn.addEventListener('click', () => {
+      const open = g.classList.contains('closed');
+      foldOpen[id] = open;
+      if (open && phoneMq.matches) for (const o of groups) if (o !== g && !o.classList.contains('closed')) {
+        foldOpen[o.dataset.fold!] = false;
+        o.classList.add('closed');
+        o.querySelector('.g-fold')?.setAttribute('aria-expanded', 'false');
+        const os = o.querySelector('.g-sum'); if (os) os.textContent = foldSummary(o.dataset.fold!, l);
+      }
+      lsSet('caduceus-fold', JSON.stringify(foldOpen));
+      paint(open);
+      if (open && phoneMq.matches) g.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    });
+  }
 }
 
 /** Per-look share code: live code with copy buttons, and a box to paste a code into this look. */
@@ -797,7 +943,7 @@ function lookCodePanel(l: Look): HTMLElement {
   inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') apply(); });
   const raw = () => { try { return encodeLookCode(cur()!); } catch { return null; } };
   return h('div', { class: 'group look-code' },
-    h('span', { class: 'lbl' }, 'Look code'),
+    groupHead('Look code'),
     h('div', { class: 'code-box' }, code,
       h('button', { onclick: () => { const c = raw(); if (c) copy(c, 'Code copied'); } }, 'Copy code'),
       h('button', { onclick: () => { const c = raw(); if (c) copy(`${shareBase()}#${c}`, 'Link copied'); } }, 'Copy link')),
@@ -826,9 +972,38 @@ function dupName(l: Look, i: number): string | null {
 const artLabel = (a: string) => ({ off: 'Off', star_light: 'Star Light', pin_hole: 'Pin Hole', blur: 'Blur (legacy: Off on v0.21+, issue #20)', white_edge: 'White Edge (legacy: Off on v0.15+)', frame: 'Frame (legacy: Off on v0.15+)' } as Record<string, string>)[a] ?? a;
 
 function seg(label: string, opts: [string, string][], value: string, on: (v: string) => void): HTMLElement {
-  return h('div', { class: 'field' }, h('span', { class: 'lbl' }, label),
-    h('div', { class: 'seg', role: 'radiogroup', 'aria-label': label }, ...opts.map(([v, t]) =>
-      h('button', { role: 'radio', 'aria-checked': String(v === value), class: v === value ? 'on' : '', onclick: () => on(v) }, t))));
+  return h('div', { class: 'field' }, h('span', { class: 'lbl' }, label), segCtl(label, opts, value, on));
+}
+/** The segmented control on its own (one choice of a few, e.g. Type, Lens correction). */
+function segCtl(label: string, opts: [string, string][], value: string, on: (v: string) => void): HTMLElement {
+  return h('div', { class: 'seg', role: 'radiogroup', 'aria-label': label }, ...opts.map(([v, t]) =>
+    h('button', { role: 'radio', 'aria-checked': String(v === value), class: v === value ? 'on' : '', onclick: () => on(v) }, t)));
+}
+
+// ---- editor building blocks: every group has the same header (title, optional hint and Reset), every slider the same
+// row (label, track, readout), every select the same row (label, control).
+/** A group header. `tools` go on the right (hint text, Reset link). */
+function groupHead(title: string, ...tools: (Node | string | null | false | undefined)[]): HTMLElement {
+  return h('div', { class: 'g-head' }, h('h3', { class: 'lbl' }, title), h('span', { class: 'g-tools' }, ...tools));
+}
+const gHint = (t: string) => h('span', { class: 'g-hint' }, t);
+const resetLink = (on: () => void, label = 'Reset') => h('button', { class: 'link', onclick: on }, label);
+function group(title: string, tools: (Node | null | false | undefined)[], ...kids: (Node | null | false | undefined)[]): HTMLElement {
+  return h('div', { class: 'group' }, groupHead(title, ...tools), ...kids);
+}
+/** One slider row: label (with an optional colour swatch), track, readout. */
+function sliderRow(label: string | Node, s: { inp: HTMLInputElement; out: HTMLOutputElement }, swatch?: string, cls = ''): HTMLElement {
+  return h('div', { class: `srow${cls ? ` ${cls}` : ''}` },
+    h('span', { class: 'sname' }, swatch ? h('span', { class: 'sw', style: `background:${swatch}` }) : null, label), s.inp, s.out);
+}
+/** One select / control row in the same grid as the sliders. */
+function pickRow(label: string, ctl: HTMLElement, ...after: (Node | null)[]): HTMLElement {
+  return h('label', { class: 'srow pick' }, h('span', { class: 'sname' }, label), ctl, ...after);
+}
+/** An editor section (Tone, Colour, Effects…): a title over its groups. */
+function edSection(title: string, sub: string, ...groups: (Node | null | false | undefined)[]): HTMLElement {
+  return h('section', { class: 'ed-sec', 'aria-label': title },
+    h('h2', { class: 'sec-title' }, title, sub ? h('span', { class: 'sec-sub' }, sub) : null), ...groups);
 }
 
 function slider(min: number, max: number, value: number, on: (v: number) => void, fmt = (v: number) => (v > 0 ? `+${v}` : String(v)), aria = '') {
@@ -858,19 +1033,19 @@ function sectorPanel(l: Look, changed: () => void): HTMLElement {
   const arr = l[S.tab];
   const rows = SECTORS.map((name, k) => {
     const { inp, out } = slider(-lim, lim, arr[k], (v) => { arr[k] = v; changed(); }, undefined, `${name} ${S.tab}`);
-    return h('div', { class: 'srow' }, h('span', { class: 'sw', style: `background:${SWATCH[k]}` }), h('span', { class: 'sname' }, name), inp, out);
+    return sliderRow(name, { inp, out }, SWATCH[k]);
   });
+  const tabName = tabs.find((t) => t[0] === S.tab)![1];
   return h('div', { class: 'group' },
+    groupHead('HSL', gHint(`±${lim} per sector on the ${cam().short}`), arr.some((v) => v !== 0) ? resetLink(() => { arr.fill(0); renderEditor(); changed(); }, `Reset ${tabName}`) : null),
     h('div', { class: 'tabs', role: 'tablist' }, ...tabs.map(([t, label]) => h('button', {
       role: 'tab', 'aria-selected': String(t === S.tab), class: t === S.tab ? 'on' : '',
       onclick: () => { S.tab = t; renderEditor(); },
     }, label, l[t].some((v) => v !== 0) ? h('span', { class: 'dot' }) : null))),
     h('div', { class: 'sectors' }, ...rows),
-    h('div', { class: 'tab-foot' },
-      h('span', { class: 'help' }, ...overNote(arr, lim), CAM === 'om3' ? `±${lim} per sector on the OM-3. Double-click a slider to zero it.` : S.tab === 'sat'
-        ? 'A Film pick sets the camera\'s saturation from these values on Caduceus v0.24 or later, for looks with a tone. It is also stored for MONO colour slots (looks without a tone).'
-        : `±${lim} per sector on the E-P7. Double-click a slider to zero it.`),
-      h('button', { class: 'link', onclick: () => { arr.fill(0); renderEditor(); changed(); } }, 'Reset')));
+    h('p', { class: 'help' }, ...overNote(arr, lim), CAM !== 'om3' && S.tab === 'sat'
+      ? 'A Film pick sets the camera\'s saturation from these values on Caduceus v0.24 or later, for looks with a tone. It is also stored for MONO colour slots (looks without a tone). '
+      : '', 'Double-click any slider to zero it.'));
 }
 
 /** Small live tone-curve graph: x = the stock rendering, y = with this look's tone (the camera LUT model). */
@@ -910,12 +1085,19 @@ function tonePanel(l: Look, changed: () => void): HTMLElement {
   const rows = TONE_KEYS.map((k) => {
     const lim = toneLimit(k);
     const { inp, out } = slider(-lim, lim, l.tone[k], (v) => { l.tone[k] = v; drawCurve(); changed(); }, undefined, TONE_LABEL[k]);
-    return h('div', { class: 'srow plain' }, h('span', { class: 'sname' }, TONE_LABEL[k]), inp, out);
+    return sliderRow(TONE_LABEL[k], { inp, out });
   });
   const { svg, draw: drawCurve } = toneCurve(l.tone);
+  const hw = cam().lookHw;
+  const curveSel = hw ? h('select', { 'aria-label': 'Base curve', onchange: (e: Event) => {
+    const v = (e.target as HTMLSelectElement).value;
+    if (v) l.curve = v as Curve; else delete l.curve;
+    renderEditor(); changed();
+  } }, h('option', { value: '', selected: !l.curve }, 'Camera'),
+    ...CURVES.map((c) => h('option', { value: c, selected: l.curve === c }, CURVE_LABEL[c]))) : null;
   return h('div', { class: 'group' },
-    h('div', { class: 'tone-head' }, h('span', { class: 'lbl' }, 'Tone'),
-      !toneIsZero(l.tone) ? h('button', { class: 'link', onclick: () => { for (const k of TONE_KEYS) l.tone[k] = 0; renderEditor(); changed(); } }, 'Reset') : null),
+    groupHead('Curve and levels', !toneIsZero(l.tone) || l.curve ? resetLink(() => { for (const k of TONE_KEYS) l.tone[k] = 0; delete l.curve; renderEditor(); changed(); }) : null),
+    curveSel ? pickRow('Base curve', curveSel) : null,
     svg,
     ...rows.slice(0, 3),
     h('div', { class: 'tone-sep' }),
@@ -924,7 +1106,8 @@ function tonePanel(l: Look, changed: () => void): HTMLElement {
       'Highlights / Shadows / Midtones (±7): picking the look sets the profile\'s own tone settings to these. ',
       'Blacks / Whites (±5) move the ends of the tone curve (+Blacks lifts to a matte black, −Whites rolls the white point off); ',
       'they act in COLOR slots, and a look with a tone is COLOR-only (it cannot go in a MONO slot). Needs Caduceus v0.19 or later. ',
-      'The graph shows stock → this look (camera tone LUT model); dots mark the Blacks and Whites ends.'),
+      'The graph shows stock → this look (camera tone LUT model); dots mark the Blacks and Whites ends.',
+      hw ? ' Base curve (E-P7 v0.34 or later): picking this look on the Film page sets the profile\'s base curve (LOOKS.BIN v4), and COLOR slots of the starter BUNDLES.BIN get it; older firmware: not written. Look codes leave it out; pack links keep it.' : ''),
   );
 }
 
@@ -939,21 +1122,98 @@ function splitPanel(l: Look, changed: () => void): HTMLElement {
     return h('div', { class: 'srow split' }, h('span', { class: 'sname' }, label), sel, inp, out);
   };
   return h('div', { class: 'group' },
-    h('div', { class: 'tone-head' }, h('span', { class: 'lbl' }, 'Split tone'),
-      hasSplit(l) ? h('button', { class: 'link', onclick: () => { delete l.split; renderEditor(); changed(); } }, 'Reset') : null),
+    groupHead('Split tone', hasSplit(l) ? resetLink(() => { delete l.split; renderEditor(); changed(); }) : null),
     row('Shadows', 'sh_color', 'sh'), row('Highlights', 'hl_color', 'hl'),
     h('p', { class: 'help' }, CAM === 'om3' ? 'Saved in LOOKS.BIN (Caduceus for OM-3 v0.26 or later). A minus strength tints toward the opposite colour.'
       : 'E-P7 v0.32 or later: picking this look on the camera sets the profile\'s split tone (LOOKS.BIN), and COLOR slots of the starter BUNDLES.BIN get it. Older firmware: not written. Look codes leave it out; pack links keep it.'));
 }
 
+// The preset the user last picked for a look, so a weak strength step two mixes share keeps that name.
+const mixPick = new WeakMap<Look, string>();
+/** v0.34 colour mix editor (shared `matrix` field): one row per output colour, presets + strength, the 3 x 3 sent. */
+function colourMixPanel(l: Look, changed: () => void): HTMLElement {
+  const set = (m: number[] | undefined) => { if (m) l.matrix = m; else delete l.matrix; };
+  const sliders: { inp: HTMLInputElement; out: HTMLOutputElement; i: number }[] = [];
+  const selfs: HTMLElement[] = [];
+  const rows = MIX_ROWS.map((r) => {
+    const self = h('span', { class: 'mx-self', title: `${r.out}'s own amount: 128 minus the two values below, so the row sums to 1.0` });
+    selfs.push(self);
+    return h('div', { class: `mx-row mx-${r.key}`, role: 'group', 'aria-label': `${r.out} output` },
+      h('div', { class: 'mx-t' }, h('span', { class: 'mx-dot' }), h('span', {}, r.out), self),
+      ...r.from.map(([src, i]) => {
+        const { inp, out } = slider(-MATRIX_MAX, MATRIX_MAX, l.matrix?.[i] ?? 0, (v) => {
+          set(setMixEntry(l.matrix, i, v)); mixPick.delete(l); sync(); changed();
+        }, undefined, `${r.out} from ${src}`);
+        sliders.push({ inp, out, i });
+        return sliderRow(`from ${src}`, { inp, out }, undefined, 'mx-sl');
+      }));
+  });
+  const presetBtn = (name: string, label = name) => h('button', {
+    class: 'chip mx-p', 'data-mix': name, 'aria-pressed': 'false',
+    onclick: () => {
+      if (name === 'off') { delete l.matrix; mixPick.delete(l); }
+      else { const st = mixState(l.matrix, mixPick.get(l)); set(applyMix(name, st && st.name !== name ? st.pct : 100)); mixPick.set(l, name); }
+      sync(); changed();
+    },
+  }, label);
+  const presets = h('div', { class: 'chips', role: 'group', 'aria-label': 'Named mixes' },
+    presetBtn('off', 'Off'), ...NAMED_MIXES.map((m) => presetBtn(m.name)));
+  const own = h('span', { class: 'badge-soft' }, 'Own numbers');
+  const str = slider(1, 10, 10, (v) => {
+    const st = mixState(l.matrix, mixPick.get(l));
+    if (!st) return;
+    set(applyMix(st.name, 10 * Math.max(1, v))); mixPick.set(l, st.name); sync(); changed();
+  }, (v) => `${v * 10} %`, 'Mix strength');
+  const strRow = sliderRow('Strength', str, undefined, 'mx-str');
+  const grid = h('div', { class: 'mx-grid', role: 'table', 'aria-label': 'Matrix sent to the camera, in 1/128' });
+  const reset = h('button', { class: 'link', onclick: () => { delete l.matrix; mixPick.delete(l); sync(); changed(); } }, 'Reset');
+  const cmp = h('button', { class: 'link', onclick: () => setSplitView(!S.split) });
+  function sync() {
+    const M = fullMatrix(l.matrix), st = mixState(l.matrix, mixPick.get(l));
+    for (const s of sliders) {
+      const v = Math.max(-MATRIX_MAX, Math.min(MATRIX_MAX, l.matrix?.[s.i] ?? 0));
+      if (Number(s.inp.value) !== v) s.inp.value = String(v);
+      s.out.textContent = v > 0 ? `+${v}` : String(v); fillRange(s.inp, s.out);
+    }
+    selfs.forEach((e, r) => { e.textContent = `self ${M[r][r]}`; });
+    presets.querySelectorAll<HTMLButtonElement>('.mx-p').forEach((b) => {
+      const on = b.dataset.mix === 'off' ? matrixIsZero(l.matrix) : st?.name === b.dataset.mix;
+      b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on));
+    });
+    own.hidden = !l.matrix || !!st;
+    strRow.hidden = !st;
+    if (st) { str.inp.value = String(st.pct / 10); str.out.textContent = `${st.pct} %`; fillRange(str.inp); }
+    reset.hidden = matrixIsZero(l.matrix);
+    cmp.textContent = S.split ? 'Hide before / after' : 'Before / after in preview';
+    const ch = ['R', 'G', 'B'];
+    grid.replaceChildren(
+      h('div', { class: 'mx-h', role: 'row' }, h('span', { role: 'columnheader' }), ...ch.map((c) => h('span', { role: 'columnheader' }, `in ${c}`))),
+      ...M.map((row, r) => h('div', { class: 'mx-h', role: 'row' }, h('span', { role: 'rowheader' }, `out ${ch[r]}`),
+        ...row.map((v, c) => h('span', { role: 'cell', class: r === c ? 'mx-d' : v ? 'mx-o' : 'mx-z', title: (v / 128).toFixed(3) }, String(v))))));
+  }
+  syncMix = sync;
+  sync();
+  return h('div', { class: 'group mx' },
+    groupHead('Colour mix', gHint('1 step = 1/128'), reset),
+    h('div', { class: 'mx-top' }, presets, own),
+    strRow,
+    ...rows,
+    h('div', { class: 'mx-gridwrap' },
+      groupHead('Matrix sent to the camera', gHint('rows sum to 128')),
+      grid),
+    h('p', { class: 'help' }, 'The camera keeps each row summing to 1.0, so greys never pick up a cast: only the six "from" amounts are set, and each colour\'s own amount (self) follows. "Red from Green +32" moves red a quarter of the way toward green, in linear light. ',
+      'The presets are the camera\'s named mixes (Extras page, v0.34b); Strength scales one 10 to 100 %, as the camera does. ',
+      'E-P7 v0.34 or later: picking this look on the Film page sets the profile\'s colour mix (LOOKS.BIN v4), and COLOR slots of the starter BUNDLES.BIN get it. Older firmware: not written. Look codes leave it out; pack links keep it. ', cmp));
+}
+let syncMix: (() => void) | null = null;
+
 function monoPanel(l: Look, changed: () => void): HTMLElement {
   const mf = (l.advice.mono_filter ??= { colour: 'none', strength: 1 });
-  return h('div', { class: 'group' },
-    h('p', { class: 'help' }, 'Mono looks use the camera\'s Monochrome profile; the per-sector colour sliders do not apply. Filter is advice for the camera setting (and the preview).'),
-    h('label', { class: 'field' }, h('span', { class: 'lbl' }, 'Colour filter (advice)'),
-      h('select', { onchange: (e: Event) => { mf.colour = (e.target as HTMLSelectElement).value as typeof mf.colour; changed(); } },
-        ...MONO_FILTERS.map((c) => h('option', { value: c, selected: c === mf.colour }, c[0].toUpperCase() + c.slice(1))))),
-    (() => { const { inp, out } = slider(1, 3, mf.strength, (v) => { mf.strength = v; changed(); }, String, 'Filter strength'); return h('div', { class: 'srow plain' }, h('span', { class: 'sname' }, 'Filter strength'), inp, out); })());
+  return group('Mono colour filter', [gHint('advice')],
+    pickRow('Filter', h('select', { onchange: (e: Event) => { mf.colour = (e.target as HTMLSelectElement).value as typeof mf.colour; changed(); } },
+      ...MONO_FILTERS.map((c) => h('option', { value: c, selected: c === mf.colour }, c[0].toUpperCase() + c.slice(1))))),
+    sliderRow('Strength', slider(1, 3, mf.strength, (v) => { mf.strength = v; changed(); }, String, 'Filter strength')),
+    h('p', { class: 'help' }, 'Mono looks use the camera\'s Monochrome profile; the per-sector colour sliders do not apply. The filter is advice for the camera setting (and the preview).'));
 }
 
 function effectPanel(l: Look, changed: () => void): HTMLElement {
@@ -964,8 +1224,9 @@ function effectPanel(l: Look, changed: () => void): HTMLElement {
   const stageSel = h('select', { 'aria-label': 'Halo' }, ...HALO_STAGES.map((t) => h('option', { value: t, selected: t === cur.stage }, t[0].toUpperCase() + t.slice(1))));
   const tints = HALO_TINTS.filter((t) => t === 'red' || t === 'amber' || t === cur.tint);
   const tintSel = h('select', { 'aria-label': 'Halo colour' }, ...tints.map((t) => h('option', { value: t, selected: t === cur.tint }, t[0].toUpperCase() + t.slice(1))));
-  const tintRow = h('label', { class: 'field inline' }, h('span', { class: 'lbl' }, 'Halo colour'), tintSel);
-  const haloRow = h('label', { class: 'field inline' }, h('span', { class: 'lbl', title: 'Red/orange glow around bright lights, like CineStill. Uses the Glow channel: Low, Med and High set Glow 2, 4 and 5.' }, 'Halo'), stageSel);
+  const tintRow = pickRow('Halo colour', tintSel);
+  const haloRow = pickRow('Halo', stageSel);
+  haloRow.title = 'Red/orange glow around bright lights, like CineStill. Uses the Glow channel: Low, Med and High set Glow 2, 4 and 5.';
   const show = () => { haloRow.hidden = !cam().tints; tintRow.hidden = !cam().tints || (stageSel as HTMLSelectElement).value === 'off'; };
   const { inp, out } = slider(-5, 5, v0(), (x) => {
     if (x === 0) l.effect = null;
@@ -989,10 +1250,10 @@ function effectPanel(l: Look, changed: () => void): HTMLElement {
   stageSel.addEventListener('change', apply);
   tintSel.addEventListener('change', apply);
   show();
-  return h('div', { class: 'group' },
-    h('div', { class: 'field' }, h('span', { class: 'lbl' }, 'Glow ↔ Clarity'),
-      h('div', { class: 'srow plain' }, h('span', { class: 'end' }, 'Glow'), inp, h('span', { class: 'end' }, 'Clarity'), out)),
-    haloRow, tintRow);
+  return group(cam().tints ? 'Glow, clarity and halo' : 'Glow and clarity', [],
+    sliderRow('Glow ↔ Clarity', { inp, out }, undefined, 'wide-out'),
+    haloRow, tintRow,
+    h('p', { class: 'help' }, 'Left of centre: Glow (a soft bloom); right: Clarity (local contrast).', cam().tints ? ' Halo is a red or amber glow around bright lights; it uses the Glow strength (Low, Med, High = Glow 2, 4, 5).' : ''));
 }
 
 function wbPanel(l: Look, changed: () => void): HTMLElement {
@@ -1003,10 +1264,11 @@ function wbPanel(l: Look, changed: () => void): HTMLElement {
   });
   const rows = on ? [['a_b', 'A–B', 'Amber +  /  Blue −'], ['g_m', 'G–M', 'Green +  /  Magenta −']].map(([k, label, tip]) => {
     const { inp, out } = slider(-cam().wb, cam().wb, l.wb![k as 'a_b'], (v) => { l.wb![k as 'a_b'] = v; changed(); }, undefined, label);
-    return h('div', { class: 'srow plain', title: tip }, h('span', { class: 'sname' }, label), inp, out);
+    const r = sliderRow(label, { inp, out }); r.title = tip; return r;
   }) : [];
   return h('div', { class: 'group' },
-    h('label', { class: 'check' }, box, h('span', {}, 'White balance shift'),
+    groupHead('White balance'),
+    h('label', { class: 'check' }, box, h('span', {}, 'Shift WB for this look'),
       h('span', { class: 'help' }, !on ? (CAM === 'om3' ? 'off: no shift' : 'off: your own WB fine-tune applies') : CAM === 'om3' ? 'added to the camera\'s own WB for this look' : 'overrides the camera\'s WB fine-tune for this look')),
     ...rows,
     ...(on ? overNote([l.wb!.a_b, l.wb!.g_m], cam().wb).map((n) => h('span', { class: 'help' }, n)) : []));
@@ -1020,10 +1282,10 @@ function overNote(vals: number[], lim: number): string[] {
 function settingsPanel(l: Look, changed: () => void): HTMLElement {
   const row = (label: string, lim: number, value: number, on: (v: number) => void, lo = -lim, fmt?: (v: number) => string) => {
     const { inp, out } = slider(lo, lim, value, on, fmt, label);
-    return h('div', { class: 'srow plain' }, h('span', { class: 'sname' }, label), inp, out);
+    return sliderRow(label, { inp, out }, undefined, 'wide-out');
   };
   return h('div', { class: 'group' },
-    h('div', { class: 'field' }, h('span', { class: 'lbl' }, 'Camera settings')),
+    groupHead('Contrast, sharpness, shading'),
     row('Contrast', OM3.contrast, l.advice.contrast ?? 0, (v) => { l.advice.contrast = v; changed(); }),
     row('Sharp', SHARP.hi, l.advice.sharpness ?? 0, (v) => { l.advice.sharpness = v; changed(); }, SHARP.lo, sharpLabel),
     row('Shading', OM3.shading, l.vignette, (v) => { l.vignette = v; changed(); }),
@@ -1053,33 +1315,92 @@ function buildPreview() {
     ...SAMPLES.map((s) => h('button', { class: `thumb${S.image === s.id ? ' on' : ''}`, 'data-id': s.id, onclick: () => pickImage(s.id), title: s.label },
       h('img', { src: `./samples/${s.id}.jpg`, alt: s.label, loading: 'lazy' }))),
     h('button', { class: `thumb own${S.image === 'user' ? ' on' : ''}`, 'data-id': 'user', onclick: () => (userPhoto ? pickImage('user') : $<HTMLInputElement>('#photo').click()), title: 'Your photo (stays on this device)' },
-      h('span', {}, '+ Your photo')));
+      h('span', {}, '+ Your photo')),
+    h('button', { class: `thumb chart${S.image === 'chart' ? ' on' : ''}`, 'data-id': 'chart', onclick: () => pickImage('chart'), title: 'Test chart: hue sweep, saturation steps, colour patches and a grey ramp' },
+      h('span', {}, 'Test chart')));
   const cmp = h('button', {
     class: 'compare', title: 'Hold to see the original',
     onpointerdown: () => { S.compare = true; schedulePreview(); },
     onpointerup: () => { S.compare = false; schedulePreview(); },
     onpointerleave: () => { if (S.compare) { S.compare = false; schedulePreview(); } },
   }, 'Hold: original');
+  before = h('canvas', { class: 'pv before', 'aria-hidden': 'true' });
+  // Before / after divider (design after androidfanman/caduceus-om3 Look Lab, see NOTICE): the original sits on top of
+  // the look, clipped to the left of --cut; drag the line (or anywhere on the photo), or use the arrow keys on it.
+  const wrap = h('div', { class: 'pv-wrap' });
+  const divider = h('div', {
+    class: 'divider', role: 'slider', tabindex: 0, 'aria-label': 'Before / after divider', 'aria-valuemin': 0, 'aria-valuemax': 100,
+    'aria-orientation': 'horizontal',
+    onkeydown: (e: KeyboardEvent) => {
+      const k = e.shiftKey ? 10 : 2;
+      const v = e.key === 'ArrowLeft' || e.key === 'ArrowDown' ? S.cut - k : e.key === 'ArrowRight' || e.key === 'ArrowUp' ? S.cut + k
+        : e.key === 'Home' ? 0 : e.key === 'End' ? 100 : e.key === 'PageDown' ? S.cut - 10 : e.key === 'PageUp' ? S.cut + 10 : null;
+      if (v === null) return;
+      e.preventDefault(); setCut(v);
+    },
+  }, h('span', { class: 'knob' }));
+  let dragId: number | null = null;
+  const at = (e: PointerEvent) => { const r = wrap.getBoundingClientRect(); setCut(((e.clientX - r.left) / Math.max(1, r.width)) * 100); };
+  const down = (e: PointerEvent) => {
+    if (!S.split || e.button > 0 || (e.target as HTMLElement).closest('.compare')) return;
+    dragId = e.pointerId; wrap.setPointerCapture(e.pointerId); wrap.classList.add('dragging'); at(e);
+    if (e.target === divider || divider.contains(e.target as Node)) divider.focus();
+  };
+  wrap.addEventListener('pointerdown', down);
+  wrap.addEventListener('pointermove', (e) => { if (dragId === e.pointerId) at(e); });
+  const up = (e: PointerEvent) => { if (dragId === e.pointerId) { dragId = null; wrap.classList.remove('dragging'); } };
+  wrap.addEventListener('pointerup', up); wrap.addEventListener('pointercancel', up);
+  wrap.append(canvas, before, divider,
+    h('span', { class: 'side l' }, 'Before'), h('span', { class: 'side r' }, 'After'),
+    h('span', { class: 'badge', id: 'pv-badge' }, 'Approximate preview'), cmp);
   $('#preview').replaceChildren(
-    h('div', { class: 'pv-wrap' }, canvas, h('span', { class: 'badge', id: 'pv-badge' }, 'Approximate preview'), cmp),
+    wrap,
     thumbs,
     h('div', { class: 'pv-opts' },
+      h('label', { class: 'check' }, h('input', { type: 'checkbox', id: 'pv-split', checked: S.split, onchange: (e: Event) => setSplitView((e.target as HTMLInputElement).checked) }),
+        h('span', {}, 'Before / after')),
       h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: S.advice, onchange: (e: Event) => { S.advice = (e.target as HTMLInputElement).checked; schedulePreview(); } }),
         h('span', {}, 'Include advice (contrast)')),
-      h('label', { class: 'check', id: 'pv-grain', title: 'Preview only. Grain is set for each COLOR profile, not by the look.' }, h('span', {}, 'Grain'),
+      h('label', { class: 'check', id: 'pv-grain', title: 'Preview only: shows a COLOR profile\'s Grain setting (Profile settings, beside the starter slots). Grain is never part of a look.' }, h('span', {}, 'Profile grain'),
         h('select', { onchange: (e: Event) => { S.grain = (e.target as HTMLSelectElement).value as FilmGrain; schedulePreview(); } },
           ...GRAIN_OPTS.map(([v, t]) => h('option', { value: v, selected: v === S.grain }, t)))),
       h('button', { class: 'link', onclick: () => $<HTMLInputElement>('#photo').click() }, 'Use your own photo…')),
+    h('p', { class: 'help', id: 'pv-split-help' }, 'Drag the line on the photo to compare before and after (or focus it and use the arrow keys).'),
     h('p', { class: 'help' }, 'A rough desktop-sim port running on JPEGs, not the camera\'s pipeline: use it for direction and strength, then check on the camera. Your own photo never leaves this browser.'));
+  applySplit();
   pickImage(S.image);
+}
+let before: HTMLCanvasElement;
+let beforeOf: ImageData | null = null;   // the image the before canvas holds
+function setCut(v: number) { S.cut = Math.max(0, Math.min(100, Math.round(v * 10) / 10)); applySplit(); }
+/** Show or hide the before / after divider (the preview's and the Colour mix editor's shared compare). */
+function setSplitView(on: boolean) {
+  S.split = on;
+  try { localStorage.setItem('caduceus-pv-split', on ? '1' : '0'); } catch { /* private mode */ }
+  const cb = document.getElementById('pv-split') as HTMLInputElement | null;
+  if (cb) cb.checked = on;
+  applySplit(); syncMix?.();
+  if (on) document.querySelector('.pv-wrap')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+}
+function applySplit() {
+  const wrap = document.querySelector<HTMLElement>('.pv-wrap');
+  if (!wrap) return;
+  wrap.classList.toggle('split', S.split);
+  wrap.style.setProperty('--cut', `${S.cut}%`);
+  const d = wrap.querySelector('.divider');
+  d?.setAttribute('aria-valuenow', String(Math.round(S.cut)));
+  d?.setAttribute('aria-valuetext', `${Math.round(S.cut)} % before`);
+  const help = document.getElementById('pv-split-help');
+  if (help) help.hidden = !S.split;
 }
 
 async function pickImage(id: string) {
   S.image = id;
   document.querySelectorAll('.thumb').forEach((t) => t.classList.toggle('on', (t as HTMLElement).dataset.id === id));
   const amb = document.getElementById('ambient');
-  if (amb && id !== 'user') amb.style.backgroundImage = `url("./samples/${id}.jpg")`;
+  if (amb && id !== 'user' && id !== 'chart') amb.style.backgroundImage = `url("./samples/${id}.jpg")`;
   if (id === 'user') { srcData = userPhoto; schedulePreview(); if (S.browse) renderEditor(); return; }
+  if (id === 'chart') { srcData = new ImageData(testChart(), 900, 600); schedulePreview(); if (S.browse) renderEditor(); return; }
   try {
     const img = new Image();
     img.src = `./samples/${id}.jpg`;
@@ -1123,6 +1444,10 @@ function schedulePreview() {
     if (badge) { badge.textContent = S.peek ? `Preview · ${S.peek.look.name} (${S.peek.from})` : 'Approximate preview'; badge.classList.toggle('peek', !!S.peek); }
     if (!srcData || !canvas) return;
     if (canvas.width !== srcData.width || canvas.height !== srcData.height) { canvas.width = srcData.width; canvas.height = srcData.height; }
+    if (before && beforeOf !== srcData) {
+      before.width = srcData.width; before.height = srcData.height;
+      before.getContext('2d')!.putImageData(srcData, 0, 0); beforeOf = srcData;
+    }
     const ctx = canvas.getContext('2d')!;
     const l = S.peek?.look ?? cur();
     if (S.compare || !l) { ctx.putImageData(srcData, 0, 0); return; }
@@ -1332,7 +1657,8 @@ function installDialog() {
 
 const STORE_FW = 'caduceus.firmware';
 const FW_OPTIONS: [Fw, string, string][] = [
-  [32, 'v0.32 or later', 'Everything works, including split toning on COLOR profiles (a Film pick sets it from LOOKS.BIN) and Grain, Sharp and Halo for each profile.'],
+  [34, 'v0.34 or later', 'Everything works, including the base curve and colour mix (LOOKS.BIN v4 for a Film pick, and COLOR slots of BUNDLES.BIN).'],
+  [32, 'v0.32 or v0.33', 'Files work. Base curve and colour mix are left out of LOOKS.BIN and BUNDLES.BIN. Split toning on COLOR profiles (a Film pick sets it from LOOKS.BIN) and Grain, Sharp and Halo for each profile.'],
   [31, 'v0.31', 'Files work. Split toning is left out of LOOKS.BIN and BUNDLES.BIN.'],
   [28, 'v0.28 to v0.30', 'Files work. Halo for each profile is left out of BUNDLES.BIN (looks keep their halation).'],
   [27, 'v0.27', 'Files work. Sharp and Halo for each profile are left out of BUNDLES.BIN.'],
@@ -1369,7 +1695,7 @@ function setupDialog(first = false) {
     ...FW_OPTIONS.map(([f, label, help]) => row(label, help, 'ep7', f)),
     h('h3', {}, 'OM SYSTEM OM-3'),
     row('Caduceus for OM-3 v0.19 or later', 'Exports OM3MOD/LOOKS.BIN and NAMES.BIN (choose your firmware version on export). The firmware is a separate project: never use E-P7 firmware on an OM-3.', 'om3'),
-    h('p', { class: 'help' }, 'Other bodies aren\'t supported yet: ', h('a', { href: `${GH}/blob/main/docs/BODIES.md`, target: '_blank', rel: 'noopener' }, 'see where each one stands'), '.'));
+    h('p', { class: 'help' }, 'Other bodies have their own community ports: ', h('a', { href: `${GH}/blob/main/docs/BODIES.md`, target: '_blank', rel: 'noopener' }, 'see where each one stands'), '.'));
   const dlg = modal(first ? 'Welcome to the Caduceus Control Panel' : 'Your camera', body);
 }
 function loadSetup() {
@@ -1392,7 +1718,13 @@ function aboutDialog() {
     h('h3', {}, 'Your camera'),
     row('Olympus PEN E-P7', 'cakelesscoder', GH),
     row('OM SYSTEM OM-3', 'androidfanman', OM3_REPO),
-    h('p', { class: 'help' }, 'Other bodies: ', link(`${GH}/blob/main/docs/BODIES.md`, 'see where each one stands'), '.'),
+    h('p', { class: 'help' }, 'Other bodies have their own community ports, each with its own install guide and bug reports: ',
+      link('https://github.com/Meghnus/om10mi-mods', 'E-M10 Mark I'), ' (Meghnus), ',
+      link('https://github.com/emudojo/caduceus/tree/omdem12-implement-colors-more', 'E-M1 Mark II'), ' (emudojo, in progress), ',
+      link('https://github.com/tadejs/caduceus-om5/tree/om5-port', 'OM-5'), ' (tadejs, paused), ',
+      link('https://github.com/RemeraLl1/epl9-lab', 'E-PL9'), ' (RemeraLl1, research) and ',
+      link('https://github.com/nsud-dev/olympus-firmware-notes', 'E-M5 Mark III'), ' (nsud-dev, research). ',
+      'Never flash one body\'s firmware on another. ', link(`${GH}/blob/main/docs/BODIES.md`, 'See where each one stands'), '.'),
     h('h3', {}, 'Credits'),
     h('p', {}, 'Inspired by ', link('https://www.reddit.com/user/fischgurke/', 'u/fischgurke'), '\'s PEN-F HSL firmware mod, and built on the PEN-F research in ', link('https://github.com/fishcu/oly_fw_analysis', 'fishcu/oly_fw_analysis'), '. ', link(`${GH}#credits`, 'Full credits'), '.')));
 }
@@ -1497,28 +1829,10 @@ const downloadRr = (i: number) => download(`${rrName(S.pack.looks[i].name)}.rrpr
 const rrFiles = () => S.pack.looks.map((l, i) => ({ name: `${String(i + 1).padStart(2, '0')}-${rrName(l.name)}.rrpreset`, data: new TextEncoder().encode(rrpreset(S.pack, i)) }));
 function ep7Body(): HTMLElement {
   const probs = validatePack({ ...S.pack, slots: {} });
-  const slotSel = (s: SlotName) => {
-    const sel = h('select', {
-      onchange: (e: Event) => {
-        const v = (e.target as HTMLSelectElement).value;
-        if (v === '') delete S.pack.slots[s]; else S.pack.slots[s] = Number(v);
-        save();
-      },
-    }, h('option', { value: '' }, '— stock —'),
-    ...S.pack.looks.map((l, i) => (s.startsWith('COLOR') ? l.kind === 'mono' : hasTone(l)) ? null : h('option', { value: i, selected: S.pack.slots[s] === i }, `${i + 1}. ${l.name}`)).filter(Boolean) as HTMLElement[]);
-    if (!s.startsWith('COLOR')) return h('label', { class: 'slot' }, h('span', {}, s), sel);
-    const pick = (label: string, opts: [string, string][], key: 'grain' | 'nr' | 'sharp' | 'halo', dflt = '') => h('label', {}, h('span', {}, label),
-      h('select', {
-        onchange: (e: Event) => {
-          const v = (e.target as HTMLSelectElement).value;
-          S.pack.profiles = { ...S.pack.profiles, [s]: { ...profileOf(S.pack, s), [key]: v } };
-          save();
-        },
-      }, ...opts.map(([v, t]) => h('option', { value: v, selected: (profileOf(S.pack, s)[key] ?? dflt) === v }, t))));
-    return h('div', { class: 'slot-color' }, h('label', { class: 'slot' }, h('span', {}, s), sel),
-      h('div', { class: 'slot-prof' }, pick('Grain', GRAIN_OPTS, 'grain'), pick('NR', NR_OPTS, 'nr'),
-        firmware() >= 28 ? pick('Sharp', SHARP_OPTS, 'sharp', 'camera') : null,
-        firmware() >= 31 ? pick('Halo', HALO_OPTS, 'halo', 'look') : null));
+  const slotLine = (s: SlotName) => {
+    const k = S.pack.slots[s], name = k === undefined ? 'stock' : `${k + 1}. ${S.pack.looks[k]?.name ?? '?'}`;
+    const prof = s.startsWith('COLOR') ? PROFILE_COLS().map(([t, o, key, df]) => `${t} ${o.find(([v]) => v === (profileOf(S.pack, s)[key] ?? df))?.[1] ?? '?'}`).join(' · ') : '';
+    return h('li', {}, h('b', {}, s), ` ${name}`, prof ? h('span', { class: 'help' }, ` — ${prof}`) : null);
   };
   const withBundles = h('input', { type: 'checkbox' });
   const fname = (S.pack.name || 'pack').replace(/[^\w.-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'pack';
@@ -1545,8 +1859,12 @@ function ep7Body(): HTMLElement {
     h('details', { class: 'ex-bundles' },
       h('summary', {}, 'Starter slots (BUNDLES.BIN, optional)'),
       h('p', { class: 'help' }, 'BUNDLES.BIN holds the looks currently in the 8 picture-mode slots. Your card\'s BUNDLES.BIN has your saved slot choices: only replace it if you want to reset them. Empty = the camera\'s stock rendering.'),
-      h('p', { class: 'help' }, 'Grain and NR belong to each COLOR profile, not to a look: picking a look keeps them. On the camera: Extras sector 1 (Grain) and 9 (NR). Grain needs v0.27 or later.'),
-      h('div', { class: 'slots' }, ...SLOT_NAMES.map(slotSel))),
+      h('ul', { class: 'slot-sum' }, ...SLOT_NAMES.map(slotLine)),
+      h('button', { onclick: (e: Event) => {
+        (e.target as HTMLElement).closest('dialog')?.close();
+        profilesOpen = true; renderList();
+        document.querySelector('.slot-strip')?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+      } }, 'Edit slots and profile settings')),
     h('div', { class: 'ex-row' },
       h('div', {}, h('b', {}, 'Card folder (.zip)'), h('p', { class: 'help' }, 'EP7MOD/LOOKS.BIN (+ BUNDLES.BIN if ticked) and the pack file. Unzip at the card root.'),
         h('label', { class: 'check' }, withBundles, h('span', {}, 'Include starter BUNDLES.BIN'))),

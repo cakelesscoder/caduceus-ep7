@@ -13,6 +13,7 @@ REPO=$(cd "$(dirname "$0")/.." && pwd)
 TC=$HOME/ep7fw-toolchains
 [ -d "$NAS" ] || { echo "Backup target not reachable: $NAS" >&2; exit 1; }
 R="rsync -rlt --inplace --info=stats1 --exclude=__pycache__/ --exclude=*.pyc --exclude=/external/ --exclude=node_modules/ --exclude=/.venv/"
+mkdir -p "$NAS/repo/caduceus-ep7" "$NAS/private/ep7fw-private" "$NAS/private/ghidra-projects"   # a fresh target has none of these
 echo "== repo (working tree + .git)"; $R "$REPO/" "$NAS/repo/caduceus-ep7/"
 echo "== private: decompiled notes"; $R "$HOME/ep7fw-private/" "$NAS/private/ep7fw-private/"
 echo "== private: Ghidra projects"; $R "$TC/projects/" "$NAS/private/ghidra-projects/"

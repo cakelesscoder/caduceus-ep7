@@ -8,6 +8,8 @@
 import { FILM_GRAINS, GRAINS, toneIsZero, type FilmGrain, type Look } from './pack';
 import { previewToneLut } from './tone';
 import { bendSplit, hasSplit } from './split';
+import { curveLut, lookMatrix } from './lookhw';
+import { matrixIsZero } from './pack';
 
 // Firmware COLOR table (generated/color/ep7_color_table.json, UI order): sector centre / width (0..32767 = 360 deg)
 // and the positive/negative saturation gains.
@@ -146,6 +148,20 @@ export function renderLook(src: ImageData, dst: ImageData, look: Look, opt: Prev
     } else {
       img[q] = s[p] / 255; img[q + 1] = s[p + 1] / 255; img[q + 2] = s[p + 2] / 255;
     }
+  }
+  // 1b. v0.34 colour matrix (linear light, rows R G B out) and base curve (standard undone, then the look's), colour looks
+  if (!mono && !matrixIsZero(look.matrix)) {
+    const M = lookMatrix(look.matrix!);
+    for (let i = 0; i < n * 3; i += 3) {
+      const r = DEC[Math.round(img[i] * 255)], g = DEC[Math.round(img[i + 1] * 255)], b = DEC[Math.round(img[i + 2] * 255)];
+      img[i] = enc(clamp01(M[0][0] * r + M[0][1] * g + M[0][2] * b));
+      img[i + 1] = enc(clamp01(M[1][0] * r + M[1][1] * g + M[1][2] * b));
+      img[i + 2] = enc(clamp01(M[2][0] * r + M[2][1] * g + M[2][2] * b));
+    }
+  }
+  if (!mono && look.curve && look.curve !== 'standard') {
+    const cl = curveLut(look.curve);
+    for (let i = 0; i < n * 3; i++) img[i] = cl[Math.max(0, Math.min(1024, (img[i] * 1024 + 0.5) | 0))];
   }
   // 2. contrast advice + the look's tone (luminance), 3. 12-sector colour engine, 4. mono
   const con = opt.advice ? look.advice.contrast ?? 0 : 0;

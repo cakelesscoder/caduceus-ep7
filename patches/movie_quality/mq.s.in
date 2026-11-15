@@ -1,0 +1,58 @@
+/* mq_get (patches/movie_quality; ep7-firmware, our own code). docs/RE_MOVIE.md "Movie quality layer".
+ * <- `jmp mq_get` at 0x6031bf37, the entry of the recorder's per-slot quality getter (mv_slot_quality_get), on its frame:
+ * every caller enters it with `call 0x6031bf37,[d2],8` and d0 = slot. Stock: size (key 0xf031) 8 or 9 -> 1, else the slot's
+ * quality (key 0xf041). Here: C4K (9) -> 1 as stock; 4K (8) -> the slot's own quality, ALL-I (5) -> SF (6); every other size
+ * -> the slot's quality as stock. Same calls to the property getter as stock (key in d0, index in d1, a0 = 0), same
+ * `extbu d0; ret [d2],8` return. No store, no stack use beyond the getter's own frames.
+ */
+ .am33_2
+ .text
+ .global _start
+_start:
+mq_get:
+ mov d0,d2
+ exthu d2
+ mov 0xf031,d0
+ mov 0,a0
+ mov d2,d1
+ call ep7_getter,[d2,d3],12
+ extbu d0
+ cmp 9,d0
+ beq 2f
+ cmp 8,d0
+ bne 1f
+ mov 0xf041,d0
+ mov 0,a0
+ mov d2,d1
+ call ep7_getter,[d2,d3],12
+ extbu d0
+ cmp 5,d0
+ bne 3f
+ mov 6,d0
+ bra 3f
+1:
+ mov 0xf041,d0
+ mov 0,a0
+ mov d2,d1
+ call ep7_getter,[d2,d3],12
+ extbu d0
+ bra 3f
+2:
+ mov 1,d0
+3:
+ ret [d2],8
+
+/* mq_ceil <- `jmp mq_ceil` at 0x603d19db, the encoder setter's `mov 105000000,d0` (ulMaxBitrate for every mode but C4K and
+ * FHD ALL-I; a2 = the video block, (a2) = ulBitRate already set). ulBitRate above 100 M (only the new 4K SF level reaches
+ * this branch with that) -> 157 500 000, else 105 000 000 as stock. Back to 0x603d19e1 (`mov d0,(4,a2)`); only d0 and PSW
+ * change, and PSW is dead there (the next flag reader is the `lne` after `inc d1`).
+ */
+mq_ceil:
+ mov (a2),d0
+ cmp 100000000,d0
+ bhi 4f
+ mov 105000000,d0
+ jmp ep7_ceil_back
+4:
+ mov 157500000,d0
+ jmp ep7_ceil_back

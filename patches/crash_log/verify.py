@@ -18,6 +18,10 @@
       record and zeros elsewhere, RAM changed in the marks only; a damaged or a busy record is written too; no mark, no card
       table (BUNDLES.BIN missing), no memory: no file call and RAM untouched; fopen fails: no fwrite. In every case the
       registers handed to the next hook (ap_pre) and the loaded table are those of BASE.
+  G   (v0.33b) cl_gate: the handler entered at its site with the sections-loaded word 0xa272e420 = 0 (and 0x1fe: every
+      section but 1) on CPU0..2, with our section-1 code not mapped (RAM that holds no code yet: any jump there faults):
+      at 0x60059ab1 every register, MDR, LIR, LAR and the PSW == the stock handler's, the stack and the record untouched.
+      Word = 1 (section 1 only): the full record as in C1, the record's sections word = 1.
   D   the decoder on the file of C1 + C2: cause, CPU, task, PC symbol and owner, ring, grain fields; its task names == the
       three name tables of the image
   X   every word / halfword access our code makes in the traced runs is aligned
@@ -143,7 +147,7 @@ def stack_bytes():
 
 
 def c1_regions(m, s, cpu=0, rec=None, fr=None, handle=H_OK, pmagic=b'EP7B', gptr=G_AT, gmagic=b'GDIA', tcbp=TCB_AT, tid=31, nmi=4, syserr=0x20,
-               pool=True, grecmap=True, tcbmap=True, cpuw=None):
+               pool=True, grecmap=True, tcbmap=True, cpuw=None, sect=0x1ff, clmap=True):
     """The handler, our code and the RAM / registers the stub may read. Only what a case says exists is mapped."""
     lo, hi = (int(x, 16) for x in s['claim'])
     io = bytearray(0x100); struct.pack_into('<I', io, 0x50, (0xbeef0000 | cpu) if cpuw is None else cpuw); struct.pack_into('<I', io, 0x44, syserr)
@@ -151,12 +155,16 @@ def c1_regions(m, s, cpu=0, rec=None, fr=None, handle=H_OK, pmagic=b'EP7B', gptr
     g = grec(); g[:4] = gmagic
     tw = {a: Region(f'tcbw{i}', a & ~0xf, bytes(a & 0xf) + struct.pack('<I', tcbp if i == cpu else 0x0bad0bad) + bytes(12 - (a & 0xf)), 'r') for i, a in enumerate(CB.TCB)}
     ad = bytearray(0x20); struct.pack_into('<4I', ad, 8, 0xc0de0000 + cpu, 0x0da7a000, 0x0da7a111, 0x5a5a0000 + cpu)
-    rg = [img(m, 0x60059a00, 0x60059d00, 'handler'), img(m, lo, hi, 'cl'),
+    rg = [img(m, 0x60059a00, 0x60059d00, 'handler')] + ([img(m, lo, hi, 'cl')] if clmap else [])
+    if 'gate' in s:                                          # v0.33b: the site jumps to cl_gate in the base image first
+        glo, ghi = (int(x, 16) for x in s['gate']['claim'])
+        rg.append(img(m, glo, ghi, 'gate'))
+    rg += [
           Region('stk', STK, bytes(stack_bytes()), 'rw', True), Region('frames', CB.FRAMES, bytes(fr or frames()), 'r'),
           Region('rec', R, bytes(rec) if rec is not None else b'\x99' * F.FILE_LEN, 'rw', True),
           Region('io', 0x8000, bytes(io), 'r'), Region('io89', 0x8900, struct.pack('<I', nmi), 'r'), *tw.values(),
           Region('st', CB.STATE_LO, struct.pack('<HHI', 144, handle, 0), 'r'), Region('ring', 0xa26a0a90, bytes(rings()), 'r'),
-          Region('xc', CB.XCODE & ~0xf, struct.pack('<4I', 0x33, 0, 0, 0), 'r'), Region('sect', CB.SECT, struct.pack('<I', 0x1ff), 'r'),
+          Region('xc', CB.XCODE & ~0xf, struct.pack('<4I', 0x33, 0, 0, 0), 'r'), Region('sect', CB.SECT, struct.pack('<I', sect), 'r'),
           Region('wm', CB.WMODE & ~0xf, bytes(4) + struct.pack('<3I', 3, 0, 4), 'r'), Region('ad', CB.ADDEC + 0x100 * (cpu if cpu < 3 else 0), bytes(ad), 'r')]
     if pool:
         rg.append(Region('pool', P_AT, bytes(p), 'r'))
@@ -175,12 +183,12 @@ def c1_run(m, s, ins=None, extra=(), **kw):
     return r, mem(r)
 
 
-def expect_slot(cpu, flags, fr, *, tid=31, tcbp=TCB_AT, handle=H_OK, p=P_AT, gptr=G_AT, grain=None, stack=None, nmi=4, syserr=0x20):
+def expect_slot(cpu, flags, fr, *, tid=31, tcbp=TCB_AT, handle=H_OK, p=P_AT, gptr=G_AT, grain=None, stack=None, nmi=4, syserr=0x20, sect=0x1ff):
     """The record the stub must leave for these inputs."""
     s = bytearray(SLOT)
     rb = rings()
     struct.pack_into('<4I', s, F.O_INFO, F.VERSION | cpu << 8 | flags << 16, nmi, syserr, tid & 0xffffffff)
-    struct.pack_into('<4I', s, F.O_TCB, tcbp, 0x33, 0x1ff, 144 | handle << 16)
+    struct.pack_into('<4I', s, F.O_TCB, tcbp, 0x33, sect, 144 | handle << 16)
     struct.pack_into('<4I', s, F.O_P, p, gptr & 0xffffffff, 0xab07ab07, 0xa6543210)
     struct.pack_into('<3I', s, F.O_WMODE, 3, 0, 4)
     struct.pack_into('<4I', s, F.O_ADDEC, 0xc0de0000 + cpu, 0x0da7a000, 0x0da7a111, 0x5a5a0000 + cpu)
@@ -303,6 +311,35 @@ def t_c1(old, new, s, ins):
     # the high half of the CPU word is ignored, as in the handler (exthu)
     r, m = c1_run(new, s, cpuw=0x00050000)
     check('CPU word 0x50000 = CPU0', r, m, 0, first)
+    return bad, n
+
+
+# ------------------------------------------------------------------ G (v0.33b)
+def t_gate(old, new, s):
+    bad, n = [], 0
+    if 'gate' not in s:
+        return [('no cl_gate in NEW',)], 1
+    stk = stack_bytes()
+    for cpu in range(3):
+        r0 = execute(c1_regions(old, s, cpu=cpu, clmap=False), dict(REGS, pc=CB.SITE, sp=SPS[cpu] - 16), CB.BACK, limit=10)
+        want = {k: r0['registers'][k] for k in KEEP}
+        for sect in (0, 0x1fe):
+            n += 1
+            r = execute(c1_regions(new, s, cpu=cpu, sect=sect, clmap=False), dict(REGS, pc=CB.SITE, sp=SPS[cpu] - 16), CB.BACK, limit=50)
+            m = mem(r)
+            ok = not r0['fault'] and not r['fault'] and r['registers']['pc'] == CB.BACK and all(r['registers'][k] == want[k] for k in KEEP) \
+                and m['stk'] == bytes(stk) and m['rec'] == b'\x99' * F.FILE_LEN and r['completed'] == 6
+            if not ok:
+                bad.append((f'CPU{cpu} sections {sect:#x}', r['fault'], hex(r['registers']['pc']), r['completed'],
+                            {k: hex(r['registers'][k]) for k in KEEP if r['registers'][k] != want[k]}))
+    for cpu in (0, 2):                                       # section 1 alone is enough for the record
+        n += 1
+        r, m = c1_run(new, s, cpu=cpu, sect=1)
+        want = expect_slot(cpu, F.F_TID | F.F_PH | F.F_PM | F.F_GP | F.F_GM | F.F_STK | (F.F_RN if cpu else 0), frames(), grain=grec(),
+                           stack=bytes(stk[SPS[cpu] - STK:SPS[cpu] - STK + F.STACK_LEN]), sect=1)
+        exp = bytearray(b'\x99' * F.FILE_LEN); exp[cpu * SLOT:(cpu + 1) * SLOT] = want
+        if r['fault'] or r['registers']['pc'] != CB.BACK or m['rec'] != bytes(exp):
+            bad.append((f'CPU{cpu} section 1 only', r['fault'], hex(r['registers']['pc'])))
     return bad, n
 
 
@@ -570,12 +607,14 @@ def t_pkg(new_s, new, pkg, rst, info, disk, old):
         good &= b.payload == sb[b.kind].payload
     s = new_s['crash_log']
     ours = [(int(s['site'], 16), 6), (int(s['code'][0], 16), s['code'][1]), (int(s['c2_site'], 16), 5)]
+    if 'gate' in s:
+        ours.append((int(s['gate']['code'][0], 16), s['gate']['code'][1]))
     import numpy as np
     diff = [BASE + int(i) for i in np.nonzero(np.frombuffer(old, np.uint8) != np.frombuffer(new, np.uint8))[0]] if len(old) == len(new) else []
     stray = [hex(a) for a in diff if not any(a0 <= a < a0 + k for a0, k in ours)]
     good = bool(good) and not stray and len(old) == len(new) and bool(diff)
     site = int(s['site'], 16)
-    good &= new[site - BASE:site - BASE + 6] == b'\xdc' + struct.pack('<i', int(s['symbols']['cl_nmi'], 16) - site) + b'\xcb'
+    good &= new[site - BASE:site - BASE + 6] == b'\xdc' + struct.pack('<i', int(s['symbols']['cl_gate' if 'gate' in s else 'cl_nmi'], 16) - site) + b'\xcb'
     c2 = int(s['c2_site'], 16)
     good &= new[c2 - BASE:c2 - BASE + 5] == b'\xdc' + struct.pack('<i', int(s['symbols']['cl_first'], 16) - c2)
     if disk:
@@ -603,6 +642,8 @@ def main():
     ok = True
     bad, n = t_c1(old, new, s, ins); ok &= not bad
     print(f"{'PASS' if not bad else 'FAIL'} C1 fault-time stub: {n - len(bad)}/{n}", bad[:5] if bad else '', flush=True)
+    bad, n = t_gate(old, new, s); ok &= not bad
+    print(f"{'PASS' if not bad else 'FAIL'} G section-1 gate: {n - len(bad)}/{n}", bad[:5] if bad else '', flush=True)
     first = expect_slot(0, F.F_TID | F.F_PH | F.F_PM | F.F_GP | F.F_GM | F.F_STK, frames(), grain=grec(), stack=bytes(stack_bytes()[SP0 - STK:SP0 - STK + F.STACK_LEN]))
     bad, n, out = t_c2(old, new, base_s, new_s, s, ins, first); ok &= not bad
     print(f"{'PASS' if not bad else 'FAIL'} C2 next-boot writer: {n - len(bad)}/{n}", bad[:5] if bad else '', flush=True)

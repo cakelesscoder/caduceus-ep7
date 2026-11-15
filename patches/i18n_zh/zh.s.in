@@ -1,7 +1,12 @@
 /* E-P7 1.1 Simplified Chinese guide labels (issue #46) (ep7-firmware, our own code). docs/I18N_ZH.md.
  *
  * i18n_gd takes the guide part word 0x6025aa98 (CALLS, a0 = view) and runs the chain it held first (ep7_guide_in:
- * xp_guide -> ap_gd -> ex_guide -> ed_guide -> stock). Afterwards, only when
+ * xp_guide -> ap_gd -> ex_guide -> ed_guide -> stock).
+ * v0.33b gate: ap_gd is section-7 code and the views that call the word are section 5 / 6, which load first (sections load
+ * 1..9, docs/RE_BOOT_MEMORY.md section 1). So the first test is bit 6 of the sections-loaded word (byte 0 of {sect}, set by
+ * section_load when section 7 is in): clear -> jmp to the stock guide part {stock_gd} with the caller's registers and stack as
+ * they came (the word's stock value, so exactly stock); set -> the chain as before. Only PSW changes on the stock path.
+ * Afterwards, only when
  *   - the view's label (view+44, 74 B: u16 kind, -, u16 id, u16 style, text[33] at +52) is kind 5 (our text), and
  *   - the loaded string table is Simplified Chinese: string 134 starts L"固件" (0x56fa 0x4ef6); table pointer
  *     (0x61fc1530)[(0x61fb2818)], as stock's getter 0x60d10bf2,
@@ -20,6 +25,10 @@
  .global _start
 _start:
 i18n_gd:
+ btst 64,({sect})                 /* section 7 loaded? (bit 6) */
+ bne i18n_go
+ jmp ep7_stock_gd                 /* no: the stock guide part, as if the word were stock */
+i18n_go:
  movm [d2,d3,a2,a3],(sp)
  add -92,sp                       /* (0) calls slot, (4..71) text buffer, (72) d0, (76) film, (80) src, (84) dst, (88) end */
  mov a0,a3

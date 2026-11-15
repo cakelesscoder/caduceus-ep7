@@ -145,7 +145,7 @@ ap_custom and live_nd. It checks every stock source, then edits:
     stock flash Slow Limit list (1/1.3..1/400) and the item-info list (1/500..1/8000);
   - the items list + 1147;
   - both trees' D1 rows (7 stock records + `{1147, 40, 40, "Lowest S/S Setting" 3067, help 3068, list, 0, list}`).
-- **Page entries:** rows pointer → the copy, and count 7 → 8 (both trees).
+- **Page entries:** rows pointer → the copy, and count 7 → 8 (both trees). **[Corrected 2026-11-15, RE_MENUS.md follow-up: the count edit at 0x61160fc2 / 0x6117ea5e changes page D2's count, not D1's. D1 works because its record copy swaps an unused entry (239 ISO-Auto) for 1147; D2 scans one extra record, harmlessly. Drop that edit next time the patch is rebuilt.] [v0.33b: dropped by `patches/v033b` (both trees' D2 n back to stock 7); D1 n = 8 stock still reads the copy, whose 8th record is 1147.]**
 - **Kinds 0x4b / 0x4c:** items pointer → the copy, count 10 → 11.
 - **Validator record 1061:** list `0x604cc34c` → `0x604cc36a` (the stock list from value 0), 110 → 80 bytes.
 - **Builder `0x604279c9..f5`:** 19 nops, then `mov 0x536a,d0; mov (0x622a0ba4),a0; clr d1; call 0x6005e971,[d2,d3],12;

@@ -1,0 +1,390 @@
+/* look_hw (patches/look_hw; ep7-firmware, our own code). docs/LOOK_FORMAT_V4.md, docs/RE_PIPELINE.md section 12.
+ *
+ * Per-look hardware settings for COLOR profiles, stills and live view. Slot bytes (BUNDLES.BIN / table P+32+64k, COLOR):
+ *   +53       base curve: 0 = the camera's own; 1 standard (gamma row 0), 2 auto (row 2, Gradation Auto's), 3 pale (row 3,
+ *             Pale & Light Color), 4 light (row 4, Light Tone), 5 pop (row 8, Pop Art II), 6 flat (the Flat movie curve),
+ *             7 log (the log movie curve). Any other value = 0.
+ *   +54..+59  look colour matrix, s8 in 1/128 (-64..64): l01 l02 l10 l12 l20 l21 of L (rows R G B out, columns R G B in,
+ *             each row's diagonal = 128 minus its two entries). Any byte outside -64..64 = the whole matrix off.
+ *
+ * A  colour matrix at its select site (v0.34c). <- 0x603b149f `call mono_selector,[d2,d3,a2,a3],84` (call16, 5 B), the first
+ *    stage of dev_stage_list, -> `jmp mx_e` (5 B). mx_e (section 1) makes the same call (d32, same stack arguments), then
+ *    tests bit 4 of the sections-loaded word (section 5 copied): clear -> jmp 0x603b14a4 (stock continuation; d3 = C is
+ *    callee-saved, d0 d1 a0 a1 are mono_selector's leftovers as in stock, MDR is dead: the next instruction pair calls).
+ *    Set -> lh_a, which saves every register (movm with `other`), edits, restores them and jumps back. mono_selector has
+ *    just written the five matrix words (O+0x50 = bank+0x6ec) from scratch, so an edit never compounds; it runs in every
+ *    development build whatever writes the bank afterwards. (v0.34a hooked pipe_hw_write's callers instead and showed no
+ *    effect on the camera.) Then the look (lk_get on C+4), the bank's matrix M ((m00,m01) (m02,m10) (m11,m12) (m20,m21)
+ *    (m22,-), rows must sum to 0x80 or nothing changes), N = L M (off-diagonals, rounded), packed by the stock packer
+ *    0x603ace56 (the even-LSB rules and the diagonals 0x80 minus the row), written back. Greys stay neutral.
+ * B  base curve at the gamma selector. <- 0x603ae82b `call gamma_select,[d2,d3,a2,a3],28` (call16, 5 B) -> `jmp gm_e` (5 B).
+ *    gm_e (section 1) makes the same call (d32), then the section-5 test: clear -> jmp 0x603ae830 (stock continuation:
+ *    d0 = the selector's result; d1 a0 a1 are the selector's leftovers as in stock; MDR is dead there, the next MDR user is
+ *    behind a call). Set -> gm_b: when the selector returned 1 with one curve in R, G and B that is a row-0 or row-2 entry
+ *    (the ordinary base curve or Gradation Auto's, any column or variant), and the look's +53 is 1..7: rows 1..5 through
+ *    the stock row pick 0x603ae2fd with the request's variant (0x603b5606) and type (R+14), as the stock default path picks
+ *    row 0; 6 / 7 the flat / log curve. R = G = B = that curve in gamma_stage's frame (68/72/76,sp). The stage's own change
+ *    test and curve analysis then run on it, and split tone (tone hook, later in the list) bends it as its base.
+ * P  Film pick. <- sl_pick's tail `jmp ls_pick` (0x601e3a16): lh_pick calls lh_pk, then `jmp ls_pick` as before. lh_pk,
+ *    with ls_pk's checks (COLOR k < 4, the real P, its LOOKS.BIN block L): a library look (LOOKS.BIN v3 carries neither
+ *    field) clears +53..+59; Own and Stock write the snapshot's +53..+59 (the profile before the Film page touched it).
+ *
+ * lk_get: a0 = request -> a0 = the COLOR slot or 0. The tone / split tone job guard: P valid (ap_P), request+0 = the job
+ * callback, request+4 one of the job's 16 records whose +0 is the job (= request - 11364), key 11; capture marker 0xB2 with
+ * mode 11 -> profile from the job, no marker (live view) -> the getter 0xF6B1 (0 in movie / AP Vivid); profile 1..4 ->
+ * tbl_idx(profile - 1).
+ * Stores: the bank's five matrix words (through a1), gamma_stage's three pointer slots (through a3), slot +53..+59 (through
+ * a1, heap P), the stack. mul with MDR saved and restored by movm. No absolute store, no div, no setlb / Lcc.
+ */
+ .am33_2
+
+ .macro NIJ ij, aj, bj, la, lb, out
+ movhu (\ij,sp),d0
+ exth d0                          /* M_ij */
+ movhu (\aj,sp),d1
+ exth d1
+ sub d0,d1                        /* M_aj - M_ij */
+ movbu (\la,a1),d2
+ extb d2
+ mul d2,d1
+ movhu (\bj,sp),d3
+ exth d3
+ sub d0,d3                        /* M_bj - M_ij */
+ movbu (\lb,a1),d2
+ extb d2
+ mul d2,d3
+ add d3,d1
+ add 64,d1
+ asr 7,d1
+ add d1,d0
+ movhu d0,(\out,sp)
+ .endm
+
+ .section .lhe,"ax"
+ .global _start
+_start:
+mx_e:                             /* <- jmp at 0x603b149f (was call16 mono_selector,[d2,d3,a2,a3],84); d3 = C */
+ call ep7_mono,[d2,d3,a2,a3],84
+ btst 16,({sect})
+ bne 1f
+ jmp ep7_mret
+1:
+ jmp lh_a
+gm_e:
+ call ep7_gsel,[d2,d3,a2,a3],28
+ btst 16,({sect})
+ bne 1f
+ jmp ep7_gret
+1:
+ jmp gm_b
+lhe_end:
+
+ .section .lha,"ax"
+/* ---------------------------------------------------------------- A */
+lh_a:                             /* jmp from mx_e: dev_stage_list's frame, mono_selector has just written the matrix */
+ movm [d2,d3,a2,a3,other],(sp)
+ add -72,sp                       /* (4) slot, (8) bank+0x6ec, (12..29) M, (32..49) N, (52..69) packed */
+ mov d3,a2                        /* C (= ctx); request C+4, development block O = C+12 */
+ mov (4,a2),a0
+ call lk_get,[d2,d3,a2,a3],20
+ cmp 0,a0
+ beq lh_n
+ mov a0,(4,sp)
+ add 54,a0                        /* l01 l02 l10 l12 l20 l21: each -64..64, not all 0 */
+ mov 6,d2
+ clr d3
+3:
+ movbu (a0),d0
+ extb d0
+ or d0,d3
+ add 64,d0
+ cmp 129,d0
+ bcc lh_n
+ inc a0
+ add -1,d2
+ bne 3b
+ cmp 0,d3
+ beq lh_n
+ mov (12,a2),a1
+ add {mtx_o},a1                   /* O+0x50 = bank+0x6ec, mono_selector's a0 */
+ mov a1,(8,sp)
+ mov (a1),d0                      /* M, 9 x s16 at (12,sp) */
+ movhu d0,(12,sp)
+ lsr 16,d0
+ movhu d0,(14,sp)
+ mov (4,a1),d0
+ movhu d0,(16,sp)
+ lsr 16,d0
+ movhu d0,(18,sp)
+ mov (8,a1),d0
+ movhu d0,(20,sp)
+ lsr 16,d0
+ movhu d0,(22,sp)
+ mov (12,a1),d0
+ movhu d0,(24,sp)
+ lsr 16,d0
+ movhu d0,(26,sp)
+ mov (16,a1),d0
+ movhu d0,(28,sp)
+ mov sp,a0                        /* each row sums to 0x80 (mod 2^16): a matrix the stock packer wrote */
+ add 12,a0
+ mov 3,d2
+4:
+ movhu (a0),d0
+ movhu (2,a0),d1
+ add d1,d0
+ movhu (4,a0),d1
+ add d1,d0
+ exthu d0
+ cmp 128,d0
+ bne lh_n
+ add 6,a0
+ add -1,d2
+ bne 4b
+ jmp lh_m
+lh_n:
+ jmp lh_x
+
+lh_m:
+ mov (4,sp),a1                    /* slot: +54 l01, +55 l02, +56 l10, +57 l12, +58 l20, +59 l21 */
+ NIJ 14, 20, 26, 54, 55, 34       /* N01 = M01 + (l01 (M11 - M01) + l02 (M21 - M01)) / 128 */
+ NIJ 16, 22, 28, 54, 55, 36       /* N02: M12, M22 */
+ NIJ 18, 12, 24, 56, 57, 38       /* N10 = M10 + (l10 (M00 - M10) + l12 (M20 - M10)) / 128 */
+ NIJ 22, 16, 28, 56, 57, 42       /* N12: M02, M22 */
+ NIJ 24, 12, 18, 58, 59, 44       /* N20 = M20 + (l20 (M00 - M20) + l21 (M10 - M20)) / 128 */
+ NIJ 26, 14, 20, 58, 59, 46       /* N21: M01, M11 */
+ mov sp,a0
+ add 52,a0                        /* out */
+ mov sp,a1
+ add 32,a1                        /* in: the packer reads +2 +4 +6 +10 +12 +14 */
+ call ep7_pack,[d2,a2,a3],12
+ mov (8,sp),a1
+ movhu (52,sp),d0
+ movhu (54,sp),d1
+ asl 16,d1
+ or d1,d0
+ mov d0,(a1)
+ movhu (56,sp),d0
+ movhu (58,sp),d1
+ asl 16,d1
+ or d1,d0
+ mov d0,(4,a1)
+ movhu (60,sp),d0
+ movhu (62,sp),d1
+ asl 16,d1
+ or d1,d0
+ mov d0,(8,a1)
+ movhu (64,sp),d0
+ movhu (66,sp),d1
+ asl 16,d1
+ or d1,d0
+ mov d0,(12,a1)
+ movhu (68,sp),d0
+ mov d0,(16,a1)
+lh_x:
+ add 72,sp
+ movm (sp),[d2,d3,a2,a3,other]
+ jmp ep7_mret
+
+/* ---------------------------------------------------------------- lk_get */
+lk_get:                           /* call lk_get,[d2,d3,a2,a3],20; a0 = request -> a0 = slot or 0 */
+ mov a0,a2
+ call ep7_ap_p,[d2],8
+ cmp 1,d0
+ bne 8f
+ mov (a2),d0
+ cmp {callback},d0
+ bne 8f
+ mov (4,a2),d0
+ mov a2,a0
+ add {rec_off},a0
+ mov {n_rec},d2
+1:
+ cmp a0,d0
+ beq 2f
+ add {stride},a0
+ add -1,d2
+ bne 1b
+ bra 8f
+2:
+ mov (a0),d1                      /* record+0 = parent job */
+ mov a2,a0
+ add -{req_in_job},a0             /* job */
+ cmp a0,d1
+ bne 8f
+ mov (8,a2),d0
+ cmp 0xb0000,d0                   /* key 11 (COLOR) */
+ bne 8f
+ movbu ({ext_magic},a0),d0
+ cmp {magic},d0
+ bne 3f
+ movbu ({ext_mode},a0),d0
+ cmp 11,d0
+ bne 8f
+ movbu ({ext_profile},a0),d0
+ bra 4f
+3:
+ mov {prop_profile},d0            /* live view */
+ clr d1
+ mov 0,a0
+ call ep7_getter,[d2,d3],12
+4:
+ add -1,d0
+ cmp 4,d0
+ bcc 8f
+ call ep7_tbl_idx,[d2,d3],8       /* d0 = k -> a0 = slot */
+ ret [d2,d3,a2,a3],20
+8:
+ mov 0,a0
+ ret [d2,d3,a2,a3],20
+
+/* ---------------------------------------------------------------- B */
+gm_b:
+ movm [d2,d3,a2,a3,other],(sp)
+ add -8,sp
+ mov sp,a3
+ add 8+{movm},a3                  /* a3 = gamma_stage's sp */
+ cmp 1,d0
+ bne 9f
+ mov (68,a3),d1
+ mov (72,a3),d2
+ cmp d1,d2
+ bne 9f
+ mov (76,a3),d2
+ cmp d1,d2
+ bne 9f
+ mov gm_base,a0                   /* row 0 / row 2 entries: the curves the stock default path picks */
+ mov 6,d2
+1:
+ mov (a0),d3
+ cmp d3,d1
+ beq 2f
+ add 4,a0
+ add -1,d2
+ bne 1b
+9:
+ jmp gm_x
+2:
+ mov (40,a3),a0                   /* request */
+ call lk_get,[d2,d3,a2,a3],20
+ cmp 0,a0
+ beq 9b
+ movbu (53,a0),d2
+ add -1,d2
+ cmp 7,d2
+ bcc 9b
+ jmp gm_c
+
+gm_c:                             /* d2 = curve - 1 (0..6), a3 = gamma_stage's sp */
+ cmp 5,d2
+ bcc 5f
+ mov gm_rows,a0
+ asl2 d2
+ add d2,a0
+ mov (a0),a2                      /* the row */
+ mov (40,a3),a0
+ call ep7_variant,[],0            /* d0 = the variant bit, as the default path */
+ mov (40,a3),a1
+ movhu (14,a1),d1                 /* type */
+ extbu d0
+ mov a2,a0
+ call ep7_rowpick,[d2,d3],8       /* -> a0 = curve */
+ mov a0,d1
+ bra 6f
+5:
+ add -5,d2
+ asl2 d2
+ mov gm_fix,a0
+ add d2,a0
+ mov (a0),d1
+6:
+ mov d1,(68,a3)
+ mov d1,(72,a3)
+ mov d1,(76,a3)
+gm_x:
+ add 8,sp
+ movm (sp),[d2,d3,a2,a3,other]
+ jmp ep7_gret
+
+/* ---------------------------------------------------------------- P */
+lh_pick:                          /* <- sl_pick's tail jmp: a2 = P, d3 = k */
+ call lh_pk,[d2,d3,a2,a3],20
+ jmp ep7_ls_pick
+lh_pk:
+ cmp 4,d3
+ bcc 9f
+ call ep7_ap_p,[d2],8
+ cmp 0,d0
+ beq 9f
+ mov a0,d0
+ mov a2,d1
+ cmp d1,d0
+ bne 9f
+ mov (1020,a2),d0
+ cmp {fmagic},d0
+ bne 9f
+ mov (1016,a2),a0
+ mov a0,d0
+ btst 3,d0
+ bne 9f
+ add {npool},d0
+ cmp {llim},d0
+ bcc 9f
+ mov (2112,a0),d0
+ cmp {lmagic},d0
+ bne 9f
+ mov (2116,a0),d0
+ cmp d1,d0
+ bne 9f
+ mov d3,d0
+ asl 6,d0
+ add a2,d0
+ mov d0,a1                        /* a1 = P + 64k: slot +53 = (85,a1) */
+ mov a0,d0
+ add d3,d0
+ mov d0,a2                        /* a2 = L + k */
+ movbu (2121,a2),d0               /* pos */
+ cmp 0,d0
+ beq 5f                           /* Own */
+ movbu (2120,a0),d1               /* n */
+ cmp d1,d0
+ bhi 5f                           /* Stock (n + 1) */
+ clr d0                           /* a library look: LOOKS.BIN v3 has neither field */
+ movbu d0,(85,a1)
+ movbu d0,(86,a1)
+ movbu d0,(87,a1)
+ movbu d0,(88,a1)
+ movbu d0,(89,a1)
+ movbu d0,(90,a1)
+ movbu d0,(91,a1)
+ bra 9f
+5:
+ movbu (2125,a2),d0               /* snapshot taken? */
+ cmp 0,d0
+ beq 9f
+ mov d3,d0
+ asl 4,d0
+ mov d0,d1
+ asl 2,d1
+ add d1,d0                        /* 80k */
+ add d0,a0                        /* snapshot +53 = L + 2132 + 80k + 53 */
+ mov 85,d2
+ mov 2185,d1
+7:
+ movbu (d1,a0),d0
+ movbu d0,(d2,a1)
+ inc d1
+ inc d2
+ cmp 92,d2
+ bne 7b
+9:
+ ret [d2,d3,a2,a3],20
+
+ .balign 4
+gm_base:
+ .long {base_curves}
+gm_rows:
+ .long {rows}
+gm_fix:
+ .long {fixed}
+lh_end:

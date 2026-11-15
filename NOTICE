@@ -17,6 +17,9 @@ Third-party:
 - The colour-grain method (CPU grain on the developed photo through the bus window) follows Caduceus for OM-3
   (androidfanman/caduceus-om3, Apache-2.0), research/grain/model.py and firmware/src/xblock.s. The E-P7 code in
   patches/grain_cpu is our own.
+- The Control Panel preview's before / after divider (the original on a clipped canvas over the look, a draggable
+  line set by a --cut variable) follows the design of the Look Lab panel in Caduceus for OM-3 (androidfanman/caduceus-om3,
+  Apache-2.0). The code in webapp/src/main.ts and webapp/src/style.css is our own.
 - webapp/public/fonts/om3label.woff2: a renamed ASCII subset of DejaVu Sans Condensed (Bitstream Vera
   licence; DejaVu changes public domain), see webapp/public/fonts/FONT-LICENSE.txt.
 - 65:24 aspect fixes adapted from flickering-star's work (fork of oly_fw_analysis), with thanks.

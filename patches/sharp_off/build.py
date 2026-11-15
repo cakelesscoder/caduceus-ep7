@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Sharpening off per COLOR profile, test t1: Extras sector 10 "Sharp", slot byte +51, stills and the Movie slot. Offline.
 docs/SHARPENING_OFF.md.
+v0.33b: patches/v033b sends RAW Data Edit's own Sharpness read (0x60c6707b, same bytes and frame as CAP_SITE) to sh_get
+too, so a RAW edit gets the current profile's +51 (docs/RE_PLAYBACK.md section 5).
 
   .venv/bin/python -I patches/sharp_off/build.py releases/v0.27/edits.json --out generated/sharp/t1/edits.json
   .venv/bin/python -I tools/build_package.py generated/sharp/t1/edits.json --out generated/sharp/t1/pkg

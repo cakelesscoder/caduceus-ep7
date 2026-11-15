@@ -1,0 +1,577 @@
+/* E-P7 1.1 look_hw on the Extras pages (patches/look_hw_ui; ep7-firmware, our own code). docs/LOOK_FORMAT_V4.md section 2,
+ * docs/EXTRAS_MENU_V2.md "Base curve and colour mix".
+ *
+ * Three new items on the Colour and Light page (X axis {x_axis}, sub-page bit 0 of P+{sub} = 1), in its empty sectors:
+ *   9   Curve     slot +53: 0 camera's own, 1 Standard, 2 Auto, 3 Pale, 4 Light, 5 Pop, 6 Flat, 7 Log (list 0..7)
+ *   10  Mix       named colour mix (list -1..4): -1 the look's own matrix, 0 Off, 1 Warm film, 2 Cool separation,
+ *                 3 Muted, 4 Punchy
+ *   11  Strength  0..10 = 0..100 % of the chosen mix (list 0..10)
+ *   12  stays empty, with the label "Colour: 1-11"
+ * Stored: slot +54..+59 = lu_tab[mix][strength] (the mix's six off-diagonals times strength / 10, rounded half away from
+ * zero, made by build.py), slot +60 = 8 (10 - strength) + mix (0 = Off at 100 %; the camera's memory of the choice).
+ * Shown (lu_dec): +60 when it decodes to mix 0..4, strength 0..10 and +54..+59 equal that row; else Off with the stored
+ * strength when +54..+59 are all 0; else the first named mix at strength 10..1 whose row equals +54..+59 (as the
+ * Control Panel writes a named mix); else the look's own matrix at 100 %. Writing -1 writes nothing, and the strength of
+ * the look's own matrix is fixed: neither has a base to scale.
+ *
+ * Chaining: every word points at our front, which falls through to the extras_pages routine the word held with
+ * d0, d1, a0, a1, the stack and MDR as at entry:
+ *   facade +8 GetValue -> lu_get (then xp_get), +24 count -> lu_cnt (xp_cnt), +28 value by index -> lu_val (xp_val),
+ *   +36 available -> lu_av (xp_av), GUI setter call -> lu_set (xp_set), guide part word -> lu_guide (runs the chain
+ *   first: i18n_gd -> xp_guide -> ... -> stock, then relabels our sectors).
+ * A hit needs xp_find's answer 0x20 (an empty sector: valid card table, editor marker, X axis) on sub-page 1 and sector
+ * 9..11 (12 for the guide). Movie / AP (xp_sw): reads 0 and writes nothing (xp_set's empty-sector path), as split tone.
+ * ALL mode: writes nothing, the guide keeps the chain's text. The polygon (return address {poly_ret}) gets at most 5.
+ * Code in .luc, tables and strings in .lud (two section-5 claims).
+ * Stores: slot +53..+60 and the dirty byte (heap P), the view's label, the stack. No absolute stores, no mul / div.
+ */
+ .am33_2
+ .section .luc,"ax"
+ .global _start
+_start:
+
+/* P valid + editor marker + X page: out a2 = P; uses d3 (as extras_pages XPV). */
+ .macro XPV miss
+ movhu ({state}),d3
+ add -1,d3
+ cmp {lim},d3
+ bcc \miss
+ btst 3,d3
+ bne \miss
+ mov d3,a2
+ add {pool},a2
+ mov (a2),d3
+ cmp {bmagic},d3
+ bne \miss
+ mov ({emark},a2),d3
+ cmp {emagic},d3
+ bne \miss
+ movbu ({axis},a2),d3
+ cmp {x_axis},d3
+ bne \miss
+ .endm
+
+/* After xp_find (d3 entry, d2 64 slot + n, a2 P): our field 0..top-1 in d3, else to miss. Uses d3. */
+ .macro LUHIT miss, top
+ cmp 0x20,d3
+ bne \miss
+ movbu ({sub},a2),d3
+ btst 1,d3
+ beq \miss
+ mov d2,d3
+ and 63,d3
+ add -8,d3
+ cmp \top,d3
+ bcc \miss
+ .endm
+
+/* a0 = lu_tab row (d0 mix 0..4, d1 strength 0..10): lu_tab + 66 mix + 6 strength. Uses d2, d3. */
+ .macro ROW
+ mov d0,d2
+ asl 6,d2
+ add d0,d2
+ add d0,d2
+ mov d1,d3
+ asl2 d3
+ add d1,d3
+ add d1,d3
+ add d3,d2
+ mov lu_tab,a0
+ add d2,a0
+ .endm
+
+ .macro EQB k
+ movbu (\k,a0),d2
+ movbu (54+\k,a2),d3
+ cmp d2,d3
+ bne 9f
+ .endm
+
+lu_get:                           /* facade +8 GetValue (CALLS: d0 id, a1 out; (0,sp) = return = MDR) */
+ cmp 0,a1
+ beq lg_next
+ movm [d2,d3,a2],(sp)
+ add -12,sp                       /* (0) call slot, (4) (8) xp_find scratch, then (4) field; return at (24,sp) */
+ call ep7_xp_find,[],0
+ LUHIT lg_miss, 3
+ mov d3,(4,sp)
+ call ep7_xp_sw,[],4
+ cmp 1,d0
+ beq lg_zero                      /* Movie / AP: 0 */
+ mov d2,d0
+ and 0xc0,d0
+ add d0,a2
+ add 32,a2                        /* the slot */
+ mov (4,sp),d3
+ cmp 0,d3
+ bne 1f
+ movbu (53,a2),d0                 /* curve */
+ cmp 8,d0
+ bcs lg_val
+ bra lg_zero
+1:
+ call lu_dec,[],4
+ mov (4,sp),d3
+ cmp 1,d3
+ beq lg_val                       /* mix */
+ mov d1,d0                        /* strength */
+lg_val:
+ mov (24,sp),d2                   /* the wheel polygon (ed_poly) gets at most 5 */
+ cmp {poly_ret},d2
+ bne 2f
+ cmp 5,d0
+ ble 2f
+ mov 5,d0
+2:
+ mov d0,(a1)
+ mov (24,sp),d3
+ mov d3,mdr
+ add 12,sp
+ movm (sp),[d2,d3,a2]
+ clr d0
+ rets
+lg_zero:
+ clr d0
+ bra lg_val
+lg_miss:
+ mov (24,sp),d3
+ mov d3,mdr
+ add 12,sp
+ movm (sp),[d2,d3,a2]
+lg_next:
+ jmp ep7_xp_get
+
+lu_cnt:                           /* facade +24 (CALLS: d0 id -> d0 count) */
+ movm [d2,d3,a2],(sp)
+ add -12,sp
+ call ep7_xp_find,[],0
+ add 12,sp
+ LUHIT lc_miss, 3
+ mov lu_n,a0
+ movbu (d3,a0),d0
+ mov (12,sp),d3
+ mov d3,mdr
+ movm (sp),[d2,d3,a2]
+ rets
+lc_miss:
+ mov (12,sp),d3
+ mov d3,mdr
+ movm (sp),[d2,d3,a2]
+ jmp ep7_xp_cnt
+
+lu_val:                           /* facade +28 (CALLS: d0 id, d1 index, a1 out or 0 -> d0 value) */
+ movm [d2,d3,a2],(sp)
+ add -12,sp
+ call ep7_xp_find,[],0
+ add 12,sp
+ LUHIT lv_miss, 3
+ mov lu_lo,a0
+ movbu (d3,a0),d0
+ extb d0
+ mov d1,d3
+ exthu d3
+ add d3,d0
+ cmp 0,a1
+ beq 1f
+ mov d0,(a1)
+1:
+ mov (12,sp),d3
+ mov d3,mdr
+ movm (sp),[d2,d3,a2]
+ rets
+lv_miss:
+ mov (12,sp),d3
+ mov d3,mdr
+ movm (sp),[d2,d3,a2]
+ jmp ep7_xp_val
+
+lu_av:                            /* facade +36 (CALLS: d0 id, d1 value -> d0 1 available) */
+ movm [d2,d3,a2],(sp)
+ add -12,sp
+ call ep7_xp_find,[],0
+ add 12,sp
+ LUHIT la_miss, 3
+ mov lu_lo,a0
+ movbu (d3,a0),d2
+ extb d2                          /* lo */
+ mov lu_n,a0
+ movbu (d3,a0),d3
+ add d2,d3                        /* lo + n */
+ clr d0
+ cmp d2,d1
+ blt 1f
+ cmp d3,d1
+ bge 1f
+ mov 1,d0
+1:
+ mov (12,sp),d3
+ mov d3,mdr
+ movm (sp),[d2,d3,a2]
+ rets
+la_miss:
+ mov (12,sp),d3
+ mov d3,mdr
+ movm (sp),[d2,d3,a2]
+ jmp ep7_xp_av
+
+lu_set:                           /* `call lu_set,[d2,d3,a2],16` at the GUI setter: d0 id, d1 value, a0/a1; (16,sp) = return = MDR */
+ add -12,sp
+ call ep7_xp_find,[],0
+ add 12,sp
+ LUHIT ls_miss, 3
+ add -24,sp                       /* (0) call slot, (4) id, (8) a0, (12) a1, (16) value, (20) field; return now at (40,sp) */
+ mov d0,(4,sp)
+ mov a0,(8,sp)
+ mov a1,(12,sp)
+ mov d1,(16,sp)
+ mov d3,(20,sp)
+ mov (0x61fc3800),d0              /* ALL mode: the next layer (writes nothing here) */
+ cmp 0,d0
+ bne ls_back
+ mov (0x61fc3804),d0
+ cmp 0,d0
+ bne ls_back
+ call ep7_xp_sw,[],4
+ cmp 1,d0
+ beq ls_back                      /* Movie / AP: MOVIE.BIN / AP.BIN keep +53..+63 at 0 */
+ mov d2,d0
+ and 0xc0,d0
+ add d0,a2
+ add 32,a2                        /* the slot */
+ mov (16,sp),d1
+ mov (20,sp),d3
+ cmp 0,d3
+ bne 2f
+ cmp 0,d1                         /* curve 0..7 */
+ bge 1f
+ clr d1
+1:
+ cmp 7,d1
+ ble 11f
+ mov 7,d1
+11:
+ movbu d1,(53,a2)
+ bra ls_dirty
+2:
+ call lu_dec,[],4                 /* d0 mix -1..4, d1 strength now */
+ mov (20,sp),d3
+ cmp 1,d3
+ bne 3f
+ mov (16,sp),d0                   /* mix: -1 (the look's own) writes nothing */
+ cmp 0,d0
+ blt ls_ref
+ cmp 4,d0
+ ble 4f
+ mov 4,d0
+ bra 4f
+3:
+ cmp 0,d0                         /* strength: fixed for the look's own matrix */
+ blt ls_ref
+ mov (16,sp),d1
+ cmp 0,d1
+ bge 31f
+ clr d1
+31:
+ cmp 10,d1
+ ble 4f
+ mov 10,d1
+4:
+ call lu_put,[],4
+ls_dirty:
+ movhu ({state}),d2               /* dirty: the editor saves the card on the next half-press */
+ add -1,d2
+ mov d2,a2
+ add {pool},a2
+ mov 1,d2
+ movbu d2,({dirty},a2)
+ls_ref:                           /* the manager with the id's unchanged S value: its listeners redraw (as xp_set) */
+ mov (4,sp),d0
+ call ep7_sget,[],4
+ mov d0,d1
+ mov (4,sp),d0
+ mov (8,sp),a0
+ mov (12,sp),a1
+ add 24,sp
+ mov (16,sp),d2
+ mov d2,mdr
+ jmp ep7_manager
+ls_back:
+ mov (4,sp),d0
+ mov (8,sp),a0
+ mov (12,sp),a1
+ mov (16,sp),d1
+ add 24,sp
+ls_miss:
+ mov (16,sp),d3
+ mov d3,mdr
+ jmp ep7_xp_set
+
+/* lu_eq: d0 mix 0..4, d1 strength 0..10, a2 slot -> d2 = 0 when +54..+59 hold that row, else 1. Uses d2, d3, a0.
+ * `call lu_eq,[],4` (the caller's (0,sp) is free). */
+lu_eq:
+ ROW
+ EQB 0
+ EQB 1
+ EQB 2
+ EQB 3
+ EQB 4
+ EQB 5
+ clr d2
+ ret [],4
+9:
+ mov 1,d2
+ ret [],4
+
+/* lu_put: d0 mix 0..4, d1 strength 0..10, a2 slot: +54..+59 = the row, +60 = 8 (10 - strength) + mix. Uses d2, d3, a0. */
+lu_put:
+ ROW
+ movbu (a0),d3
+ movbu d3,(54,a2)
+ movbu (1,a0),d3
+ movbu d3,(55,a2)
+ movbu (2,a0),d3
+ movbu d3,(56,a2)
+ movbu (3,a0),d3
+ movbu d3,(57,a2)
+ movbu (4,a0),d3
+ movbu d3,(58,a2)
+ movbu (5,a0),d3
+ movbu d3,(59,a2)
+ mov 10,d2
+ sub d1,d2
+ asl 3,d2
+ or d0,d2
+ movbu d2,(60,a2)
+ ret [],4
+
+/* lu_dec: a2 slot -> d0 mix (-1 the look's own, 0 Off, 1..4), d1 strength 0..10. Uses d2, d3, a0. `call lu_dec,[],4`. */
+lu_dec:
+ add -8,sp                        /* (0) call slot, (4) the stored strength */
+ movbu (60,a2),d1
+ mov d1,d0
+ and 7,d0
+ lsr 3,d1
+ cmp 4,d0
+ bhi 1f
+ cmp 10,d1
+ bls 2f
+1:
+ clr d0                           /* not ours: Off at 100 % */
+ clr d1
+2:
+ mov 10,d2
+ sub d1,d2
+ mov d2,d1
+ mov d1,(4,sp)
+ call lu_eq,[],4                  /* the stored choice */
+ cmp 0,d2
+ beq 8f
+ clr d0
+ call lu_eq,[],4                  /* all zero: Off (the stored strength) */
+ mov (4,sp),d1
+ cmp 0,d2
+ beq 8f
+ mov 10,d1
+3:
+ mov 1,d0
+4:
+ call lu_eq,[],4                  /* a named mix at 100 % .. 10 % */
+ cmp 0,d2
+ beq 8f
+ inc d0
+ cmp 5,d0
+ bcs 4b
+ add -1,d1
+ bne 3b
+ mov -1,d0                        /* the look's own matrix */
+ mov 10,d1
+8:
+ add 8,sp
+ ret [],4
+
+/* lu_lang: -> a0 = lu_zh when the loaded string table is Simplified Chinese (string 134 starts 0x56fa 0x4ef6, as
+ * i18n_gd tests it), else lu_en. Uses d0. `call lu_lang,[],4`. */
+lu_lang:
+ movbu (0x61fb2818),d0
+ asl2 d0
+ mov 0x61fc1530,a0
+ add d0,a0
+ mov (a0),a0
+ cmp 0,a0
+ beq 1f
+ mov (536,a0),a0
+ cmp 0,a0
+ beq 1f
+ movhu (a0),d0
+ cmp 0x56fa,d0
+ bne 1f
+ movhu (2,a0),d0
+ cmp 0x4ef6,d0
+ bne 1f
+ mov lu_zh,a0
+ ret [],4
+1:
+ mov lu_en,a0
+ ret [],4
+
+lu_guide:                         /* guide part word (CALLS, a0 = view) */
+ btst 64,({sect})                 /* section 7 not loaded: the chain as before (i18n_gd goes to stock) */
+ bne 1f
+ jmp ep7_guide_in
+1:
+ movm [d2,d3,a2,a3],(sp)
+ add -20,sp                       /* (0) call slot, (4) facade out / table, (8) chain d0, (12) 64 slot, (16) field */
+ mov a0,a3
+ calls ep7_guide_in
+ mov d0,(8,sp)
+ movhu (44,a3),d0
+ cmp 5,d0
+ bne lq_out
+ mov (0x61fc3800),d0              /* ALL on: keep the chain's text */
+ cmp 0,d0
+ bne lq_out
+ mov (0x61fc3804),d0
+ cmp 0,d0
+ bne lq_out
+ XPV lq_out
+ movbu ({sub},a2),d0
+ btst 1,d0
+ beq lq_out
+ call ep7_facade,[],4             /* picture mode (111) -> cursor setting and slot, as xp_guide */
+ mov (a0),a2
+ mov (8,a2),a2
+ mov sp,a1
+ add 4,a1
+ mov 111,d0
+ calls (a2)
+ cmp 0,d0
+ bne lq_out
+ mov (4,sp),d0
+ mov 1091,d3
+ clr d1
+ cmp 54,d0
+ beq 2f
+ mov 1096,d3
+ mov 64,d1
+ cmp 55,d0
+ beq 2f
+ mov 1097,d3
+ mov 128,d1
+ cmp 56,d0
+ beq 2f
+ mov 1686,d3
+ mov 192,d1
+ cmp 64,d0
+ bne lq_out
+2:
+ mov d1,(12,sp)
+ call ep7_facade,[],4
+ mov (a0),a2
+ mov (8,a2),a2
+ mov sp,a1
+ add 4,a1
+ mov d3,d0
+ calls (a2)
+ cmp 0,d0
+ bne lq_out
+ mov (4,sp),d0                    /* cursor 1..12 -> field = cursor - 9: 0..3 */
+ add -9,d0
+ cmp 4,d0
+ bcc lq_out
+ mov d0,(16,sp)
+ call lu_lang,[],4
+ mov a0,(4,sp)
+ mov (16,sp),d3
+ mov 3,d0
+ cmp 3,d3
+ beq lq_whole                     /* sector 12 */
+ call ep7_xp_sw,[],4
+ cmp 1,d0
+ bne 3f
+ mov 4,d0                         /* Movie / AP lock */
+ mov (16,sp),d3
+ cmp 0,d3
+ beq lq_whole
+ mov 5,d0
+ bra lq_whole
+3:
+ XPV lq_out
+ mov (12,sp),d0
+ add d0,a2
+ add 32,a2                        /* the slot */
+ mov (16,sp),d3
+ cmp 0,d3
+ bne 4f
+ movbu (53,a2),d1
+ cmp 8,d1
+ bcs 31f
+ clr d1
+31:
+ add 6,d1
+ bra lq_pair
+4:
+ call lu_dec,[],4
+ mov (16,sp),d3
+ cmp 1,d3
+ bne 5f
+ mov d0,d1
+ add 15,d1
+ bra lq_pair
+5:
+ add 20,d1
+lq_pair:                          /* d1 value string index; the field is the prefix index */
+ mov (4,sp),a1
+ mov a1,a0
+ asl2 d1
+ add d1,a0
+ mov (a0),a0
+ mov (16,sp),d0
+ asl2 d0
+ add d0,a1
+ mov (a1),a2
+ bra lq_put
+lq_whole:                         /* d0 whole-label index */
+ mov (4,sp),a1
+ asl2 d0
+ add d0,a1
+ mov (a1),a2
+ mov 0,a0
+lq_put:                           /* kind 5 text: u16 string a2, then a0 (or 0), at most 32 units */
+ mov 5,d0
+ movhu d0,(44,a3)
+ mov a3,a1
+ add 52,a1
+ mov 33,d3
+ clr d0
+6:
+ movhu d0,(a1)
+ add 2,a1
+ add -1,d3
+ bne 6b
+ mov a3,a1
+ add 52,a1
+ mov 32,d3
+7:
+ movhu (a2),d0
+ cmp 0,d0
+ bne 8f
+ cmp 0,a0
+ beq lq_out
+ mov a0,a2
+ mov 0,a0
+ bra 7b
+8:
+ movhu d0,(a1)
+ add 2,a2
+ add 2,a1
+ add -1,d3
+ bne 7b
+lq_out:
+ mov (8,sp),d0
+ ret [d2,d3,a2,a3],36
+
+lu_end:
+
+ .section .lud,"a"
+{lu_data}
+lud_end:

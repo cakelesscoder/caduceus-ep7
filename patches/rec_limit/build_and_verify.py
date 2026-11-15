@@ -5,6 +5,8 @@ Routine 0x60319139 (mode in d0, output ptr in a0): modes 3/6/8/9 -> 1740 s, mode
 others -> logged error. Patch: both `mov imm16,d0` operands -> 32400 s (9 h). Same as PEN-F patch.
 Emits edits.json and verifies the patched routine natively in the emulator vs stock.
 Separate file-size/chapter/thermal limits are NOT changed.
+v0.33b: patches/v033b adds the remaining-time estimate's own copy of the cap, `mov 1740,d1` at 0x603185e3 (imm 0x603185e4)
+-> 32400, with source patches/rec_limit (docs/RE_MOVIE.md section 4.3).
 """
 import json, struct, sys
 from pathlib import Path

@@ -167,3 +167,25 @@ Anti-brick:
 - Stages 1–3 and 5 write no internal settings and fall back to stock without the card files.
 - Stage 4's stock-sid extension stores new values in internal settings, so it needs the aspect-style boot clamp
   before flashing.
+
+## 6. Built: base curve and colour mix (v0.34b, `patches/look_hw_ui`)
+
+Emulator-verified, not camera-tested. Layer after look_hw (base curve +53, matrix +54..+59, [LOOK_FORMAT_V4.md](LOOK_FORMAT_V4.md)).
+The two built pages are extras_pages' (Effects 1–7; Colour & Light 1–8). This adds three items to **Colour & Light**, in its
+empty sectors (COLOR 1–4 only):
+
+| Sector | Label (English / 中文) | Dial | Slot bytes |
+|---|---|---|---|
+| 9 | `9 Curve Camera` … / `9 灰阶 默认` … | Camera, Standard, Auto, Pale, Light, Pop, Flat, Log (camera's own, Standard, Gradation Auto, Pale & Light Color, Light Tone, Pop Art II, movie Flat, movie log) | +53 = 0..7 |
+| 10 | `10 Mix Off` / `10 配色 关` | From look (only when the slot came with its own matrix), Off, Warm film, Cool sep., Muted, Punchy | +54..+59 = the mix × strength, +60 |
+| 11 | `11 Strength 100%` / `11 配色强度 100%` | 0 %..100 % in 10 % steps | +54..+59, +60 |
+| 12 | `Colour: 1-11` / `色彩: 1-11` | empty | – |
+
+- **Mix** writes the named mix at the current strength; **Strength** rescales it. Strength 0 writes all six matrix bytes 0
+  (no effect) but keeps the mix, so turning Strength up brings it back. Off keeps the strength for the next mix.
+- **From look** shows when the slot holds numbers that are no named mix (from the Control Panel). Dialling away replaces
+  them; dialling back onto From look does nothing (the Film page's Own puts the profile's own back). Its strength is fixed at
+  100 % (there is nothing to scale).
+- Live view follows the dial (look_hw reads the slot on every development pass). Movie / AP: `Curve: COLOR 1-4`,
+  `Mix: COLOR 1-4`, nothing written. ALL mode writes nothing. Saved with the other edits on the next half-press.
+- A Film pick of a library look clears +53..+59 as before (LOOKS.BIN v3 carries neither): the page then shows Off.

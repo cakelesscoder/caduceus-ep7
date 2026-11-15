@@ -6,6 +6,9 @@ docs/FEATURE_GAPS.md "1. Look name in EXIF"; ex.s.in has the contract.
 
 apply(spec, version) -> spec. One rel32 retarget (capture setup 0x6030288d, the copyright-enable getter call) -> ex_get in the
 section-7 FF tail (loads 2nd, before section 2 that holds the site). ex_get calls v0.25's sc_slot (section 1).
+v0.33b: the "loads 2nd" above is wrong (sections load 1..9, docs/RE_BOOT_MEMORY.md section 1). patches/v033b re-points the
+site's rel32 at ex_gate (section 1), which tests bit 6 of 0xa272e420 and runs the stock getter until section 7 is in. This
+build is baked into releases/v0.31d, so the fix is that later layer, not a change here.
 """
 import argparse, copy, importlib.util, json, struct
 from pathlib import Path

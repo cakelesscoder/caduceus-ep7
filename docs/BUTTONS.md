@@ -85,7 +85,7 @@ key event --0x60cc9790--> key code --table 0x60f389a8--> button sid --getter--> 
 - **[V]** Right (51) and down (53) are assignable, but only to the 8 d-pad codes. **The code accepts
   any of the 55 function codes on them.** Only the list blocks the rest.
 - **[I]** Sid ↔ physical-button identity for the E-P7: the arrow sids follow from the d-pad key codes 4–7 and
-  the stock functions (up = exp comp, right = flash, down = drive, left = AF point). Two facts point
+  the stock functions (up = exp comp, right = flash, down = drive, left = AF point). **[Corrected 2026-11-15, RE_INPUT.md follow-up: Up's stock default is ISO (function 6), not Exp comp.]** Two facts point
   to 47/48/49 being the E-P7's ◉ and Fn/AEL buttons: the 12-code list matches the reviewed E-P7 set ("◉ and the AEL/AFL
   button are customisable" [W]), and sid 48 is forced to ◉REC in mode 3 (`0x60cc8a49`).
   The patch widens all three, so the exact mapping does not change the result.
@@ -192,7 +192,7 @@ Up/left (50/52) still need their own validator records and item-list entries (§
 column descriptor id 42. That is a `Cursor_Move` object (factory 0x60de1f5c, init 0x60de2134). Mode 42 has no special
 init, so it uses the default 0x60de21b0, which copies the u16 item list for mode 42 from the 150 × 12-B table
 `0x61150328`. That list is record `0x61150568` `{42, 0x611500f2, 2}` = **[47, 48]**. The E-M10 IV list is [47, 49, 48]; the
-E-M5 III has 158/51/53 in its list. The 24-B list in §4b (`0x61146a14`) is not the rows: it is the OK-key event table
+E-M5 III has 158/51/53 in its list. The 24-B list in §4b (`0x61146a14`) is not the rows: it is the OK-key event table **[corrected 2026-11-15, RE_MENUS.md follow-up: it is the Right-key list; OK reads a different list, empty on that page]**
 (`0x60ddc1f1`, `{depth, item id, fn, type 8, sub-screen}`), and it already sends 51 → (8, 62) and 53 → (8, 61).
 
 Each row is then checked by `0x607b3c32()->vtbl[0](id)` (CANEXEC, `0x6082686f` → `0x608290c8`). Its conditions for 51/53

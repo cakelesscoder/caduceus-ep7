@@ -3,6 +3,22 @@
 Caduceus firmware patches for the Olympus PEN E-P7 (firmware 1.1). Releases from v0.25 are betas; earlier ones
 were early-development pre-releases. Use at your own risk (see the README).
 
+## v0.34 — 2026-11-16 (beta)
+
+- **Colour mix (colour matrix) per look:** a look can now carry a 3×3 colour matrix that the camera's own image hardware applies, in photos and live view, with no extra processing time. It gives real film colour character: channel cross-talk and colour separation (Kodachrome's deep reds and cyan-leaning blues, Portra's warm skin, CineStill's teal and orange). Each row keeps summing to 1.0, so greys stay neutral.
+- **Base curve per look:** a look can pick one of the camera's own base tone curves (Standard, Auto with lifted shadows, Pale, Light, Pop, Flat, Log).
+- **Edit them on the camera:** Extras › Colour & Light gains **Curve**, **Mix** (Off, Warm film, Cool separation, Muted, Punchy, or the look's own) and **Strength** 0–100 %. Live view follows the dial.
+- **Standard 1.2 looks:** every colour look retuned as a whole with the new mix and curve, against each film stock's documented character (`docs/PACKS.md`). The Control Panel makes it the default; 1.1 and 1.0 stay selectable and unchanged.
+- **LOOKS.BIN v4:** the camera library now carries each look's curve and mix, so picking a look on the Film page applies them. Older v3 files load as before.
+- **Selectable 4K bitrate:** 4K movie slots get a Bit Rate choice in the slot editor: SF 150 Mbit/s (needs a V30 card; a slower card stops the recording cleanly), F 100 Mbit/s (stock, the default) or N 60 Mbit/s.
+- **Control Panel:** a full Colour mix editor (per-colour sliders, presets, strength, the matrix the camera gets), a base-curve picker, a before/after divider on the preview (design credit: androidfanman's OM-3 Look Lab), a test-chart preview, and a tidier editor (Tone, Colour, Effects; Grain, NR, Sharp and Halo in their own Profile settings panel).
+- **Fixes:**
+  - Code that runs early in boot (the crash record, the EXIF look name, the Colour Profile page label) no longer calls code before its part of the firmware has loaded.
+  - With the longer recording limit, the movie remaining-time estimate no longer stops at 29 minutes.
+  - Lowest S/S no longer changes a second Custom Menu page's item count.
+  - RAW Data Edit now applies the look's Sharp setting, like a shot does.
+- Firmware screen shows `Caduceus: 0.34`. Card files: new `LOOKS.BIN` (Standard 1.2, v4); BUNDLES.BIN, MOVIE.BIN and AP.BIN unchanged.
+
 ## Control Panel — 2026-11-13 (redesign and mood packs)
 
 - **New look:** frosted-glass panels over a blurred copy of the sample photo, one gold accent, Inter type, light mode that follows your system.

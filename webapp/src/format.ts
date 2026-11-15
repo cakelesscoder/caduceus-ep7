@@ -1,4 +1,4 @@
-// Card-file encoders: EP7MOD/LOOKS.BIN (v3, the 32-look picker file) and EP7MOD/BUNDLES.BIN (v1 + name section).
+// Card-file encoders: EP7MOD/LOOKS.BIN (v3, or v4 for v0.34 with curve / matrix: the 32-look picker file) and EP7MOD/BUNDLES.BIN (v1 + name section).
 // Byte-for-byte ports of the desktop tools:
 //   tools/ep7_looks_bin.py   header / record / with_tone / place / make_file / check_file (v0.19: per-look tone)
 //   tools/ep7_library.py     look_record (canonical bundle), place (look -> slot entry), name rules
@@ -10,7 +10,7 @@
 // Blacks/Whites at +47/+48 (MONO slots keep 0). The app writes the tone block when the look's tone is not all zero.
 // tests/encoder.test.ts checks the output against the Python tools and the released card files.
 import {
-  ARTS, EFFECTS, FILM_GRAINS, GRAINS, GRAIN_BYTE, grainFromByte, defaultProfile, profileOf, MAX_LOOKS, NAME_MAX, NOTE_MAX, PACK_SCHEMA, SLOT_NAMES, TINTS, TONE_BW_MAX, TONE_KEYS,
+  ARTS, CURVES, MATRIX_MAX, matrixIsZero, EFFECTS, FILM_GRAINS, GRAINS, GRAIN_BYTE, grainFromByte, defaultProfile, profileOf, MAX_LOOKS, NAME_MAX, NOTE_MAX, PACK_SCHEMA, SLOT_NAMES, TINTS, TONE_BW_MAX, TONE_KEYS,
   HALOS, blankLook, toneIsZero, toneLimit, zeroTone, type Look, type Pack, type ProfileSettings,
 } from './pack';
 import { hasSplit, splitOk } from './split';
@@ -31,10 +31,11 @@ export function crc32(...parts: Uint8Array[]): number {
   return (c ^ 0xffffffff) >>> 0;
 }
 
-// ---- firmware the card files are made for (Control Panel selector). 32 = v0.32 or later (split toning +62/+63), 31 = v0.31
+// ---- firmware the card files are made for (Control Panel selector). 34 = v0.34 or later (base curve +53, colour matrix
+// +54..+59 in COLOR slots of BUNDLES.BIN; docs/LOOK_FORMAT_V4.md). 32 = v0.32 or later (split toning +62/+63), 31 = v0.31
 // (Halo +52), 28 = v0.28..v0.30 (Sharp +51), 27 = v0.27, 25 = v0.25 / v0.26.
-export type Fw = 32 | 31 | 28 | 27 | 25 | 24 | 23;
-export const FW_LATEST: Fw = 32;
+export type Fw = 34 | 32 | 31 | 28 | 27 | 25 | 24 | 23;
+export const FW_LATEST: Fw = 34;
 let FW: Fw = FW_LATEST;
 export const setFirmware = (f: Fw) => { FW = f; };
 export const firmware = () => FW;
@@ -47,12 +48,18 @@ export const LAYOUT_CRC = 0x68068776;                   // ep7_library.layout_cr
 export const HL_MAX = 7;                                // v0.16 firmware: hue/light -7..7 (RANGES_LEGACY)
 export const SAT_MAX = 5, WB_MAX = 7, VIG_MAX = 5, STRENGTH_MAX = 5;
 const LOOKS_VERSION = 3, HDR_LEN = 64, REC_LEN = 64;
+// v0.34 LOOKS.BIN v4 (patches/looks_v4, tools/ep7_looks_bin.py): header +4 = 4, +32 CRC-32 of the extension, +36 = 16;
+// after the n v3 records, n 16-byte extension records: +0 curve (slot +53), +1..+6 matrix s8 (slot +54..+59), +7..15 = 0.
+// The +16 CRC is the v3 rule over the v3 part. Written only for v0.34 or later and only when a colour look sets a field.
+const LOOKS_V4 = 4, EXT_LEN = 16, EXT_CRC = 32, EXT_LEN_OFF = 36;
 // v0.19 tone block in a COLOR record: +32 flag, then the values at these offsets
 const TONE_FLAG = 32;
 const TONE_OFF = { blacks: 33, whites: 34, highlights: 35, midtones: 36, shadows: 37 } as const;
 const B_BLACKS = 47, B_WHITES = 48, B_SHADING = 49, B_GRAIN = 50, B_NR = 24, B_SHARP = 51, B_HALO = 52;
 // v0.32 split toning (COLOR slots): +62 Shadows, +63 Highlights, each low nibble colour 0..11, high nibble strength s4 -5..5
 const B_SPLIT_SH = 62, B_SPLIT_HL = 63;
+// v0.34 (patches/look_hw): +53 base curve (0 = the camera's own, 1.. = CURVES index + 1), +54..+59 matrix s8 (1/128)
+const B_CURVE = 53, B_MTX = 54, B_MIXMEM = 60;
 // v0.32 LOOKS.BIN: the same two bytes in the record's name tail, +61 Shadows / +62 Highlights (names end by +60: at most
 // 12 characters). A Film pick copies them to slot +62/+63 (0 clears). Older firmware rejects a record with them non-zero.
 const R_SPLIT_SH = 61, R_SPLIT_HL = 62;
@@ -73,7 +80,8 @@ const FIELDS: [number, number, number, number][] = [   // off, len, lo, hi
   [27, 1, -WB_MAX, WB_MAX], [28, 1, 0, 3], [29, 1, 0, 5], [30, 1, -VIG_MAX, VIG_MAX], [31, 1, 0, 3], [32, 1, 0, 1],
   [33, 12, -SAT_MAX, SAT_MAX], [45, 1, 0, 4], [46, 1, 0, 5],
   [B_BLACKS, 1, -TONE_BW_MAX, TONE_BW_MAX], [B_WHITES, 1, -TONE_BW_MAX, TONE_BW_MAX], [B_SHADING, 1, 0, 1], [B_GRAIN, 1, 0, 3],
-  [B_SHARP, 1, 0, 1], [B_HALO, 1, 0, 4], [B_SPLIT_SH, 2, -128, 127]];
+  [B_SHARP, 1, 0, 1], [B_HALO, 1, 0, 4], [B_SPLIT_SH, 2, -128, 127], [B_CURVE, 1, 0, CURVES.length], [B_MTX, 6, -MATRIX_MAX, MATRIX_MAX],
+  [B_MIXMEM, 1, 0, 84]];   // v0.34b: +60 the camera's Mix / Strength choice (8 (10 - strength) + mix); the panel writes 0
 export const RANGE_LO = new Int8Array(64), RANGE_HI = new Int8Array(64);   // unclaimed bytes: 0..0
 for (const [off, n, lo, hi] of FIELDS) for (let k = off; k < off + n; k++) { RANGE_LO[k] = lo; RANGE_HI[k] = hi; }
 const s8 = (b: number) => (b >= 128 ? b - 256 : b);
@@ -122,6 +130,9 @@ export function validateLook(l: Look, i?: number): Problem[] {
     const lim = toneLimit(k);
     if (!intIn(l.tone[k], -lim, lim)) add('tone', `Tone ${k}: a whole number in -${lim}..${lim}.`);
   }
+  if (l.curve !== undefined && !CURVES.includes(l.curve)) add('curve', 'Unknown base curve.');
+  if (l.matrix !== undefined && (!Array.isArray(l.matrix) || l.matrix.length !== 6 || !l.matrix.every((v) => intIn(v, -MATRIX_MAX, MATRIX_MAX))))
+    add('matrix', `Colour matrix: 6 whole numbers in -${MATRIX_MAX}..${MATRIX_MAX}.`);
   if (!ARTS.includes(l.art_effect)) add('art_effect', 'Unknown Art Effect.');
   else if (l.art_effect !== 'off' && l.kind === 'mono') add('art_effect', 'Art Effects are for colour looks (COLOR slots).');
   return p;
@@ -190,16 +201,28 @@ export function lookRecord(l: Look): Uint8Array {
   return r;
 }
 
-function looksHeader(n: number, crc: number): Uint8Array {
+function looksHeader(n: number, crc: number, extCrc?: number): Uint8Array {
   const h = new Uint8Array(HDR_LEN);
   const v = new DataView(h.buffer);
   h.set(MAGIC, 0);
-  v.setUint16(4, LOOKS_VERSION, true); v.setUint16(6, HDR_LEN, true);
+  v.setUint16(4, extCrc === undefined ? LOOKS_VERSION : LOOKS_V4, true); v.setUint16(6, HDR_LEN, true);
   v.setUint32(8, FW_BUILD, true); v.setUint32(12, REC_LEN * n, true); v.setUint32(16, crc, true);
   h.set(SHA_PREFIX, 20);
   v.setUint16(24, n, true); v.setUint16(26, REC_LEN, true); v.setUint32(28, LAYOUT_CRC, true);
+  if (extCrc !== undefined) { v.setUint32(EXT_CRC, extCrc, true); v.setUint16(EXT_LEN_OFF, EXT_LEN, true); }
   return h;
 }
+
+/** The look's 16-byte v4 extension record (zeros for a mono look or a look without curve / matrix). */
+export function lookExt(l: Look): Uint8Array {
+  const e = new Uint8Array(EXT_LEN);
+  if (l.kind !== 'colour') return e;
+  if (l.curve) e[0] = CURVES.indexOf(l.curve) + 1;
+  if (!matrixIsZero(l.matrix)) l.matrix!.forEach((v, i) => { e[1 + i] = u8(v); });
+  return e;
+}
+
+const isV4 = (d: Uint8Array) => d.length >= 6 && (d[4] | (d[5] << 8)) === LOOKS_V4;
 
 export class PackError extends Error {
   constructor(public problems: Problem[]) { super(problems.map((p) => (p.look !== undefined ? `look ${p.look + 1}: ` : '') + p.message).join('\n')); }
@@ -210,10 +233,18 @@ export function encodeLooksBin(pack: Pack): Uint8Array {
   const probs = validatePack({ ...pack, slots: {} });
   if (probs.length) throw new PackError(probs);
   const n = pack.looks.length;
-  const out = new Uint8Array(HDR_LEN + REC_LEN * n);
+  const exts = pack.looks.map(lookExt);
+  const v4 = FW >= 34 && exts.some((e) => e.some((b) => b !== 0));
+  const v3len = HDR_LEN + REC_LEN * n;
+  const out = new Uint8Array(v3len + (v4 ? EXT_LEN * n : 0));
   pack.looks.forEach((l, j) => out.set(lookRecord(l), HDR_LEN + REC_LEN * j));
-  out.set(looksHeader(n, 0), 0);
-  const crc = crc32(out.subarray(0, 16), out.subarray(20));
+  let extCrc: number | undefined;
+  if (v4) {
+    exts.forEach((e, j) => out.set(e, v3len + EXT_LEN * j));
+    extCrc = crc32(out.subarray(v3len));
+  }
+  out.set(looksHeader(n, 0, extCrc), 0);
+  const crc = crc32(out.subarray(0, 16), out.subarray(20, v3len));
   new DataView(out.buffer).setUint32(16, crc, true);
   const chk = checkLooksBin(out);
   if (chk.length) throw new PackError(chk.map((m) => ({ field: 'file', message: m })));
@@ -244,6 +275,26 @@ for (let o = 38; o < 44; o++) { LOOK_LO[o] = -128; LOOK_HI[o] = 127; }   // v0.2
 /** Mirror of the camera's pk_check (tools/ep7_looks_bin.py check_file): [] = accepted. `split`: record +61/+62 may
  *  carry split toning (v0.32 firmware; older firmware rejects such a file). */
 export function checkLooksBin(d: Uint8Array, split = FW >= 32): string[] {
+  if (isV4(d)) {                       // v0.34 (looks_v4): v4 header and extension, then the v3 part as the camera sees it
+    const n = d.length >= 26 ? d[24] | (d[25] << 8) : 0;
+    if (n < 1 || n > MAX_LOOKS || d.length !== HDR_LEN + (REC_LEN + EXT_LEN) * n) return [`v4 size ${d.length}`];
+    const dv = new DataView(d.buffer, d.byteOffset, d.byteLength), v3len = HDR_LEN + REC_LEN * n;
+    const want = looksHeader(n, 0, dv.getUint32(EXT_CRC, true));
+    for (let i = 0; i < HDR_LEN; i++) if ((i < 16 || i >= 20) && d[i] !== want[i]) return ['header'];
+    if (crc32(d.subarray(0, 16), d.subarray(20, v3len)) !== dv.getUint32(16, true)) return ['crc'];
+    const p: string[] = [];
+    const ext = d.subarray(v3len);
+    if (crc32(ext) !== dv.getUint32(EXT_CRC, true)) p.push('extension crc');
+    else for (let j = 0; j < n; j++) {
+      const e = ext.subarray(EXT_LEN * j, EXT_LEN * (j + 1));
+      if (e[0] > CURVES.length || e.subarray(1, 7).some((b) => Math.abs(s8(b)) > MATRIX_MAX) || e.subarray(7).some((b) => b !== 0))
+        p.push(`look ${j} extension out of range`);
+    }
+    const v3 = d.slice(0, v3len), h = looksHeader(n, 0);
+    v3.set(h.subarray(0, 16), 0); v3.set(h.subarray(20), 20);
+    new DataView(v3.buffer).setUint32(16, crc32(v3.subarray(0, 16), v3.subarray(20)), true);
+    return p.concat(checkLooksBin(v3, split));
+  }
   const p: string[] = [];
   const size = d.length;
   if (size < HDR_LEN + REC_LEN || size > HDR_LEN + REC_LEN * MAX_LOOKS || size % REC_LEN) return [`size ${size}`];
@@ -269,10 +320,11 @@ export function checkLooksBin(d: Uint8Array, split = FW >= 32): string[] {
 /** LOOKS.BIN (checked like the camera) -> pack. LOOKS.BIN has no notes, Art Effect or advice; mono looks get the
  *  "no filter" advice; looks without a tone block get tone 0. Throws with a readable message. */
 export function decodeLooksBin(d: Uint8Array, name = 'Imported LOOKS.BIN'): Pack {
-  if (d.length >= 6 && (d[4] | (d[5] << 8)) !== LOOKS_VERSION) throw new Error(`LOOKS.BIN version ${d[4] | (d[5] << 8)}: only version 3 is a camera file`);
+  const ver = d.length >= 6 ? d[4] | (d[5] << 8) : 0;
+  if (ver !== LOOKS_VERSION && ver !== LOOKS_V4) throw new Error(`LOOKS.BIN version ${ver}: only versions 3 and 4 are camera files`);
   const probs = checkLooksBin(d, true);
   if (probs.length) throw new Error(`LOOKS.BIN rejected (${probs.slice(0, 3).join('; ')})`);
-  const n = (d.length - HDR_LEN) / REC_LEN;
+  const n = ver === LOOKS_V4 ? d[24] | (d[25] << 8) : (d.length - HDR_LEN) / REC_LEN;
   const looks: Look[] = [];
   for (let j = 0; j < n; j++) {
     const r = d.subarray(HDR_LEN + REC_LEN * j, HDR_LEN + REC_LEN * (j + 1));
@@ -295,6 +347,12 @@ export function decodeLooksBin(d: Uint8Array, name = 'Imported LOOKS.BIN'): Pack
     if (!mono && r[NAME_OFF + 12] === 0 && (r[R_SPLIT_SH] || r[R_SPLIT_HL])) {   // v0.32 split toning in the name tail
       const [sh_color, sh] = unpackSplit(r[R_SPLIT_SH]), [hl_color, hl] = unpackSplit(r[R_SPLIT_HL]);
       if (sh || hl) l.split = { sh_color, sh, hl_color, hl };
+    }
+    if (ver === LOOKS_V4 && !mono) {    // v0.34 extension: base curve and colour matrix
+      const e = d.subarray(HDR_LEN + REC_LEN * n + EXT_LEN * j, HDR_LEN + REC_LEN * n + EXT_LEN * (j + 1));
+      if (e[0]) l.curve = CURVES[e[0] - 1];
+      const m = Array.from(e.subarray(1, 7), s8);
+      if (!matrixIsZero(m)) l.matrix = m;
     }
     looks.push(l);
   }
@@ -322,6 +380,10 @@ export function placeLook(l: Look, slot: string, prof: ProfileSettings = default
     if (FW >= 32 && l.split && hasSplit(l) && splitOk(l.split)) {   // the shared `split` field, packed for the E-P7 slot
       b[B_SPLIT_SH] = packSplit(l.split.sh_color, l.split.sh);
       b[B_SPLIT_HL] = packSplit(l.split.hl_color, l.split.hl);
+    }
+    if (FW >= 34) {                    // v0.34: base curve and colour matrix (COLOR slots only)
+      if (l.curve) b[B_CURVE] = CURVES.indexOf(l.curve) + 1;
+      if (!matrixIsZero(l.matrix)) l.matrix!.forEach((v, i) => { b[B_MTX + i] = u8(v); });
     }
     profileBytes(b, prof);
   } else if (l.kind === 'colour') {
@@ -397,6 +459,9 @@ export function checkBundlesBin(d: Uint8Array): string[] {
   if (FW < 31) for (let k = 0; k < 8; k++) if (d[B_HDR_LEN + 64 * k + B_HALO]) { p.push(`slot ${k}: Halo needs v0.31 or later`); break; }
   if (FW < 32) for (let k = 0; k < 8; k++) if (d[B_HDR_LEN + 64 * k + B_SPLIT_SH] || d[B_HDR_LEN + 64 * k + B_SPLIT_HL]) { p.push(`slot ${k}: split toning needs v0.32 or later`); break; }
   for (let k = 4; k < 8; k++) if (d[B_HDR_LEN + 64 * k + B_SPLIT_SH] || d[B_HDR_LEN + 64 * k + B_SPLIT_HL]) { p.push(`slot ${k}: split toning is COLOR-only`); break; }
+  const lookHw = (k: number) => d.subarray(B_HDR_LEN + 64 * k + B_CURVE, B_HDR_LEN + 64 * k + B_MTX + 6).some((v) => v !== 0);
+  if (FW < 34) for (let k = 0; k < 8; k++) if (lookHw(k)) { p.push(`slot ${k}: base curve / colour matrix need v0.34 or later`); break; }
+  for (let k = 4; k < 8; k++) if (lookHw(k)) { p.push(`slot ${k}: base curve / colour matrix are COLOR-only`); break; }
   for (let k = 4; k < 8; k++) if (d[B_HDR_LEN + 64 * k + B_BLACKS] || d[B_HDR_LEN + 64 * k + B_WHITES]) { p.push(`slot ${k}: Blacks/Whites are COLOR-only`); break; }
   if (d.length === B_FILE_N) {
     if (!NMAGIC.every((c, i) => d[B_FILE + 128 + i] === c)) p.push('name marker');

@@ -7,7 +7,11 @@ after grain_g2 (it lives in r2 bytes that g2 left unused). Offline.
       --extra grain_g2=patches/grain_g2/build.py --extra crash_log=patches/crash_log/build.py
 
 apply(spec, version) -> spec. Edits:
-  - 0x60059aab in the NMI handler, `mov 0x600774ec,a0` (6 B) -> `jmp cl_nmi; nop` (C1);
+  - 0x60059aab in the NMI handler, `mov 0x600774ec,a0` (6 B) -> `jmp cl_gate; nop` (C1);
+  - cl_gate (v0.33b, 27 B, base image 0x600cb320, cg.s.in): `btst 1,(0xa272e420)`. Section 1 not loaded yet (bit 0 clear: a
+    fault in early boot, before BOOT_CPU0's section 1 copy) -> the displaced `mov 0x600774ec,a0` and back to the stock handler,
+    with the flags as wdt_hw_set left them; loaded -> `jmp cl_nmi`. The NMI handler is base code, so the test must be too: the
+    base FF hole 0x600c8010..0x600d0000 (RE_BOOT_MEMORY section 8, "unused"), the only new code space of v0.33b;
   - sd_go's `call sd_load,[d2,d3,a2,a3],36` in the card loader (5 B) -> `jmp cl_first` (C2);
   - cl_nmi / cl_first + the file path, in section 1: the body of r2's gc_grain after grain_g2's jmp (inside the grain_cpu edit).
 The record format is tools/ep7_crash.py (the decoder); this file only fills cl.s.in from it.
@@ -16,6 +20,8 @@ import argparse, copy, hashlib, importlib.util, json, re, struct
 from pathlib import Path
 
 import numpy as np
+
+XS = __import__('sys').modules.get('ep7_xscan') or (lambda p: (lambda s: (s.loader.exec_module(m := importlib.util.module_from_spec(s)), __import__('sys').modules.__setitem__('ep7_xscan', m), m)[2])(importlib.util.spec_from_file_location('ep7_xscan', p)))(Path(__file__).resolve().parents[2] / 'tools/xscan.py')  # shared cache: tools/xscan.py
 
 ROOT = Path(__file__).resolve().parents[2]
 HERE = Path(__file__).resolve().parent
@@ -49,6 +55,13 @@ RAM = 0x08000000                          # RAM on both aliases reaches at least
 # ---- C1
 SITE, SITE_OLD, BACK, HOOK_IMM = 0x60059aab, bytes.fromhex('fcdcec740760'), 0x60059ab1, 0x600774ec
 HANDLER = (0x60059a9d, 0x60059cee)        # the NMI handler, one entry (the three vector stubs' `calls`)
+# ---- C0 (v0.33b): the section-1 gate in the base image (RE_BOOT_MEMORY section 1 and section 8). 0xa272e420 bit n-1 is set by
+# section_load 0x600457e7 right after section n is copied (and, for 7, its initialisers run); .bss, zeroed at 0x60020074 before
+# stage 0 loads the base code this handler is in. 0xa272e41c ("initialised", set by wait(n) on a boot task) comes later and is
+# not needed for code that is only jumped to. btst on memory tests a byte: bits 0..7 are byte 0 (little-endian).
+GATE_HOLE = (0x600c8010, 0x600d0000)      # base FF run loaded by stage 0, no reference into it (RE_BOOT_MEMORY section 8)
+GATE_AT, GATE_END, GATE_GUARD = 0x600cb320, 0x600cb340, 16   # a stretch with no naive abs32 / rel hit (0x6004xxxx reads as `[d2],4` call bytes)
+BASE_FLASH = 0x406a0020 - 0x60020020      # the base image's container (flash) alias
 # ---- C2
 C2_OLD, C2_RET = bytes.fromhex('cd0800f024'), bytes.fromhex('dff024')    # call sd_load,[d2,d3,a2,a3],36 (d16); ret [d2,d3,a2,a3],36
 FWRITE = 0x60635041
@@ -66,6 +79,7 @@ PINS = {0x6014f1b2: ('f0031e60', 'stock code `mov (a3),a0; exthu d2; mov d0,(a0)
 # Stock bytes this layer relies on: (address, bytes, what)
 NEED = (
     (0x60059aa2, '8001dd077ffcff0000', 'handler: mov 1,d0; call wdt_hw_set,[],0 right before the site'),
+    (0x60045856, '178001f29cfca520e472a2f214fc8120e472a2df', 'section_load: bit (id-1) of 0xa272e420 set after the copy, then ret'),
     (0x60059aab, 'fcdcec740760dd4e8afcfff01c', 'site: mov 0x600774ec,a0; call dbg_printf,[d2,d3,a2,a3],28'),
     (0x600219d5, '6070a000c807db70a000d9de0000', 'wdt_hw_set returns d0 = 0 from `cmp 0,d0`'),
     (0x60059ab8, '3250801e', 'handler: cpu = (0x8050), exthu'),
@@ -149,22 +163,14 @@ def check_stock(stock):
 def refs(im, lo, hi, off, allow=()):
     """abs32 at every byte on the four aliases + d16 / d32 call, calls and jmp encodings into [lo, hi), as patches/keyhook scan()
     and tools/ep7_xref.py. -> [(kind, address)] minus the pinned sites and the allowed source ranges."""
-    d = np.frombuffer(im, np.uint8).astype(np.int64)
-    w = d[:-3] | (d[1:-2] << 8) | (d[2:-1] << 16) | (d[3:] << 24)
-    pc = np.arange(len(d) - 8, dtype=np.int64) + BASE
+    d_len = len(im)
     ok = lambda at: any(x <= at < y for x, y in allow) or (at in PINS and PINS[at][0] == im[at - BASE:at - BASE + 4].hex())
     bad = []
     for o in (0, 0x40000000, off, (off + 0x40000000) & 0xffffffff):
         a, b = (lo + o) & 0xffffffff, (hi + o) & 0xffffffff
-        bad += [('abs32', int(i) + BASE) for i in np.nonzero((w >= a) & (w < b))[0] if not ok(int(i) + BASE)]
-    for op, at_, n in (((0xdd,), 1, 4), ((0xdc,), 1, 4), ((0xcd,), 1, 2), ((0xcc,), 1, 2), ((0xfa, 0xff), 2, 2), ((0xfc, 0xff), 2, 4)):
-        m = d[:-8] == op[0]
-        if len(op) == 2:
-            m &= d[1:-7] == op[1]
-        b = [d[at_ + k:len(d) - 8 + at_ + k] for k in range(n)]
-        disp = b[0] | (b[1] << 8) if n == 2 else b[0] | (b[1] << 8) | (b[2] << 16) | (b[3] << 24)
-        disp = np.where(disp >= (1 << (8 * n - 1)), disp - (1 << (8 * n)), disp)
-        bad += [('rel', int(x) + BASE) for x in np.nonzero(m & (pc + disp >= lo) & (pc + disp < hi))[0] if not ok(int(x) + BASE)]
+        bad += [('abs32', int(i) + BASE) for i in XS.abs32_hits(im, BASE, a, b) if not ok(int(i) + BASE)]
+    for hits in XS.rel_hits(im, BASE, lo, hi, XS.STD):          # tools/xscan.py: same positions as the old full-length scan
+        bad += [('rel', int(x) + BASE) for x in hits if not ok(int(x) + BASE)]
     return sorted(set(bad))
 
 
@@ -260,6 +266,40 @@ def build_code(at, syms, version):
     return code, sy, lst
 
 
+def build_gate(cl_nmi):
+    """cl_gate (cg.s.in) at GATE_AT -> (code, symbols). One test, two exits: the stock path back to the handler, or cl_nmi."""
+    code, lst, sy, _ = B3.assemble(B3.subst((HERE / 'cg.s.in').read_text(), dict(sect=hex(SECT), hook_imm=hex(HOOK_IMM))), GATE_AT,
+                                   dict(ep7_nmi_back=BACK, ep7_cl_nmi=cl_nmi))
+    if sy['cl_gate'] != GATE_AT or GATE_AT + len(code) > GATE_END:
+        raise SystemExit(f'cl_gate: {len(code)} B do not fit {GATE_END - GATE_AT}')
+    ins = B3.disasm(code, GATE_AT, GATE_AT + len(code))
+    if any(op.startswith('.') or op == '(bad)' or op in BAD | {'call', 'ret'} for _, op, _ in ins) or any(code[a - GATE_AT] == 0xfb for a, _, _ in ins):
+        raise SystemExit('cl_gate: forbidden, undecodable or fb-prefixed instruction')
+    if B3.store_audit(ins):
+        raise SystemExit('cl_gate: stores')
+    got = [(op, args) for _, op, args in ins]
+    want = [('btst', f'1,({SECT:#x})'), ('bne', None), ('cmp', '0,d0'), ('mov', f'{HOOK_IMM},a0'), ('jmp', hex(BACK)), ('jmp', hex(cl_nmi))]
+    if len(got) != len(want) or any(o != w[0] or (w[1] is not None and a != w[1]) for (o, a), w in zip(got, want)) \
+            or int(got[1][1], 16) != ins[5][0]:
+        raise SystemExit(f'cl_gate: {got}')
+    return code, sy
+
+
+def check_gate_space(spec, stock, im):
+    """The gate's claim: FF with 16-B FF guards, in the base load, no edit there, no reference into it on any alias."""
+    lo, hi = GATE_AT - GATE_GUARD, GATE_END + GATE_GUARD
+    if not (GATE_HOLE[0] <= lo and hi <= GATE_HOLE[1]) or set(stock[GATE_HOLE[0] - BASE:GATE_HOLE[1] - BASE]) != {0xff}:
+        raise SystemExit(f"gate hole is not the stock FF run {GATE_HOLE[0]:#x}..{GATE_HOLE[1]:#x}")
+    for e in spec['edits']:
+        if e['kind'] == '0x100' and not e['addr'].startswith('off:'):
+            a, n = int(e['addr'], 16), len(e['new']) // 2
+            if a < GATE_HOLE[1] and GATE_HOLE[0] < a + n:
+                raise SystemExit(f'gate hole overlaps edit {e["addr"]}')
+    bad = refs(im, lo, hi, BASE_FLASH)
+    if bad:
+        raise SystemExit(f'reference into the gate claim: {[(k, hex(a)) for k, a in bad[:8]]}')
+
+
 def put(spec, stock, addr, old, new, why):
     """Into the edit that covers addr (the grain_cpu block, the card loader), as patches/grain_g2 put()."""
     im = ST.img_of(spec, stock)
@@ -305,11 +345,18 @@ def apply(spec, version='0.33'):
         raise SystemExit('the claim is not in section 1')
     put(spec, stock, at, im[at - BASE:end - BASE], code, f'cl_nmi / cl_first ({len(code)} B) over r2\'s unused gc_grain body')
     put(spec, stock, c2, C2_OLD, b'\xdc' + struct.pack('<i', sy['cl_first'] - c2), 'sd_go: call sd_load -> jmp cl_first (calls it, then the crash record)')
-    spec['edits'].append(dict(kind='0x100', addr=hex(SITE), expect=SITE_OLD.hex(), new=(b'\xdc' + struct.pack('<i', sy['cl_nmi'] - SITE) + b'\xcb').hex(), source=SRC,
-                              why=f'crash_log {version}: NMI handler `mov 0x600774ec,a0` (after wdt_hw_set(1)) -> jmp cl_nmi; nop'))
+    check_gate_space(spec, stock, im)
+    gcode, gsy = build_gate(sy['cl_nmi'])
+    spec['edits'].append(dict(kind='0x100', addr=hex(GATE_AT), expect=stock[GATE_AT - BASE:GATE_AT - BASE + len(gcode)].hex(), new=gcode.hex(), source=SRC,
+                              why=f'crash_log {version}: cl_gate ({len(gcode)} B, base FF hole): section 1 not loaded -> stock NMI handler, else cl_nmi'))
+    spec['edits'].append(dict(kind='0x100', addr=hex(SITE), expect=SITE_OLD.hex(), new=(b'\xdc' + struct.pack('<i', gsy['cl_gate'] - SITE) + b'\xcb').hex(), source=SRC,
+                              why=f'crash_log {version}: NMI handler `mov 0x600774ec,a0` (after wdt_hw_set(1)) -> jmp cl_gate; nop'))
+    sy = dict(sy, cl_gate=gsy['cl_gate'])
     spec['grain_g2']['unused_r2'] = [[hex(claim[1]), hex(hi)] if r == [hex(lo), hex(hi)] else r for r in spec['grain_g2']['unused_r2']]
     spec['crash_log'] = dict(built_by=SRC, version=version, build_tag=hex(F.build_tag(version)), format=F.VERSION, file='EP7MOD/CRASH.BIN', file_len=F.FILE_LEN, slot=F.SLOT, record=[hex(R), hex(R + F.FILE_LEN)],
                              code=[hex(at), len(code)], claim=[hex(claim[0]), hex(claim[1])], site=hex(SITE), back=hex(BACK), c2_site=hex(c2),
+                             gate=dict(code=[hex(GATE_AT), len(gcode)], claim=[hex(GATE_AT), hex(GATE_END)], guards=[hex(GATE_AT - GATE_GUARD), hex(GATE_END + GATE_GUARD)],
+                                       test=f'btst 1,({SECT:#x})', loaded_word=hex(SECT)),
                              stack_bytes=28, c1_len=sy['cl_first'] - at, c2_len=sy['cl_path'] - sy['cl_first'],
                              symbols={k: hex(v) for k, v in sy.items() if k.startswith('cl_')})
     return spec

@@ -1,0 +1,20 @@
+/* cl_gate (patches/crash_log, v0.33b; ep7-firmware, our own code). docs/RE_BOOT_MEMORY.md section 1 and "Follow-up".
+ * <- `jmp` at 0x60059aab in the NMI handler 0x60059a9d (base image), in place of `mov 0x600774ec,a0`.
+ * cl_nmi lives in section 1, which is copied in only after BOOT_CPU0 has armed the bus monitor and the watchdog, so an NMI in
+ * early boot would jump into RAM that holds no code yet. One test: bit 0 of the sections-loaded word (byte 0 of 0xa272e420,
+ * set by section_load right after the section-1 copy). Clear: the stock path, the displaced `mov 0x600774ec,a0` after a
+ * `cmp 0,d0` that gives the flags wdt_hw_set returned with (it ends on `cmp 0,d0`, d0 = 0), then back to 0x60059ab1. Set: cl_nmi
+ * (its own tail does the same replay). Only PSW changes before either exit; no store, no call, no stack use.
+ */
+ .am33_2
+ .text
+ .global _start
+_start:
+cl_gate:
+ btst 1,({sect})
+ bne 1f
+ cmp 0,d0
+ mov {hook_imm},a0
+ jmp ep7_nmi_back
+1:
+ jmp ep7_cl_nmi

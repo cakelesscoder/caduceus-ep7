@@ -8,6 +8,9 @@
      the host model's translation (build.translate), zero-padded to 33 units; Film page (axis 3): whole entries only.
      English table / kind 4 / no table pointer: the label is exactly what the mock wrote. Every case: d0 = the mock's,
      d2 d3 a2 a3 sp kept, no fault, the stack above the caller's sp untouched.
+  G  (v0.33b) the section-7 gate at the head of i18n_gd: sections-loaded word 0xa272e420 without bit 6 (0, 0x3f): the stock
+     guide part 0x60decbfc runs (a mock there writes its own label; the old chain is not mapped, so reaching it faults), its
+     label and d0 come back unchanged, d2 d3 a2 a3 sp kept; with bit 6 (0x7f, 0x1ff) the Z behaviour. Every Z case runs at 0x1ff.
   P  anti-brick: package decodes to stock + edits (the image Z ran), restore == stock, bytes differing from the base
      spec are only the claim's code and the guide word.
 """
@@ -75,7 +78,10 @@ def strings(lang):
     return bytes(t)
 
 
-def run(im, text, kind=5, lang='zh', axis=4, table=True):
+STOCK_GD = 0x60decbfc
+
+
+def run(im, text, kind=5, lang='zh', axis=4, table=True, sect=0x1ff):
     sl = lambda lo, hi: im[lo - BASE:hi - BASE]
     zh = json.loads(Path(sys.argv[2]).read_text())['i18n_zh']
     chain = int(zh['chain'], 16)                      # the old chain entry (xp_guide); the word now holds i18n_gd
@@ -93,7 +99,11 @@ def run(im, text, kind=5, lang='zh', axis=4, table=True):
           Region('pool', P, bytes(p), 'r'),
           Region('stack', W.STACK, bytes([W.STACK_FILL] * 0x2000), 'rw', True),
           Region('view', VIEW, bytes(view), 'rw', True),
-          Region('mock', chain, mock(chain, kind, text), 'rx')]
+          Region('sect', 0xa272e420, struct.pack('<I', sect), 'r')]
+    if sect & 0x40:
+        rg.append(Region('mock', chain, mock(chain, kind, text), 'rx'))
+    else:                                             # section 7 not in: only the stock part may run
+        rg.append(Region('stockgd', STOCK_GD, mock(STOCK_GD, 4, 'STOCK ' + text), 'rx'))
     r = execute(rg, dict(pc=STUB, sp=W.SP0, d0=0, a0=0, a3=0x3a3a, **REGS0), stop, limit=200000, trace_limit=1000)
     m = {x['name']: bytes.fromhex(x['hex']) for x in r['memory']}
     return r, m, stop
@@ -135,6 +145,27 @@ def t_z(new):
     return not bad, f'{n} cases; bad {bad[:3]}'
 
 
+def t_gate(new):
+    bad, n = [], 0
+    for sect in (0, 0x3f, 0x7f, 0x1ff):
+        for text, kw in (('1 Grain High', {}), ('Stock', dict(axis=3)), ('1 Grain High', dict(lang='en'))):
+            r, m, stop = run(new, text, sect=sect, **kw)
+            g = r['registers']
+            if sect & 0x40:
+                on = kw.get('lang', 'zh') == 'zh'
+                want = ZB.translate(text, film=kw.get('axis') == 3) if on else text
+            else:
+                want = 'STOCK ' + text
+            got, _ = label(m)
+            ok = not r['fault'] and g['pc'] == stop and got == want and g['d0'] == 0x1234 and bool(sect & 0x40 or m['view'][44] == 4)
+            ok &= all(g[k] == {'d2': 0x2222, 'd3': 0x3333, 'a2': 0xa2a2, 'a3': 0x3a3a, 'sp': W.SP0}[k] for k in KEEP)
+            ok &= set(m['stack'][W.SP0 - W.STACK + 4:]) == {W.STACK_FILL}
+            n += 1
+            if not ok:
+                bad.append((hex(sect), text, kw, r['fault'], got, want))
+    return not bad, f'{n} cases; bad {bad[:3]}'
+
+
 def t_pkg(base_s, new_s, base, new, pkg, rst, info):
     sb = {b.kind: b for b in oc.parse(BP.STOCK.read_bytes())}
     good = True
@@ -161,7 +192,7 @@ def main():
     base, *_ = image(base_s)
     new, pkg, rst, info = image(new_s)
     ok = True
-    for tag, (g, txt) in (('Z', t_z(new)), ('P', t_pkg(base_s, new_s, base, new, pkg, rst, info))):
+    for tag, (g, txt) in (('Z', t_z(new)), ('G', t_gate(new)), ('P', t_pkg(base_s, new_s, base, new, pkg, rst, info))):
         print(f"{'PASS' if g else 'FAIL'} {tag} {txt}")
         ok &= g
     print('ALL PASS' if ok else 'FAILURES')

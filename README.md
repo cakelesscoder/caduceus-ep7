@@ -5,13 +5,14 @@
 **Caduceus** is a set of open-source firmware patches for the **Olympus PEN E-P7** (firmware 1.1). Its heart is
 **HSLFX**: every Colour Profile gets **H**ue, **S**aturation and **L**ightness per colour, plus **FX** (film
 grain, tinted halation, bloom, clarity, Art Effects, Blacks/Whites, noise reduction and sharpening control),
-all edited on the camera's own colour wheel. On top of that: 29 film simulations, B&W film presets, its own
+all edited on the camera's own colour wheel. New in v0.34: a per-look **colour mix** (a 3×3 colour matrix in the
+camera's own image hardware) and **base curve**, so looks get real film colour character. On top of that: 29 film simulations, B&W film presets, its own
 colour profiles for Movie and AP modes, Live ND, a minimum shutter speed, true log video, XPan and 21:9
 stills, and longer video recording.
 
 *Named after the caduceus, the staff of Hermes: messenger between gods and mortals and guide of travellers.*
 
-**Latest release: [v0.33a](https://github.com/cakelesscoder/caduceus-ep7/releases/tag/v0.33a)** ·
+**Latest release: [v0.34](https://github.com/cakelesscoder/caduceus-ep7/releases/tag/v0.34)** ·
 **[Install guide](docs/INSTALL.md)** · **[Changelog](CHANGELOG.md)** · **[Caduceus Control Panel](https://cakelesscoder.github.io/caduceus-ep7/)** (make and share looks in your browser) · The camera's Setup › Firmware screen shows the Caduceus version.
 
 > [!WARNING]
@@ -25,16 +26,26 @@ stills, and longer video recording.
 > restore path is proven on a real E-P7 (including recovery from a bootloop), and features marked
 > **camera-tested** below have run on a real camera. Read [Safety](#safety) before flashing.
 
-**OM-3 owners:** head to [Caduceus for OM-3](https://github.com/androidfanman/caduceus-om3) by androidfanman, a camera-tested port in the same family. Never use E-P7 firmware on an OM-3. The Control Panel exports the same looks for it: pick OM-3 in its setup pop-up.
+**Other cameras:** Caduceus is for the E-P7 only. Never flash an E-P7 build on another body. Other people have ported it
+or built mods in the same family: [Caduceus for OM-3](https://github.com/androidfanman/caduceus-om3) by androidfanman
+(camera-tested), [om10mi-mods](https://github.com/Meghnus/om10mi-mods) for the E-M10 Mark I by Meghnus, and ports in
+progress for the E-M1 Mark II, OM-5 and E-PL9. See [docs/BODIES.md](docs/BODIES.md) for every port, its owner and where
+it stands. **E-M10 IV:** a port here needs a volunteer tester ([issue #21](https://github.com/cakelesscoder/caduceus-ep7/issues/21)).
 
-**E-M10 IV: testers wanted.** A port is in development, but it hasn't run on a camera yet and no build is public. If you own one and are willing to test on it and report any issues, say so on [issue #21](https://github.com/cakelesscoder/caduceus-ep7/issues/21). Please don't flash an E-P7 build on an E-M10 IV.
+![Eight Standard 1.2 looks on four scenes](docs/img/film_looks_v4.jpg)
 
-![Film looks on four scenes](docs/img/film_looks_v3.jpg)
+*Eight of the most popular Standard 1.2 looks with their full settings (colour mix, base curve, HSL, split tone,
+tone), rendered by the Control Panel's preview on CC0 sample photos. The preview approximates the camera; grain and
+halation aren't drawn.*
 
 ## Features
 
 | Feature | What you get | Status |
 |---|---|---|
+| **Colour mix (colour matrix)** | Each look can carry a 3×3 colour matrix that the camera's own image hardware applies, in photos and live view, at no speed cost: channel cross-talk and colour separation per film stock (Kodachrome's deep reds, Portra's warm skin, CineStill's teal and orange). Greys stay neutral. On the camera: Extras › Colour & Light › **Mix** (Off, Warm film, Cool separation, Muted, Punchy, or the look's own) and **Strength** 0–100 %. In the Control Panel: a full editor with per-colour sliders. | **New in v0.34** |
+| **Base curve** | A look can pick the camera's own base tone curve: Standard, Auto (lifted shadows), Pale, Light, Pop, Flat or Log. Extras › Colour & Light › **Curve**. | **New in v0.34** |
+| **Standard 1.2 looks** | Every colour look retuned as a whole with the new colour mix and curve, against each film stock's documented character (`docs/PACKS.md`). The camera library (`LOOKS.BIN` v4) carries them; picking a look on the Film page applies its mix and curve. | **New in v0.34** |
+| **Selectable 4K bitrate** | In the movie slot editor, 4K slots get a Bit Rate choice: **SF** 150 Mbit/s (needs a V30 card), **F** 100 Mbit/s (stock default) or **N** 60 Mbit/s. | **New in v0.34** |
 | **Film simulations** | 29 colour looks in `EP7MOD/LOOKS.BIN`: Velvia, Astia, Classic Chrome, Classic Neg, Provia 400, Reala Ace, Eterna, Bleach Bypass, Kodachrome 25 and 64, Portra 160 and 400, Ektar 100, Gold 200, Ektachrome, UltraMax 400, CineStill 50D and 800T, Vision3 250D and 500T, Pro 400H, Fujicolor 200, Cuban Neg (inspired by Osan's Classic Cuban Neg), Agfa Vista, Cibachrome, Polaroid, Cross Process, Atrophy (inspired by [Gx]Ace) and Faux IR (an infrared-inspired false-colour look). Pick one per Colour Profile slot; its name shows in Picture Mode. | Camera-tested |
 | **On-camera look editor (HSLFX)** | The stock Colour Profile wheel gains pages: Film, Saturation, Hue, Light and Extras (FX: grain, halo, bloom/clarity, Art Effects, tone ends, WB shift, NR, sharpening) (INFO cycles). It opens on Film, and the wheel shows each film's saturation shape as you turn through them. The wheel follows the page; modified looks are marked `*`. | Camera-tested |
 | **Looks on the SD card** | Looks load from `EP7MOD/BUNDLES.BIN` on the first half-press. Edits made in the camera save back to the card (with a `.BAK` of the previous file). | Camera-tested |
@@ -80,8 +91,8 @@ The builder downloads OM's official 1.1 firmware from OM's server, checks it, an
   - Windows: `Build Caduceus (Windows).bat`
   - macOS: `Build Caduceus (Mac).command` (the first time: right-click › **Open**)
   - Linux: `build-caduceus-linux.sh`
-- **Or from a terminal** in that folder: `python3 caduceus.py build --release v0.33a`
-  (Windows: `py caduceus.py build --release v0.33a`).
+- **Or from a terminal** in that folder: `python3 caduceus.py build --release v0.34`
+  (Windows: `py caduceus.py build --release v0.34`).
 
 It creates a folder with:
 

@@ -277,7 +277,9 @@ code-space round first.
 | Range or site | Section | Owner |
 |---|---|---|
 | 0x601e01eb–0x601e0560 (claim; code 0x601e01ec–0x601e0557, 875 B) | 1 | **crash_log**: cl_nmi (the fault record, 625 B), cl_first (the next power-on's writer, 228 B), the path "C:\EP7MOD\CRASH.BIN" and "w". **The first 885 B of r2's unused gc_grain body** from grain_g2's row above (0x601e01eb–0x601e0572), written into the grain_cpu edit; the layer shortens `grain_g2.unused_r2` in the spec. **Left of that hole: 0x601e0560–0x601e0572 (18 B); the other three r2 pieces (255 + 6 + 256 B) are untouched.** Section 1 because the NMI can come before later sections load. Build checks: the hole's r2 bytes by hash, gc_grain still `jmp g2_grain; nop`, no branch from gc_open or gc_cls into the hole, no reference into the claim (abs32 on four aliases; call / calls / jmp d16 and d32) except the dead step-table words and the unused r2 code. Pinned false positives: 0x6014f1b2 and 0x6107a5d6 (as grain_cpu r2 pins them), 0x601e543e (byte 2 of a handler pointer in the debug-shell command table 0x601e5410), 0x601e08c2 (halation hl_box's first bytes, read on the flash alias) |
-| 0x60059aab (6) | base | crash_log hook C1: NMI handler 0x60059a9d, `mov 0x600774ec,a0` after its `wdt_hw_set(1)` -> `jmp cl_nmi; nop`; replayed, back to 0x60059ab1. The first jmp hook in the resident base image (its other edits are halation b4's two watchdog bytes). Build checks: the handler decodes linearly with the site as whole instructions, no branch or reference into 0x60059aac–0x60059ab0 |
+| 0x60059aab (6) | base | crash_log hook C1: NMI handler 0x60059a9d, `mov 0x600774ec,a0` after its `wdt_hw_set(1)` -> `jmp cl_nmi; nop` (v0.33b: `jmp cl_gate; nop`); replayed, back to 0x60059ab1. The first jmp hook in the resident base image (its other edits are halation b4's two watchdog bytes). Build checks: the handler decodes linearly with the site as whole instructions, no branch or reference into 0x60059aac–0x60059ab0 |
+| **0x600cb320–0x600cb340 (claim; code 27 B)** | base | **crash_log cl_gate (v0.33b)**: `btst 1,(0xa272e420)`; section 1 not loaded -> the stock handler path, else `jmp cl_nmi`. In the base FF hole 0x600c8010–0x600d0000 (RE_BOOT_MEMORY §8, "unused" [V static]), loaded by stage 0 with the handler. 16 B FF guards 0x600cb310 / 0x600cb350. Placed where a naive scan finds no abs32 / rel hit on any alias (0x6004xxxx in the other hole reads as `call …,[d2],4` bytes everywhere). Build check: hole FF in stock, no edit in it, crash_log refs() on both aliases and the flash alias |
+| **0x601e05c3–0x601e05e0 (claim; code 0x601e05c4, 19 B)** | 1 | **v033b ex_gate**: the exif_name site's rel32 -> `btst 64,(0xa272e420)`; section 7 not loaded -> `jmp 0x6005e971` (stock getter), else `jmp ex_get`. The head of the r2 hole 0x601e05c3–0x601e06c2 (gc_fill..), written into the grain_cpu edit; `grain_g2.unused_r2` now starts that piece at 0x601e05e0. Pinned false positives: 0x6062097d (a `call malloc,[],4`, bytes read as 0xa01e05dd), 0x601e0df7 (inside v026_movie's `mov d0,(972,a3)`, read as jmp d16) |
 | 0x605b748f (5, inside the SD loader v3 edit) | 3, hook | crash_log hook C2: sd_go's `call sd_load,[d2,d3,a2,a3],36` -> `jmp cl_first` (calls sd_load on the same frame, then the crash file, ends on the same `ret [d2,d3,a2,a3],36`). **A layer that edits sd_go must chain** |
 | 0xa2ae8100–0xa2aea5b4 (9,396 B; cached 0x62ae8100) | RAM | crash_log record: 3 slots of 0xc3c B, one per CPU (format: tools/ep7_crash.py). Not .bss, not heap: the RAM after the NMI frames (0x62ae8000–0x62ae80c0) that only the ICTLOG debug-shell fill names (0x62ae80c0–0x62de0000, RE_CAPTURE §4.1). Stored to only inside an NMI; the slots' mark words (+0) are cleared at the first card load of the next power-on |
 <!-- crash_log: end -->
@@ -320,3 +322,92 @@ unused tail. Build: the v0.33 chain command with `--extra nv_store=patches/nv_st
 | **0x62524400–0x62524410 and 0xa2524400–0xa2524410 (16 B, one place on two aliases)** | RAM: the camera's settings image | **The marker** (`EP7R`, counter, version, CRC-32): MODE image offset 0x3A000, the start of the 4 KB reserve 0x3A000–0x3B000 that docs/INTERNAL_STORAGE.md §3.1 sets aside. **The camera saves these bytes to its flash with its settings; the restore file does not remove them** (`EP7MOD/FORGET.BIN` does). Eight `mov d0,(abs)` inside cpu_lock, build-checked to be the layer's only stores outside its heap block and its frame. Nothing else of ours may store into 0x624ea400–0x6252a400 or 0xa24ea400–0xa252a400 |
 | heap: one class-0 block (128 B asked) | heap | The `NVPROBE.BIN` image, from its malloc to its free inside one half-press. No word of P is used: the layer keeps no state |
 <!-- nv_store: end -->
+
+<!-- movie_bitrate: begin -->
+## movie_bitrate (patches/movie_bitrate, docs/RE_MOVIE.md "Movie bitrate layer"; layer after v033b; emulator-verified, not camera-tested)
+
+Data only: no code space, no hook. Build: the v0.33b chain command with `--extra movie_bitrate=patches/movie_bitrate/build.py` last.
+
+| Range or site | Section | Owner |
+|---|---|---|
+| 0x60539bfc, 0x60539c0c, 0x60539c1c (4 B each) | 2, data | **movie_bitrate**: 4K UHD 30p / 25p / 24p in the bitrate table 0x60539b84, 100 M -> 150 M. **A layer that edits the bitrate table 0x60539b84–0x60539eb4 or the buffer table 0x60539ef4–0x6053a188 must chain with this one** (the build refuses if another layer has changed either table) |
+| 0x603d19dd (4 B, imm32 of `mov 105000000,d0` at 0x603d19db) | 2, data in code | **movie_bitrate**: ulMaxBitrate 105 M -> 157.5 M. 0x603d19db is a branch target (from 0x603d19c2 / 0x603d19ca); only the immediate changes |
+<!-- movie_bitrate: end -->
+
+## look_hw (v0.34a dev layer, patches/look_hw, docs/LOOK_FORMAT_V4.md; built + emulator-verified, not camera-tested)
+
+<!-- look_hw: start -->
+| Range or site | Section | Owner |
+|---|---|---|
+| **0x601e05e0–0x601e0610 (claim; code 45 B)** | 1 | **look_hw** `mx_e` (the mono_selector call, then the section-5 test; v0.34c, was `lh_e`) and `gm_e` (the gamma_select call, then the section-5 test). The head of grain_g2's unused r2 piece 0x601e05e0–0x601e06c2 (after v033b's ex_gate), written into the grain_cpu edit; the layer moves `grain_g2.unused_r2` on to 0x601e0610. Reference scan as v033b's: abs32 on four aliases + d16 / d32 encodings, only the dead EVF step words and r2's own unused bytes allowed |
+| **0x607dd300–0x607ddb00 (2 KB claim, sec 5)** | 5 | **look_hw** `lh_a` (matrix N = L·M at the register image), `lk_get` (the job guard), `gm_b` / `gm_c` (base curve), `lh_pick` / `lh_pk` (Film pick: +53..+59), curve tables. Code 0x607dd310 on (about 1 KB). Dead `sdk api` handlers (CODE_SPACE_SURVEY §2, extras_pages' cut). Inside the run 0x607dd2f3–0x607ddcfc into which no reference from outside the dead ranges points (full scan of 0x607b6420–0x607e87c5 on the v0.33b image); 16 B stock guards at both ends; build check `CL.refs` over the claim with the dead ranges allowed |
+| 0x603b149f (5) | 2, hook | look_hw A (v0.34c): dev_stage_list `call16 mono_selector,[d2,d3,a2,a3],84` -> `jmp mx_e` (d32, same length); back to 0x603b14a4. v0.34a/b hooked pipe_hw_write's callers 0x60334e1b / 0x60335199 / 0x60335204 instead (no visible effect on the camera); those three are stock again |
+| 0x603ae82b (5) | 2, hook | look_hw B: gamma_stage `call16 gamma_select,[d2,d3,a2,a3],28` -> `jmp gm_e` (d32, same length); back to 0x603ae830 |
+| 0x601e3a17 (rel32, inside looks_split's edit) | 1, hook | look_hw P: sl_pick's tail `jmp ls_pick` -> `jmp lh_pick` (which ends `jmp ls_pick`). **A layer that edits this jump must chain** |
+| 0x605b7716–0x605b771c, 0x605b7756–0x605b775c (inside the SD loader v3 edit) | 3, data | look_hw R: SD loader range lo / span of slot +53 (0 / 7) and +54..+59 (-64 / 128) |
+| slot +53..+59 (COLOR slots of P+32) | heap | look_hw: +53 base curve, +54..+59 matrix (docs/LOOK_FORMAT_V4.md). The unbuilt Extras v2 proposal's +57..+59 (EXTRAS_MENU_V2) must move |
+<!-- look_hw: end -->
+
+<!-- looks_v4: begin -->
+## looks_v4 (patches/looks_v4, docs/LOOK_FORMAT_V4.md "LOOKS.BIN v4"; layer after look_hw_ui; emulator-verified, not camera-tested)
+
+| Range / word | Section / kind | What |
+|---|---|---|
+| **0x607dba00–0x607dbf00 (1280 B claim, sec 5)** | 5 | **looks_v4** `lx_h1` / `lx_h2` / `lx_ext` / `lx_chk` / `lx_hdr` / `lx_pick` / `lx_pk`, 732 B at 0x607dba10. Dead `sdk api` handlers (CODE_SPACE_SURVEY §2); inside the run 0x607db9dc–0x607dbfdd into which no reference from outside the dead code points (build-checked) |
+| 0x6143a49c (5) | 9, hook | looks_v4 H1: fm_load `mov d0,d3; mov d3,d1; and 63,d1` after ftell -> `jmp lx_h1`; back to 0x6143a4a1 (v3) or 0x6143a4b8 (v4: d3 = the v3 part) |
+| 0x6143a4db (10) | 9, hook | looks_v4 H2: fm_load `mov d0,d2; mov (4,sp),a0; call fclose` after fread -> `jmp lx_h2` + 5 nop; back to 0x6143a4e5 |
+| 0x6143a4ee (rel32) | 9, hook | looks_v4 C: fm_load `jmp ls_chk` -> `jmp lx_chk` (lx_chk calls ls_sc and fm_check, as ls_chk did) |
+| 0x601e3a17 (rel32) | 1, hook | looks_v4 P: sl_pick's tail `jmp lh_pick` -> `jmp lx_pick` (lh_pk, lx_pk, jmp ls_pick) |
+| heap P+872 (u32) | heap | looks_v4: the LOOKS.BIN v4 extension block (class-1 malloc 520 B, 'EP7H', back pointer P, 8 B per look). Real P only. Free [V: build check, no displacement 869..875 in any edit; loader writes +0..815; clean_boot zeroes P] |
+| fm_load frame (12,sp) | stack | looks_v4: 0 v3 / 1 v4 header / the block, from lx_h1 to lx_chk (fm_load never uses it) |
+<!-- looks_v4: end -->
+
+<!-- shortcut_cycle_v2: begin -->
+## shortcut_cycle_v2 (patches/shortcut_cycle_v2, docs/SHORTCUT_CYCLE.md; development layer after v033b; emulator-verified, not camera-tested)
+
+Build: the v0.33b chain command with `--extra shortcut_cycle=patches/shortcut_cycle_v2/build.py` last. Independent of look_hw and
+movie_bitrate (no shared bytes). Refuses a spec with the shelved plugin layers (plugin_loader / keyhook / overlay_probe / diag).
+
+| Range or site | Section | Owner |
+|---|---|---|
+| **0x607e0a00–0x607e1000 (1536 B claim; v0.34f, was 768 B)** | 5 | **shortcut_cycle_v2** `sc_a` … `sc_g`, `sc_p`, `sc_w` / `sc_wr` (SCLOG.BIN writer), 1263 B at 0x607e0a10–0x607e0eff. Dead `sdk api` handlers (CODE_SPACE_SURVEY §2); needs extras_pages' sdk cut. Inside the run 0x607e0918–0x607e1153 into which no reference from outside the dead code points (all four aliases, d16 / d32 call / jmp; build-checked, no pin). 16 B stock guards at both ends; **free inside the claim: 0x607e0eff–0x607e0ff0** |
+| 0x60cc9962 (8) | 6, hook | A: the wrapped-key re-post tail `mov a1,a2; mov (a2),d0; cmp 0x0100006d,d0` -> `jmp sc_a` + 3 nop; replayed, back to 0x60cc996a (the beq that reads the cmp). Entered by fall-through from 0x60cc995d and `call16` from 0x60cc9866 / 0x60cc98b5 / 0x60cc98e2 / 0x60cc9f14; nothing branches into 0x60cc9963–0x60cc9969 (build-checked). **A layer that hooks the wrapped assignable-key family must chain here** |
+| 0x60cc98ea (5) | 6, hook | D (v0.34b): the keycode-27 re-post `mov a1,a2; mov (a2),d0; mov 1,d2; mov d2,d1` -> `jmp sc_d`; replayed, back to 0x60cc98ef. Entered only by `call16` from 0x60cc985d / 0x60cc98be / 0x60cc98d9 (build-checked) |
+| 0x60ce012d (4, rel32) | 6, hook | E (v0.34b): `call 0x60cc872f,[d2,d3],16` at 0x60ce012c in ca_key_generic -> sc_e (keyhook's 0x60ce011a site is separate) |
+| 0x605b77b0–0x605b77c3 (19 B; guards to 0x605b77d0) | 3 | **shortcut_cycle_v2** `sc_hg` (v0.34e): `btst 16,(0xa272e420)` → `jmp sc_w`, else the previous sd_back target. In the FF tail after clean_boot's cb_zero (0x605b77a1–0x605b7800); **left free: 0x605b77d0–0x605b7800** |
+| 0x605b7421 (4, rel32, inside the SD loader v3 edit) | 3, hook | sd_back `jmp` → `sc_hg` (v0.34e); chains to the previous target (0x601df67a in the v0.34 chain). **A layer that re-points sd_back must chain here** |
+| 0x60ccaad3 (5) | 6, hook | shortcut_cycle_v2 P (v0.34f): rcvChangeProfileLeverSw entry `movm [d2,a2],(sp); add -12,sp` -> `jmp sc_p`; replayed, back to 0x60ccaad8. **A layer that hooks the profile control must chain here** |
+| 0xa2aea600–0xa2aea650 (80 B; cached 0x62aea600) | RAM | shortcut_cycle_v2 state log (SHORTCUT_CYCLE §10), after crash_log's record in its free range; magic `SCL1` |
+| 0x60ce2df4, 0x60cebd4f (rel32 of `call 0x60cc8929,[d2,d3],12` at 0x60ce2df3 / 0x60cebd4e) | 6, hook | B / C: Multi Function sub-function reads in the Fn-release popup opener 0x60ce2da0 and in select-state case 18 -> `sc_b` / `sc_c` (else `jmp 0x60cc8929`). The other four callers of 0x60cc8929 stay stock |
+| 0x6203bcb2 (1 B) | .bss | the cycle flag (CA task only, cached alias): 1 = "Multi Function stands on Aspect" between press 2 and press 3. The shelved keyhook layer's Fn stage byte (keyhook section); keyhook's `check_stage` proof is re-run by the build. 0x6203bcb3 (the shelved diag layer's log gate) is not touched |
+| 0x61fb0dd8 (stock word) | RAM | written by `sc_a` on the step press only: the select exit's replay word (stock writers 0x60cebd19 / 0x60cebd70, reader + clear 0x60ceb980) |
+<!-- shortcut_cycle_v2: end -->
+
+<!-- movie_quality: begin -->
+## movie_quality (patches/movie_quality, docs/RE_MOVIE.md "Movie quality layer"; layer after v033b, alternative to movie_bitrate; emulator-verified, not camera-tested)
+
+| Range or site | Section | Owner |
+|---|---|---|
+| **0x601e074d–0x601e07c0 (claim; code 0x601e0750–0x601e07bb, 107 B: mq_get 0x601e0750, mq_ceil 0x601e079c)** | 1 | **movie_quality** `mq_get` + `mq_ceil`. grain_g2's unused r2 piece 0x601e074d–0x601e084d (not look_hw's 0x601e05e0.., not v033b's), written into the grain_cpu edit; the layer moves `grain_g2.unused_r2` on to 0x601e07c0. Pins: 0x6100a55a, 0x601e10f5 (inside tone_ends' `mov 63153,d0`). Reference scan as v033b's; coincidences pinned (unaligned data, instruction bytes) |
+| 0x6031bf37 (8 B) | 2, hook | mv_slot_quality_get head `mov d0,d2; exthu d2; mov 0xf031,d0` -> `jmp mq_get` + 3 nop; the rest of the stock body is dead (no reference from outside it) |
+| 0x60e1e917, 0x60e1e947, 0x60e974a2, 0x60e97670, 0x60e9784e (1 B each) | 6, data in code | imm8 of `cmp 8` -> 9 in the slot editor's cursor predicates and drawers |
+| 0x60539bf8 / c08 / c18, 0x60539c00 / c10 / c20 (4 B each) | 2, data | 4K SF 150 M and N 60 M cells. **Shares the table rule of movie_bitrate**: one of the two layers only |
+| 0x603d19db (6 B) | 2, hook | encoder setter `mov 105000000,d0` -> `jmp mq_ceil` + nop (mq_ceil in the claim above): 157.5 M for ulBitRate > 100 M, else 105 M; back to 0x603d19e1. 0x603d19db is a branch target (0x603d19c2 / 0x603d19ca): the jmp starts there. **A layer that edits this instruction must chain** |
+<!-- movie_quality: end -->
+
+<!-- look_hw_ui: begin -->
+## look_hw_ui (patches/look_hw_ui, docs/EXTRAS_MENU_V2.md section 6; v0.34b dev layer after look_hw; emulator-verified, not camera-tested)
+
+Build: the v0.34a chain command with `--extra look_hw_ui=patches/look_hw_ui/build.py` last. Independent of movie_bitrate /
+movie_quality and shortcut_cycle_v2 (no shared bytes).
+
+| Range | Sec | Owner / notes |
+|---|---|---|
+| **0x607d9300–0x607d9b00 (2 KB claim)** | 5 | **look_hw_ui** code `.luc` 0x607d9310–0x607d9880 (1392 B): lu_get / lu_cnt / lu_val / lu_av / lu_set (fronts that fall through to extras_pages' xp_*), lu_eq / lu_put / lu_dec (mix rows, +60), lu_lang, lu_guide. Dead `sdk api` handlers (CODE_SPACE_SURVEY section 2; needs extras_pages' sdk cut). Inside the run 0x607d92dc–0x607d9bcc into which no reference from outside the dead code points (full scan of 0x607c9c20–0x607e87c5 on the v0.34a image, all four aliases + d16 / d32 call / jmp, no pin). 16 B stock guards at both ends; **free inside the claim: 0x607d9880–0x607d9af0** |
+| **0x607d9be0–0x607da1c0 (1504 B claim)** | 5 | **look_hw_ui** data `.lud` 0x607d9bf0–0x607da0a8 (1208 B): `lu_tab` (5 mixes x 11 strengths x 6 B), list bounds, `lu_en` / `lu_zh` (4-aligned pointer tables), UTF-16 strings (2-aligned). Inside the next such run 0x607d9bcd–0x607da1dc (same scan, no pin). 16 B stock guards; **free inside: 0x607da0a8–0x607da1b0** |
+| 0x60acb0e4, 0x60acb0f4, 0x60acb0f8, 0x60acb100 (data) | 5 | facade +8 / +24 / +28 / +36: xp_get / xp_cnt / xp_val / xp_av -> lu_get / lu_cnt / lu_val / lu_av (each falls through to the xp_ routine). **A layer that takes these words must chain** |
+| 0x607fa356 (rel32) | 5, hook | GUI setter `call xp_set,[d2,d3,a2],16` -> `call lu_set` (falls through to xp_set) |
+| 0x6025aa98 (data) | .data init image | guide part word i18n_gd -> lu_guide (runs i18n_gd's chain first, then relabels Colour & Light 9..12) |
+| 0x605b775d (1 B, inside the SD loader v3 edit) | 3, data | SD loader range span of slot +60: 0 -> 84 (lo stays 0) |
+| slot +60 (COLOR slots of P+32) | heap | look_hw_ui: the Extras Mix / Strength memory, 8 (10 - strength) + mix. +61 is the last free COLOR slot byte |
+<!-- look_hw_ui: end -->

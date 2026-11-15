@@ -30,6 +30,9 @@ from the Custom Menu page column's row list, not from the record array. m3 = m2 
   * AE record builder 0x604279c9..f5 (44 B, in place): +30 = (sid 1147 == 0) ? 0x7eee : sid 1147. Sid 1146 is no
     longer read: 0 = Auto (stock limit), any speed = on. 1147 starts at 0, so a fresh flash is stock; stock firmware
     still reads 1146 (still 0), so a downgrade is stock too.
+v0.33b: the two "count 7 -> 8" edits (page + 18: 0x61160fc2 / 0x6117ea5e) are the n of the D2 letter entry, not D1's
+(docs/RE_MENUS.md "Follow-up"). patches/v033b drops them from the baked v0.31d spec; D1 (stock n 8) still shows the copy's
+1147 row. This build still emits them, so a rebuild from v0.29a gives what v0.33b then removes.
 """
 import argparse, copy, importlib.util, json, struct
 from pathlib import Path

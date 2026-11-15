@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -47,6 +47,29 @@ describe('built-in library', () => {
       execFileSync(python!, ['-I', join(ROOT, 'tools/ep7_looks_bin.py'), join(ROOT, 'bundles/library_v3.json'), '--out', out]);
       expect(hex(encodeLooksBin(library()))).toBe(hex(new Uint8Array(readFileSync(join(out, 'EP7MOD/LOOKS.BIN')))));
     } finally { rmSync(out, { recursive: true, force: true }); }
+  });
+
+  it.skipIf(!python)('LOOKS.BIN v4 (curve / matrix, v0.34) is byte-identical to `tools/ep7_looks_bin.py --fw 0.34`', () => {
+    const out = mkdtempSync(join(tmpdir(), 'caduceus-looks4-'));
+    try {
+      const lib = JSON.parse(readFileSync(join(ROOT, 'bundles/library_v3.json'), 'utf8'));
+      const keys = Object.keys(lib.looks);
+      const hw: [number, Partial<Look>][] = [[0, { curve: 'auto', matrix: [6, -10, 4, -6, -8, 4] }], [3, { matrix: [-64, 64, 0, 1, -1, 2] }], [5, { curve: 'log' }]];
+      const pk = library();
+      for (const [j, f] of hw) { Object.assign(lib.looks[keys[j]], f); Object.assign(pk.looks[j], f); }
+      writeFileSync(join(out, 'lib.json'), JSON.stringify(lib));
+      execFileSync(python!, ['-I', join(ROOT, 'tools/ep7_looks_bin.py'), join(out, 'lib.json'), '--out', out, '--fw', '0.34']);
+      const want = new Uint8Array(readFileSync(join(out, 'EP7MOD/LOOKS.BIN')));
+      const got = encodeLooksBin(pk);
+      expect(got[4]).toBe(4);
+      expect(hex(got)).toBe(hex(want));
+      expect(checkLooksBin(got)).toEqual([]);
+      const back = decodeLooksBin(got);
+      expect([back.looks[0].curve, back.looks[0].matrix, back.looks[3].curve, back.looks[3].matrix, back.looks[5].curve, back.looks[1].curve])
+        .toEqual(['auto', [6, -10, 4, -6, -8, 4], undefined, [-64, 64, 0, 1, -1, 2], 'log', undefined]);
+      setFirmware(32);
+      expect(hex(encodeLooksBin(pk))).toBe(hex(encodeLooksBin(library())));   // older firmware: v3, fields left out
+    } finally { setFirmware(FW_LATEST); rmSync(out, { recursive: true, force: true }); }
   });
 
   it('tone block: v3 header, 64-byte records, +32 flag, +33..37 B/W/H/M/S, +38..44 sat, mask 1', () => {
@@ -190,8 +213,10 @@ describe('validation', () => {
     const bw = toned.slice(); bw[64 + 33] = 0xfa;
     expect(checkLooksBin(fix(bw))).toEqual(['look 0 byte 33 = -6 out of range']);
     expect(() => decodeLooksBin(fix(bw))).toThrow(/rejected/);
-    const v4 = good.slice(); v4[4] = 4;
-    expect(() => decodeLooksBin(fix(v4))).toThrow(/version 4/);
+    const v4 = good.slice(); v4[4] = 4;                     // version 4 needs the extension after the records
+    expect(() => decodeLooksBin(fix(v4))).toThrow(/v4 size/);
+    const v5 = good.slice(); v5[4] = 5;
+    expect(() => decodeLooksBin(fix(v5))).toThrow(/version 5/);
     const b = encodeBundlesBin(pack([blankLook()], { COLOR1: 0 }));
     const nb = b.slice(); nb[600] ^= 1;
     expect(checkBundlesBin(nb)).toContain('name crc');

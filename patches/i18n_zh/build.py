@@ -6,6 +6,9 @@ the contract, docs/I18N_ZH.md the research and the label table.
 
 apply(spec, version) -> spec. Edits:
   - guide part word 0x6025aa98 (whoever holds it: xp_guide in v0.32) -> i18n_gd, which runs that chain first;
+    v0.33b: i18n_gd starts with the one section test `btst 64,(0xa272e420)` (bit 6 = section 7 copied): section 7 not loaded
+    -> `jmp 0x60decbfc` (the stock guide part, the word's stock value) before anything else, because the chain reaches
+    ap_gd in section 7 and the word's users are section 5 / 6 code (docs/RE_BOOT_MEMORY.md "Follow-up"). 14 B more code;
   - code + label table in a sec-5 claim of the dead `sdk api` shell handlers (CODE_SPACE_SURVEY §2), after
     extras_pages' claim. Needs the three `sdk` sub-command words already cut (extras_pages / keyhook do it).
 The table is LABELS below, keyed by the English text our layers write. Every Chinese character is checked against the
@@ -37,6 +40,7 @@ GUARD = 16
 AT = CLAIM[0] + GUARD
 BAD = XP.BAD
 LANG_BANK, STR_TABLES, ZH_134 = 0x61fb2818, 0x61fc1530, (0x56fa, 0x4ef6)   # stock getter 0x60d10bf2 / 0x60d10c09; L"固件"
+SECT, STOCK_GD = 0xa272e420, 0x60decbfc   # sections-loaded word (bit n-1: section n copied, section_load 0x600457e7); stock guide part
 
 # English (as our layers write it) -> (Simplified Chinese, whole label only?). '?' in the doc = native review wanted.
 LABELS = {
@@ -151,11 +155,11 @@ def check_claim(spec, stock, im):
 def build_code(chain):
     s = LE.sub(probe=False)
     sub = dict(state=s['state'], lim=s['lim'], pool=s['pool'], bmagic=s['bmagic'], emark=s['emark'], emagic=s['emagic'],
-               axis=s['axis'])
+               axis=s['axis'], sect=hex(SECT), stock_gd=hex(STOCK_GD))
     tb = table_bytes()
     sub['table'] = '\n'.join(' .byte ' + ','.join(str(x) for x in tb[i:i + 16]) for i in range(0, len(tb), 16))
     src = B3.subst((HERE / 'zh.s.in').read_text(), sub)
-    code, lst, sy, _ = B3.assemble(src, AT, dict(ep7_guide_in=chain))
+    code, lst, sy, _ = B3.assemble(src, AT, dict(ep7_guide_in=chain, ep7_stock_gd=STOCK_GD))
     if sy['i18n_gd'] != AT or AT + len(code) > CLAIM[1] - GUARD:
         raise SystemExit(f'{len(code)} B does not fit')
     if code[sy['z_tab'] - AT:sy['z_tab'] - AT + len(tb)] != tb or sy['z_tab'] % 2:
@@ -170,8 +174,12 @@ def build_code(chain):
             raise SystemExit(f'store at {a:#x}: {txt} ({kd})')
     tg = {(op, int(args.split(',')[0], 16)) for _, op, args in ins if op in ('call', 'calls', 'jmp') and args.startswith('0x')}
     tg = {(o, t) for o, t in tg if not (o == 'jmp' and AT <= t < sy['z_tab'])}     # long internal branches
-    if tg != {('calls', chain), ('call', sy['z_adv'])}:
+    if tg != {('calls', chain), ('call', sy['z_adv']), ('jmp', STOCK_GD)}:
         raise SystemExit(f'call targets {sorted((o, hex(t)) for o, t in tg)}')
+    head = [(op, args) for _, op, args in ins[:4]]           # v0.33b: the section-7 gate comes first
+    if head[0] != ('btst', f'64,({SECT:#x})') or head[1] != ('bne', hex(sy['i18n_go'])) or head[2] != ('jmp', hex(STOCK_GD)) \
+            or head[3] != ('movm', '[d2,d3,a2,a3],(sp)') or ins[3][0] != sy['i18n_go']:
+        raise SystemExit(f'i18n_gd gate: {head}')
     return code, sy, lst
 
 
@@ -183,6 +191,8 @@ def apply(spec, version='0.32'):
     check_labels()
     im = ST.img_of(spec, stock)
     chain = u32(im, GUIDE_WORD)
+    if XP.u32(stock, GUIDE_WORD) != STOCK_GD or stock[STOCK_GD - BASE:STOCK_GD - BASE + 2] != bytes.fromhex('cff0'):
+        raise SystemExit('stock guide word / part differ')
     if chain == XP.u32(stock, GUIDE_WORD) or im[chain - BASE:chain - BASE + 2] != bytes.fromhex('cff0'):
         raise SystemExit(f'guide word -> {chain:#x}: not a layer chain entry (movm [d2,d3,a2,a3],(sp))')
     check_claim(spec, stock, im)

@@ -1,15 +1,16 @@
 // Preset packs (src/packs.ts, docs/PACKS.md): each one exports valid card files; origins keep old saves working.
 import { describe, expect, it } from 'vitest';
+import { CURVES, MATRIX_MAX } from '../src/pack';
 import { checkBundlesBin, checkLooksBin, encodeBundlesBin, encodeLooksBin, validatePack } from '../src/format';
 import { DEFAULT_PRESET, PRESETS, presetOf, presetsOfKind } from '../src/packs';
 import { libraryOrigin, resetLook, standardPack } from '../src/reset';
 import { targetById } from '../src/targets';
 
 describe('preset packs', () => {
-  it('ids are unique and the default is Standard 1.1', () => {
+  it('ids are unique and the default is Standard 1.2', () => {
     expect(new Set(PRESETS.map((p) => p.id)).size).toBe(PRESETS.length);
-    expect(DEFAULT_PRESET).toBe('standard-1.1');
-    expect(presetsOfKind('library').map((p) => p.label)).toEqual(['Standard 1.1', 'Standard 1.0']);
+    expect(DEFAULT_PRESET).toBe('standard-1.2');
+    expect(presetsOfKind('library').map((p) => p.label)).toEqual(['Standard 1.2', 'Standard 1.1', 'Standard 1.0']);
     expect(presetsOfKind('mood').map((p) => p.name)).toEqual(['Tokyo Nights', 'Tokyo Days', 'Autumn', 'Summer', 'Winter', 'Film Noir']);
   });
 
@@ -27,6 +28,24 @@ describe('preset packs', () => {
     expect(checkLooksBin(encodeLooksBin(p.pack))).toEqual([]);
     expect(checkBundlesBin(encodeBundlesBin(p.pack))).toEqual([]);
     expect(targetById('om3-caduceus').export(p.pack)[0].data.length).toBeGreaterThan(0);
+  });
+
+  for (const p of PRESETS) it(`${p.label}: curve / matrix values in range (docs/LOOK_FORMAT_V4.md), colour looks only`, () => {
+    for (const l of p.pack.looks) {
+      if (l.curve !== undefined) expect(CURVES).toContain(l.curve);
+      if (l.matrix !== undefined) {
+        expect(l.matrix).toHaveLength(6);
+        for (const v of l.matrix) { expect(Number.isInteger(v)).toBe(true); expect(Math.abs(v)).toBeLessThanOrEqual(MATRIX_MAX); }
+      }
+      if (l.kind === 'mono') { expect(l.curve).toBeUndefined(); expect(l.matrix).toBeUndefined(); }
+    }
+  });
+
+  it('Standard 1.2 carries its curve / matrix pass (docs/PACKS.md); 1.1 has neither field', () => {
+    const l = PRESETS.find((p) => p.id === 'standard-1.2')!.pack.looks.find((x) => x.name === 'Eterna')!;
+    expect(l.curve).toBe('auto');
+    expect(l.matrix).toEqual([6, -2, 2, 8, -4, 6]);
+    for (const x of PRESETS.find((p) => p.id === 'standard-1.1')!.pack.looks) { expect(x.curve).toBeUndefined(); expect(x.matrix).toBeUndefined(); }
   });
 
   it('a look added from 1.1 resets to 1.1; a pre-pack save (plain origin) stays Standard 1.0', () => {

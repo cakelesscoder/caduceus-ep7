@@ -77,6 +77,34 @@ export function setLookHalo(l: { effect: Effect | null }, stage: HaloStage, tint
   }
   l.effect = { type: 'bloom', strength: HALO_STRENGTH[stage], tint };
 }
+// v0.34 (docs/LOOK_FORMAT_V4.md): the base tone curve and a 3 x 3 colour matrix (linear RGB, after the camera's own matrix).
+// Absent = the camera's own curve / identity. Matrix: [m01, m02, m10, m12, m20, m21] in 1/128, -64..64; each row's
+// diagonal is 128 minus its two entries, so greys stay neutral.
+export const CURVES = ['standard', 'auto', 'pale', 'light', 'pop', 'flat', 'log'] as const;
+export type Curve = (typeof CURVES)[number];
+export const CURVE_LABEL: Record<Curve, string> = {
+  standard: 'Standard', auto: 'Gradation Auto', pale: 'Pale & Light', light: 'Light Tone', pop: 'Pop Art II', flat: 'Flat', log: 'Log',
+};
+export const MATRIX_MAX = 64;
+export const MATRIX_KEYS = ['m01', 'm02', 'm10', 'm12', 'm20', 'm21'] as const;
+export const matrixIsZero = (m?: number[]) => !m || m.every((v) => v === 0);
+// Named colour mixes: the same names and numbers as the camera's Extras "Mix" item (E-P7 v0.34b, patches/look_hw_ui/build.py
+// MIXES, docs/LOOK_FORMAT_V4.md). Starting values from a mock-up, not tuned looks. Strength s = 0..10 (0..100 %) scales
+// each value: v * s / 10, rounded half away from zero, as the camera does.
+export const NAMED_MIXES: { name: string; m: number[] }[] = [
+  { name: 'Warm film', m: [6, -10, 4, -6, -8, 4] },
+  { name: 'Cool separation', m: [-8, 4, -4, 6, 6, -8] },
+  { name: 'Muted', m: [14, 10, 10, 8, 10, 12] },
+  { name: 'Punchy', m: [-12, -6, -8, -6, -6, -10] },
+];
+export const mixRow = (m: number[], s: number) => m.map((v) => (v < 0 ? -1 : 1) * Math.floor((Math.abs(v) * s + 5) / 10));
+/** The named mix and strength a matrix holds exactly, found in the camera's order (100 % down to 10 %); null = its own numbers. */
+export function namedMix(matrix?: number[]): { name: string; pct: number } | null {
+  if (matrixIsZero(matrix)) return null;
+  for (let s = 10; s >= 1; s--)
+    for (const x of NAMED_MIXES) if (mixRow(x.m, s).every((v, i) => v === matrix![i])) return { name: x.name, pct: 10 * s };
+  return null;
+}
 export interface Advice {
   tone?: { highlights: number; shadows: number; midtones: number };
   contrast?: number;
@@ -108,6 +136,8 @@ export interface Look {
   tone: Tone;          // LOOKS.BIN tone block when non-zero (H/S/M/B/W); B/W also go into COLOR slots of BUNDLES.BIN
   advice: Advice;      // camera settings the look recommends (preview only; not in any card file)
   film_grain?: number; // OM-3 only: the look's Grain 1 Low, 2 Med, 3 High (absent = off). Not the E-P7's grain (a profile setting)
+  curve?: Curve;       // v0.34: base curve (absent = the camera's own)
+  matrix?: number[];   // v0.34: colour matrix off-diagonals m01 m02 m10 m12 m20 m21 in 1/128 (absent = identity)
   split?: Split;       // OM-3 only (v0.26): split toning, Shadows / Highlights colour 0..11 and strength -5..5 (absent = off)
   origin?: string;     // app-only: the built-in library look this one came from (for Reset look); not exported
   lib?: string;        // app-only: fingerprint of the library values it was copied from (unmodified = still equal)
@@ -201,6 +231,9 @@ export function parseLook(v: unknown, what = 'look'): Look {
     advice: adv,
     ...(Number.isInteger(v.film_grain) && (v.film_grain as number) > 0 ? { film_grain: Math.min(3, v.film_grain as number) } : {}),
     ...(parseSplit(v.split) ? { split: parseSplit(v.split) } : {}),
+    ...(typeof v.curve === 'string' && (CURVES as readonly string[]).includes(v.curve) ? { curve: v.curve as Curve } : {}),
+    ...(Array.isArray(v.matrix) && v.matrix.length === 6 && v.matrix.every((x) => Number.isInteger(x)) && !matrixIsZero(v.matrix as number[])
+      ? { matrix: [...(v.matrix as number[])] } : {}),
     ...(typeof v.origin === 'string' ? { origin: v.origin } : {}),
     ...(typeof v.lib === 'string' ? { lib: v.lib } : {}),
   };

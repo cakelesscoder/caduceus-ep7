@@ -1,0 +1,17 @@
+/* ex_gate (patches/v033b; ep7-firmware, our own code). docs/RE_BOOT_MEMORY.md "Follow-up", patches/exif_name/ex.s.in.
+ * <- rel32 of `call 0x6005e971,[d2,d3],12` at 0x6030288d (capture setup, section 2; key 0x5ef1, d1 0, a0 0), on that frame.
+ * ex_get is section-7 code and section 7 loads after section 2. One test: bit 6 of the sections-loaded word (byte 0 of {sect},
+ * set by section_load right after the section-7 copy and its initialisers). Clear: the call's stock target, the getter, with
+ * every register and the stack as the call left them (no name: the stock blanks). Set: ex_get as before.
+ * Only PSW changes; no store, no call, no stack use.
+ */
+ .am33_2
+ .text
+ .global _start
+_start:
+ex_gate:
+ btst 64,({sect})
+ bne 1f
+ jmp ep7_getter
+1:
+ jmp ep7_ex_get

@@ -21,6 +21,8 @@ from pathlib import Path
 
 import numpy as np
 
+XS = __import__('sys').modules.get('ep7_xscan') or (lambda p: (lambda s: (s.loader.exec_module(m := importlib.util.module_from_spec(s)), __import__('sys').modules.__setitem__('ep7_xscan', m), m)[2])(importlib.util.spec_from_file_location('ep7_xscan', p)))(Path(__file__).resolve().parents[2] / 'tools/xscan.py')  # shared cache: tools/xscan.py
+
 ROOT = Path(__file__).resolve().parents[2]
 HERE = Path(__file__).resolve().parent
 SRC = 'patches/clean_boot'
@@ -55,22 +57,14 @@ def u32(im, a):
 def refs(im, lo, hi, off, allow=()):
     """abs32 at every byte on the four aliases + d16 / d32 call, calls and jmp encodings into [lo, hi), as patches/crash_log
     refs() and tools/ep7_xref.py. -> [(kind, address)] minus the allowed source ranges."""
-    d = np.frombuffer(im, np.uint8).astype(np.int64)
-    w = d[:-3] | (d[1:-2] << 8) | (d[2:-1] << 16) | (d[3:] << 24)
-    pc = np.arange(len(d) - 8, dtype=np.int64) + BASE
+    d_len = len(im)
     ok = lambda at: any(x <= at < y for x, y in allow)
     bad = []
     for o in (0, 0x40000000, off, (off + 0x40000000) & 0xffffffff):
         a, b = (lo + o) & 0xffffffff, (hi + o) & 0xffffffff
-        bad += [('abs32', int(i) + BASE) for i in np.nonzero((w >= a) & (w < b))[0] if not ok(int(i) + BASE)]
-    for op, at_, n in (((0xdd,), 1, 4), ((0xdc,), 1, 4), ((0xcd,), 1, 2), ((0xcc,), 1, 2), ((0xfa, 0xff), 2, 2), ((0xfc, 0xff), 2, 4)):
-        m = d[:-8] == op[0]
-        if len(op) == 2:
-            m &= d[1:-7] == op[1]
-        b = [d[at_ + k:len(d) - 8 + at_ + k] for k in range(n)]
-        disp = b[0] | (b[1] << 8) if n == 2 else b[0] | (b[1] << 8) | (b[2] << 16) | (b[3] << 24)
-        disp = np.where(disp >= (1 << (8 * n - 1)), disp - (1 << (8 * n)), disp)
-        bad += [('rel', int(x) + BASE) for x in np.nonzero(m & (pc + disp >= lo) & (pc + disp < hi))[0] if not ok(int(x) + BASE)]
+        bad += [('abs32', int(i) + BASE) for i in XS.abs32_hits(im, BASE, a, b) if not ok(int(i) + BASE)]
+    for hits in XS.rel_hits(im, BASE, lo, hi, XS.STD):          # tools/xscan.py: same positions as the old full-length scan
+        bad += [('rel', int(x) + BASE) for x in hits if not ok(int(x) + BASE)]
     return sorted(set(bad))
 
 

@@ -7,6 +7,10 @@
      The caller's (8,sp) holds cap. COLOR k with a loaded table, 'EP7N' and a name: cap+1448 = name + NULs (32 B), cap+1668 =
      "Caduceus <name>" + spaces (117 B), cap+1660..1667 untouched; nothing else in cap changes. Any miss (MONO, other modes,
      flashed table, no 'EP7N', empty name, bad handle) leaves cap byte-identical. d0..a3, sp and the caller's stack == v0.31c.
+  G  (v0.33b ex_gate) sections-loaded word 0xa272e420 without bit 6 (0, 0x3f), section 7 not mapped (a jump there faults):
+     cap, d0..a3, sp and the caller's stack == stock (the stock image's site, the getter only) for every X case; with bit 6
+     (0x7f) the X result. X itself runs at 0x1ff.
+     `verify.py stock NEW` compares X / G with the stock image (for a NEW that has more layers than exif_name) and skips P.
   P  anti-brick: package decodes to stock + edits (the image X ran), restore == stock, bytes differing from v0.31c are only
      the ex_get block, the site's rel32 and the fw_version label.
 """
@@ -80,7 +84,7 @@ def l_block():
     return bytes(b)
 
 
-def run(im, mode, m6, col, handle=HANDLE, mark=b'EP7N', magic=b'EP7B', enable=1, edit=None, looks=True):
+def run(im, mode, m6, col, handle=HANDLE, mark=b'EP7N', magic=b'EP7B', enable=1, edit=None, looks=True, sect=0x1ff):
     sl = lambda lo, hi: im[lo - BASE:hi - BASE]
     st = bytearray([W.STACK_FILL] * 0x2000)
     struct.pack_into('<I', st, 0x1800 + 8, CAP)                       # caller's (8,sp) = cap
@@ -90,7 +94,8 @@ def run(im, mode, m6, col, handle=HANDLE, mark=b'EP7N', magic=b'EP7B', enable=1,
           Region('cpuid', W.CPUID, bytes(4)), *W.registry(pr),
           Region('evf', 0x601de000, sl(0x601de000, 0x601e3d80), 'rx'),
           Region('acc', 0x6055e700, sl(0x6055e700, 0x6055e800), 'rx'),
-          Region('sec7', 0x61378c00, sl(0x61378c00, 0x61379000), 'rx'),
+          *([Region('sec7', 0x61378c00, sl(0x61378c00, 0x61379000), 'rx')] if sect & 0x40 else []),
+          Region('sect', 0xa272e420, struct.pack('<I', sect), 'r'),
           Region('flashtab', 0x60210900, bytes(512), 'r'),
           Region('state', 0x622cbcc0, struct.pack('<HHI', 0, handle, 0), 'r'),
           Region('bss', 0x6203c8b8, bytes(8), 'r'),
@@ -112,8 +117,7 @@ def want_cap(name, star=False):
     return bytes(c)
 
 
-def t_x(base, new):
-    n, bad, hits, stars = 0, [], 0, 0
+def cases_x():
     cases = []
     for mode, m6 in ((11, 0), (6, 11), (12, 0), (6, 12), (0, 0), (10, 0)):
         for col in (0, 1, 2, 3, 4, 5):
@@ -127,6 +131,29 @@ def t_x(base, new):
             cases.append(dict(mode=11, m6=0, col=col, edit=(col - 1, e[0])))
         cases.append(dict(mode=11, m6=0, col=col, edit=(col - 1, 0), looks=False))
         cases.append(dict(mode=11, m6=0, col=col, edit=((col % 4), 0)))   # another slot edited
+    return cases
+
+
+def t_gate(base, new):
+    n, bad = 0, []
+    for c in cases_x():
+        f0, r0, c0, s0 = run(base, **c)
+        for sect in (0, 0x3f):
+            f1, r1, c1, s1 = run(new, sect=sect, **c)
+            n += 1
+            if f0 or f1 or c0 != bytes(cap0()) or c1 != c0 or s1 != s0 or any(r0[k] != r1[k] for k in REG):
+                bad.append((c, hex(sect), f0, f1, [k for k in REG if r0[k] != r1[k]]))
+        f2, r2, c2, s2 = run(new, sect=0x7f, **c)
+        f3, r3, c3, s3 = run(new, **c)
+        n += 1
+        if f2 or (c2, s2) != (c3, s3) or any(r2[k] != r3[k] for k in REG):
+            bad.append((c, '0x7f', f2))
+    return not bad, f'{n} runs; bad {bad[:3]}'
+
+
+def t_x(base, new):
+    n, bad, hits, stars = 0, [], 0, 0
+    cases = cases_x()
     for c in cases:
         f0, r0, c0, s0 = run(base, **c)
         f1, r1, c1, s1 = run(new, **c)
@@ -169,12 +196,22 @@ def t_pkg(base_s, new_s, base, new, pkg, rst, info, disk):
 
 
 def main():
-    base_s, new_s = (json.loads(Path(p).read_text()) for p in sys.argv[1:3])
+    new_s = json.loads(Path(sys.argv[2]).read_text())
     disk = Path(sys.argv[3]) if len(sys.argv) > 3 else None
-    base, *_ = image(base_s)
+    if sys.argv[1] == 'stock':
+        base_s, base = None, [b for b in oc.parse(BP.STOCK.read_bytes()) if b.kind == 0x100][0].payload
+    else:
+        base_s = json.loads(Path(sys.argv[1]).read_text())
+        base, *_ = image(base_s)
     new, pkg, rst, info = image(new_s)
     ok = True
-    for tag, (g, txt) in (('X', t_x(base, new)), ('P', t_pkg(base_s, new_s, base, new, pkg, rst, info, disk))):
+    tests = [('X', lambda: t_x(base, new))]
+    if 'gate' in new_s['exif_name']:
+        tests.append(('G', lambda: t_gate(base, new)))
+    if base_s is not None:
+        tests.append(('P', lambda: t_pkg(base_s, new_s, base, new, pkg, rst, info, disk)))
+    for tag, f in tests:
+        g, txt = f()
         print(f"{'PASS' if g else 'FAIL'} {tag} {txt}")
         ok &= g
     print('ALL PASS' if ok else 'FAILURES')
