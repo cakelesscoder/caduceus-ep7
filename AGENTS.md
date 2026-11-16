@@ -18,7 +18,8 @@ every body and users never have to choose between ecosystems. If a port drifts i
 panel, looks stop moving between cameras and the work splits in two.
 
 - **Don't invent a parallel format.** Need a new look field? Propose it here first (an issue or PR) so it lands in
-  the shared format, with a default that older firmware and panels ignore safely.
+  the shared format, with a default that older firmware and panels ignore safely. The process (naming, pack link vs
+  look code, the last free code version `9`, tests) is in [`docs/CONTROL_PANEL.md`](docs/CONTROL_PANEL.md#new-features-that-need-new-look-fields).
 - **Don't fork the Control Panel.** Add your camera as a profile and an export target in this repo's panel
   (below). **Contact the maintainer, @cakelesscoder, to merge your Control Panel export**: open an issue or PR
   and it will be reviewed and hosted here, with credit in `NOTICE`.

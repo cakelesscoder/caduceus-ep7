@@ -76,19 +76,77 @@ in the port's own repo.
 
 Run `cd webapp && npm ci && npm test && npm run build` before opening the PR.
 
-## Needing a field the look doesn't have
+## New features that need new look fields
 
-Open an issue or PR here first, describing what the field means on the camera. We agree on:
+Ports will add features the shared look can't describe yet: a new film setting, a tone control, an effect. That's
+expected, and it's how the format should grow. The aim is that every new field is added **once, here**, so it
+means the same thing on every body and older panels and firmware ignore it safely.
 
-- a name and value list in `src/pack.ts`, with a default that means "no change", so older panels and firmware
-  ignore it safely;
-- whether it travels in look codes (a new version symbol in `sharecode.ts`) or only in pack links (an optional
-  JSON key, which older apps ignore);
-- what each existing target does with it (usually: leave it out and say so).
+### 1. Propose it here first
 
-Until it lands, keep the setting in your target's own data (as `targets/om3.ts` does for OM-3-only settings) and
-**don't** let it reach a pack file or share code. A field that only one panel understands breaks the promise that a
-code works everywhere.
+Open an issue on caduceus-ep7 titled `Look field: <name>` with:
+
+- **What it does on the camera**, in plain words, and on which firmware version.
+- **Values**: type, range and step (for example, an integer from −7 to 7, or a list of names), and the **neutral
+  value** that means "no change". The neutral value is what old looks and other bodies read it as.
+- **Body-specific or general.** Could another body do it, even roughly? Say so if you know.
+- **Where it should travel**: pack links only, or look codes too (see 3).
+
+Keep the setting in your target's own data until it's agreed (step 5). Small, obvious fields can go straight in as
+a PR that follows the rules below. The issue is for anything whose meaning could be argued about.
+
+### 2. Name and define it in `src/pack.ts`
+
+- Use a **plain, camera-neutral name** for what the setting does (`tone.blacks`, `split`, `curve`), not the menu
+  label of one body. If two bodies have the same idea at different ranges, it's **one field** with the wider range;
+  each target clamps.
+- Make it **optional**, with neutral = missing. A look without the field must behave exactly as before.
+- Never change the meaning or range of an existing field. If the meaning changes, add a new field and translate
+  the old one in the parser (as `grainFromName` does for the old grain names).
+- Group related values into one object (`tone: {…}`, `split: {…}`) rather than many top-level keys.
+- **Look settings and profile settings are different things.** Grain, NR and Sharp are the user's own settings for
+  each profile, not part of a look (`ProfileSettings` in `pack.ts`). If your feature is a camera setting the user
+  picks, not part of the look's character, it belongs there. Don't let a look overwrite it.
+
+### 3. Decide how it travels
+
+| Carrier | How to add a field | Older apps |
+|---|---|---|
+| Pack file / `pk1_` link | Optional JSON key on the look or pack | Ignore it. **Note:** `parseLook` drops unknown keys today, so a pack opened and saved in an older app loses the field. |
+| Look code | Needs a new version symbol in `sharecode.ts` | Show "made by a newer app" |
+
+**Look codes are almost out of version symbols:** `1`–`8` are in use and only `9` is left. So:
+
+- New fields go into **pack links only** by default. That needs no code change beyond `pack.ts`.
+- Only fields that matter for a look's character on most bodies should be in look codes. Don't add a symbol per
+  field. Symbol `9` is reserved for one **extensible** layout (the v8 fields plus a list of tagged extension
+  fields, where each tag is a field id with its own radix). After that, new fields add a tag, not a version. That
+  design gets its own issue before anyone uses `9`.
+- Old codes must keep decoding with the same meaning, forever. Add a test that pins an old code.
+
+### 4. Wire it through the panel
+
+- **Editor**: add a `CameraProfile` flag (`src/cameras.ts`), set to `false` for bodies that can't do it, and show
+  the control only when `cam().<flag>` is true. Don't use `CAM === '<id>'`.
+- **Every target** decides what to do with the field: write it, clamp it, or leave it out and **say so** in the
+  export report (`changed` / `dropped`). Leaving it out on a body that lacks it is normal. Failing silently isn't.
+- **Preview**: approximate it if you can. If not, say "not shown in the preview" next to the control.
+- **Recipe card** (`targets/recipe.ts`): list it in plain words, so bodies without it can still follow the recipe.
+- **Library** (`bundles/library_v3.json`): only add values once a camera has run the field.
+
+### 5. Until it's agreed: keep it in your target
+
+A setting that only your firmware understands can live in your target's own data (the vendored bank in
+`src/<cam>.ts`, as `targets/om3.ts` does for OM-3-only settings), shown only on your profile. It must **not**
+reach a pack file or share code under a made-up name. A field that only one panel understands is exactly how
+codes stop working everywhere. Once it's agreed, move it into `pack.ts` and translate in your target.
+
+### 6. Tests for a new field
+
+- A look without the field parses, exports and codes exactly as before (byte-identical card files).
+- The field round-trips through the pack file and `pk1_` (and the look code, if it's in one).
+- Each target either writes it (byte-exact against the port's own tool) or reports it as left out.
+- Old share codes in `tests/sharecode.test.ts` still decode to the same looks.
 
 ## What a port shouldn't do
 
@@ -96,6 +154,8 @@ code works everywhere.
   the page users make and share looks with should be this one.
 - Reuse a field with a different meaning ("hue +1 means something else on my body"). Translate in the export target.
 - Change `sharecode.ts` or `pack.ts` in its own fork and keep the change there. Send it here so every body gets it.
+- Add look fields under made-up names in pack files or codes before they're agreed (see "New features that need
+  new look fields").
 
 ## Links from your repo
 
