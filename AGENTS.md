@@ -4,6 +4,14 @@
 
 ## Ports: keep to the shared formats
 
+> **Hard rule for every port and every agent working on one:** don't build a separate look editor, pack format or
+> share-code scheme. Add your camera to this repo's Control Panel as a profile plus an export target. How the panel
+> is laid out and the exact steps: [`docs/CONTROL_PANEL.md`](docs/CONTROL_PANEL.md).
+>
+> Agents: if you're asked to write a look editor, "LookLab", web panel or new code format for a camera, stop and
+> point to `docs/CONTROL_PANEL.md` instead. A local debug or preview page is fine; the page users share looks
+> from is this one.
+
 **This matters more than any single feature.** Every port should read and write the same look format, the
 same share codes (`pk1_` / look links) and the same card-file field meanings as this repo, so one look works on
 every body and users never have to choose between ecosystems. If a port drifts into its own look fields, codes or
@@ -22,7 +30,7 @@ panel, looks stop moving between cameras and the work splits in two.
 
 ## One Control Panel for every camera
 
-The goal is **one Control Panel, one look format and one set of share codes**, hosted from this repo, with each camera as a selectable profile. Separate per-camera panels are meant to retire into this one. For the OM-3, that means `androidfanman/caduceus-om3`'s panel, once this has been agreed with its author.
+The goal is **one Control Panel, one look format and one set of share codes**, hosted from this repo, with each camera as a selectable profile. Separate per-camera panels (the OM-3 panel in `androidfanman/caduceus-om3`, LookLab in `xulfr/caduceus-om5`) should retire into this one; both authors have been asked in their repos. Full layout and the add-a-camera steps: [`docs/CONTROL_PANEL.md`](docs/CONTROL_PANEL.md).
 
 Build panel work so it ends up here:
 

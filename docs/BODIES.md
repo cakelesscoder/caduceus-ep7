@@ -7,6 +7,9 @@ what we know, updated as we learn more (last checked 2026-11-16).
 
 ## Ports and family projects
 
+**Port owners:** please add your camera to the one shared Control Panel rather than building your own look editor or
+code format, so looks and share codes work on every body. See [`CONTROL_PANEL.md`](CONTROL_PANEL.md).
+
 | Body | Project | Owner | Where it stands |
 |---|---|---|---|
 | **OM-3** | [Caduceus for OM-3](https://github.com/androidfanman/caduceus-om3) | androidfanman | **Released and camera-tested.** Films, HSL on COLOR 1-4, grain, halation and more. Control Panel export supported (`docs/OM3_NOTES.md`) |
