@@ -4,9 +4,11 @@
 // COLOR 1-5, 2-5... in list order; toOm3 limits ranges (docs/OM3_NOTES.md lists what carries over). Hue numbers copy
 // across as they are: the direction on each body is an open question there.
 // Since their v0.28 the OM-3 has look settings the shared format doesn't (Tone Balance, a WB mode per film, split
-// toning in half steps, Halation as its own row): the vendored ../om3.ts keeps them on its bank looks, and only this
-// module turns them into shared fields (or reports them as left out). Nothing OM-3-only reaches a pack or share code.
+// toning in half steps, Halation as its own row; v0.30 RGB curves and Color Mix; v0.40 Border and Film Grain 1..5 /
+// Grain Size): the vendored ../om3.ts keeps them on its bank looks, and only this module turns them into shared fields
+// (or reports them as left out). Nothing OM-3-only reaches a pack or share code.
 import { COLORS, PER, emptyBank, parseBank, profilesBin, readProfiles, toOm3, type Bank, type Fw } from '../om3';
+import { hasCurves, parseCurves, parseMix } from '../curves';
 import { parseSplit } from '../split';
 import { PACK_SCHEMA, TONE_BW_MAX, lookHalo, matrixIsZero, parseFilmWb, parseLook, type Look, type Pack } from '../pack';
 import type { Target } from './types';
@@ -14,9 +16,10 @@ import type { Target } from './types';
 export const OM3_REPO = 'https://github.com/androidfanman/caduceus-om3';
 
 /** The OM-3 firmware the LOOKS.BIN is written for (om3.ts `profilesBin(bank, fw)`), labelled as their panel does.
- *  Newer bytes are left out for older firmware, which would refuse the file. v0.29.x reads the v0.28 file. */
+ *  Newer bytes are left out for older firmware, which would refuse the file. v0.29 to v0.40 read the v0.28 file
+ *  (v0.40's Border uses +48, which shared looks leave 0). */
 export const OM3_FWS: [Fw, string][] = [
-  [28, 'v0.28 or later (v0.29.x too)'], [26, 'v0.26.1 – v0.27.1'], [25, 'v0.26'], [24, 'v0.25'], [23, 'v0.24.1'],
+  [28, 'v0.28 or later (v0.29 – v0.40 too)'], [26, 'v0.26.1 – v0.27.1'], [25, 'v0.26'], [24, 'v0.25'], [23, 'v0.24.1'],
   [22, 'v0.22'], [21, 'v0.21'], [20, 'v0.20 or older'],
 ];
 export const OM3_FW_LATEST: Fw = 28;
@@ -43,6 +46,7 @@ export function lookToOm3(src: Look, fw: Fw = OM3_FW_LATEST): { look: Look | nul
   if (src.curve !== undefined) c.dropped.push('Base curve');            // E-P7 v0.34 only: no OM-3 equivalent
   if (!matrixIsZero(src.matrix)) c.dropped.push('Colour mix');
   delete l.curve; delete l.matrix; delete l.tone_balance; delete l.film_wb; delete l.halation;
+  delete l.rgb; delete l.mix; delete l.border; delete l.grain_size; delete l.grain_strength;
   if (l.split) {                    // shared: whole steps, minus = opposite colour; OM-3 v0.28: plus only (their parseSplit)
     const sp = parseSplit(l.split);
     if (sp && (sp.sh_color !== l.split.sh_color || sp.hl_color !== l.split.hl_color)) c.changed.push('split toning minus as the opposite colour');
@@ -93,7 +97,13 @@ export function lookFromOm3(src: Look): { look: Look; changed: string[] } {
   }
   if (l.tone_balance) changed.push('Tone Balance left out');
   if (l.film_wb) changed.push('WB mode left out');
+  if (hasCurves(l)) changed.push('RGB curves left out');
+  if (l.mix?.some((x) => x)) changed.push('Color Mix left out');
+  if (l.border) changed.push('Border left out');
+  if (l.film_grain && l.grain_strength) changed.push(`Film Grain ${l.grain_strength} kept as ${l.grain_strength < 3 ? 'Low' : 'High'}`);
+  if (l.film_grain && l.grain_size) changed.push('Grain Size left out');
   delete l.halation; delete l.tone_balance; delete l.film_wb;
+  delete l.rgb; delete l.mix; delete l.border; delete l.grain_size; delete l.grain_strength;
   if (l.split) {                                    // v0.28 half steps -> whole steps
     const r = (v: number) => Math.min(5, Math.round(v));
     const s = { ...l.split, sh: r(l.split.sh), hl: r(l.split.hl) };
@@ -114,7 +124,9 @@ export function bankImport(bank: Bank, name: string): { pack: Pack; notes: strin
   return { pack: { schema: PACK_SCHEMA, name, looks: rows.map((r) => r.look), slots: {} }, notes: notesOf(rows) };
 }
 export const bankToPack = (bank: Bank, name: string): Pack => bankImport(bank, name).pack;
-export const looksBinImport = (b: Uint8Array, name: string) => bankImport(readProfiles(b), name);
+/** As their panel opens a card file: read for the firmware chosen under Export (v0.28 or later by default), so a v0.40
+ *  white Border (+48 > 0) reads as a Border, not as an old Art Effect number. */
+export const looksBinImport = (b: Uint8Array, name: string) => bankImport(readProfiles(b, om3Fw() >= 28), name);
 export const looksBinToPack = (b: Uint8Array, name: string): Pack => looksBinImport(b, name).pack;
 
 // Links from the OM-3 panel: op1_ one look, ob1_ a bank, base64url(deflate(JSON)).
@@ -128,7 +140,7 @@ export async function decodeOm3Code(t: string): Promise<unknown> {
   } catch { throw new Error('This link is damaged or incomplete: copy it again.'); }
 }
 /** One look of their link JSON ("caduceus-om3-look/1", or older without the field) as a bank look: our parse for the
- *  shared fields, then their v0.28 fields as their panel reads them. */
+ *  shared fields, then their v0.28 / v0.30 / v0.40 fields as their panel reads them (so lookFromOm3 can report them). */
 function om3JsonLook(v: unknown, what: string): Look {
   const o = (v && typeof v === 'object' ? v : {}) as Record<string, unknown>;
   if (o.schema !== undefined) {
@@ -141,6 +153,12 @@ function om3JsonLook(v: unknown, what: string): Look {
   if (Number.isInteger(o.halation) && (o.halation as number) > 0) l.halation = Math.min(5, o.halation as number);
   if (Number.isInteger(o.tone_balance) && o.tone_balance !== 0) l.tone_balance = Math.max(-5, Math.min(5, o.tone_balance as number));
   if (wb) l.film_wb = wb;
+  const rgb = parseCurves(o.rgb), mix = parseMix(o.mix);
+  if (rgb) l.rgb = rgb;
+  if (mix) l.mix = mix;
+  if (Number.isInteger(o.border) && o.border !== 0) l.border = Math.max(-5, Math.min(5, o.border as number));
+  if (o.grain_size === 1 || o.grain_size === 3) l.grain_size = o.grain_size;
+  if (o.grain_strength === 1 || o.grain_strength === 4) l.grain_strength = o.grain_strength;
   return l;
 }
 /** A decoded op1_ link as a shared look. */
@@ -156,7 +174,7 @@ export const om3: Target = {
   label: 'OM SYSTEM OM-3 (Caduceus for OM-3)',
   status: 'ready',
   doc: OM3_REPO,
-  note: 'LOOKS.BIN and NAMES.BIN for the Film page (Caduceus for OM-3 v0.28 or later; older versions under Export).',
+  note: 'LOOKS.BIN and NAMES.BIN for the Film page (Caduceus for OM-3 v0.28 or later, v0.40 too; older versions under Export).',
   supports: (l) => (l.kind === 'colour' ? true : 'OM-3 looks are colour only.'),
   export: (pack) => [{ name: 'OM3MOD/LOOKS.BIN', data: looksBin(pack, OM3_FW_LATEST) }],
 };

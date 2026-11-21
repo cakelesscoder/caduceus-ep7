@@ -1,4 +1,4 @@
-// Vendored from androidfanman/caduceus-om3 @ c209b69 (Apache-2.0, see NOTICE), unchanged. Update by copying; our glue is in ./targets/om3.ts.
+// Vendored from androidfanman/caduceus-om3 @ 9fc2dc1 (Apache-2.0, see NOTICE), unchanged. Update by copying; our glue is in ./targets/om3.ts.
 import { parseSplit, splitCode, splitFromCode, splitOk, toSteps } from './split';
 // OM SYSTEM OM-3 with Caduceus for OM-3 (androidfanman/caduceus-om3): the profile bank and its card files.
 // The camera has 5 looks for each of COLOR 1-4 (its Film page, dial 0-5). A look holds the wheels (Saturation, Hue,
@@ -31,7 +31,7 @@ import { crc32, type Problem } from './format';
 import { CAMERA_FILMS, filmByName, filmLook } from './om3films';
 
 export const COLORS = 4, PER = 5;
-export const OM3 = { hl: 5, sat: 5, wb: 7, contrast: 2, sharpness: 2, shading: 5, hsm: 7, bw: 7, fx: 5, grain: 3, halation: 5, balance: 5 } as const;
+export const OM3 = { hl: 5, sat: 5, wb: 7, contrast: 2, sharpness: 2, shading: 5, hsm: 7, bw: 7, fx: 5, grain: 3, halation: 5, balance: 5, border: 5 } as const;
 /** v0.22 Sharp (Extras sector 10): the camera's own numbers, 0 = its normal; -3..-4 softer than its menu goes, -5 = Off. */
 export const SHARP = { lo: -5, hi: 2 } as const;
 export const sharpLabel = (v: number) => (v <= SHARP.lo ? 'Off' : v > 0 ? `+${v}` : String(v));
@@ -52,6 +52,7 @@ export function v28Parts(l: Look): string[] {
   if (l.split && (toSteps(l.split.sh) % 2 || toSteps(l.split.hl) % 2)) p.push('split toning in half steps');
   if (l.tone_balance) p.push('Tone Balance');
   if (l.film_wb) p.push('WB mode');
+  if (l.border) p.push('Border');
   if (Math.abs(l.tone.blacks) > 5 || Math.abs(l.tone.whites) > 5) p.push('Blacks / Whites past ±5');
   return p;
 }
@@ -85,6 +86,16 @@ export const monoGrain = (l: Look) => !!l.film_grain && !!l.vignette;
 export const v25Art = (_l: Look) => 'off';      // v0.25 (owner): no Art Effect at all; Frame caused too many issues
 /** v0.20 Extras: NR byte <-> the Caduceus look's noise reduction (grain field), Art Effects the OM-3 renders. */
 export const OM3_NR: Grain[] = ['off', 'standard', 'fine', 'film', 'high'];  // 0 Camera, 1 Std, 2 Low, 3 Off, 4 High (v0.23)
+/** v0.40 Film Grain: the strength 0..5 a look shows (Low / Med / High = 2 / 3 / 5, or its own 1 / 4), and the looks
+ *  file's level for a strength (the camera's gs_lv: 1-2 Low, 3 Med, 4-5 High). */
+export const GRAIN_FROM_LEVEL = [0, 2, 3, 5];
+export const LEVEL_FROM_GRAIN = [0, 1, 1, 2, 3, 3];
+export const grainStrength = (l: Look) => (!l.film_grain ? 0 : l.grain_strength ?? GRAIN_FROM_LEVEL[Math.min(3, l.film_grain)]);
+export function setGrainStrength(l: Look, x: number) {
+  if (!x) { delete l.film_grain; delete l.grain_strength; delete l.grain_size; return; }
+  l.film_grain = LEVEL_FROM_GRAIN[x];
+  if (x === 1 || x === 4) l.grain_strength = x; else delete l.grain_strength;
+}
 export const OM3_ARTS = ['off', 'star_light', 'pin_hole', 'white_edge', 'frame'] as const;
 export type Bank = (Look | null)[][];          // [COLOR 0..3][profile 0..4]
 export interface BankFile { schema: 'caduceus-om3-bank/1'; name: string; bank: Bank }
@@ -157,6 +168,8 @@ export function validateProfile(l: Look, at?: { k: number; v: number }): Problem
   if (l.split && !splitOk(l.split)) add('split', 'Split toning: a colour of the wheel and a strength 0..10.');
   if (l.tone_balance !== undefined && !ok(l.tone_balance, OM3.balance)) add('tone_balance', 'Tone Balance: -5..5.');
   if (l.halation !== undefined && !(Number.isInteger(l.halation) && l.halation >= 0 && l.halation <= OM3.halation)) add('halation', 'Halation: 0..5.');
+  if (l.border !== undefined && !ok(l.border, OM3.border)) add('border', 'Border: -5..5.');
+  if (l.grain_strength !== undefined && !(l.grain_strength === 1 || l.grain_strength === 4)) add('film_grain', 'Film Grain: 1..5.');
   if (l.film_wb && !parseFilmWb(l.film_wb)) add('film_wb', 'WB mode: one of the camera\'s modes; Custom WB 2000..14000 K.');
   return p;
 }
@@ -185,6 +198,7 @@ export function profilesBin(bank: Bank, fw: Fw = 22): Uint8Array {
     s8(44, l.tone.shadows); s8(45, l.tone.midtones); s8(46, l.tone.highlights);
     s8(47, !l.effect ? 0 : l.effect.type === 'clarity' ? l.effect.strength : -l.effect.strength);
     b[o + 48] = Math.max(0, (ARTS as readonly string[]).indexOf(fw >= 24 ? v25Art(l) : l.art_effect === 'blur' ? 'off' : l.art_effect));
+    if (fw >= 28 && l.border) s8(48, Math.max(-OM3.border, Math.min(OM3.border, l.border)));   // v0.40: Border in Art Effect's old byte (v0.25..v0.30 ignore it)
     const nr = Math.max(0, OM3_NR.indexOf(l.grain));
     b[o + 49] = nr === 4 && fw < 23 ? 1 : nr;                                     // High needs v0.23: Standard before
     if (fw >= 21) { b[o + 50] = l.lens_correction ? 0 : 1; b[o + 51] = Math.max(0, Math.min(OM3.grain, l.film_grain ?? 0)); }
@@ -248,8 +262,12 @@ export function lookFromRecord(rec: Uint8Array, name: string, v28 = false, photo
     l.advice = { contrast: s(41), sharpness: s(52) || s(42) }; l.vignette = s(43);      // v0.22 Sharp (+52), else the stock one
     const fx = s(47);
     l.effect = fx < 0 ? { type: 'bloom', strength: Math.min(OM3.fx, -fx) } : fx > 0 ? { type: 'clarity', strength: Math.min(OM3.fx, fx) } : null;
-    const art = ARTS[b[o + 48]] ?? 'off';
+    const art = ARTS[b[o + 48]] ?? 'off', bd = s(48);
     l.art_effect = art === 'blur' ? 'off' : art;
+    if (bd < 0 || (bd > 0 && (v28 || photo))) {       // v0.40 Border (-5..5) in Art Effect's old byte: v0.25 and later write no Art Effect
+      l.art_effect = 'off';
+      if (bd >= -OM3.border && bd <= OM3.border) l.border = bd;
+    }
     l.grain = OM3_NR[b[o + 49]] ?? 'off';
     if (b[o + 50] === 0) l.lens_correction = true;
     if (b[o + 51] >= 1) l.film_grain = Math.min(OM3.grain, b[o + 51]);
@@ -274,7 +292,7 @@ export function lookFromRecord(rec: Uint8Array, name: string, v28 = false, photo
  *  base64url. v0.28: the film as set when the photo was taken; bytes 57..62 Halation 0..5, Tone Balance, the WB
  *  (signed -5..5 pairs); split toning still in v0.26 steps, its half steps in byte 63 (unsigned). */
 export const PHOTO_RE = /om3\.1\.([A-Za-z0-9_-]{43})(?![A-Za-z0-9_-])/;
-const PHOTO_UNSIGNED = new Set([36, 48, 49, 50, 51, 53, 55, 57, 63]);
+const PHOTO_UNSIGNED = new Set([36, 49, 50, 51, 53, 55, 57, 63]);   // v0.40: 48 is the Border, -5..5 (an Art Effect id before: 0..5 reads the same)
 export function recordFromPhotoCode(code: string): Uint8Array {
   const m = PHOTO_RE.exec(code);
   if (!m) throw new Error('No om3.1. code found.');

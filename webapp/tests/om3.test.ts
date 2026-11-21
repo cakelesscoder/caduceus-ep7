@@ -1,4 +1,4 @@
-// From androidfanman/caduceus-om3 @ c209b69 (Apache-2.0, see NOTICE), unchanged except the library import path
+// From androidfanman/caduceus-om3 @ 9fc2dc1 (Apache-2.0, see NOTICE), unchanged except the library import path
 // (ours: data/packs/) and three cases skipped (it.skip, marked SKIP-HERE): they test that project's own pack.ts look JSON
 // (schema field, Halation / Tone Balance / film WB / v0.28 split kept in looks), which is not the shared format here;
 // targets/om3.ts translates at the boundary instead (tests/om3-target.test.ts).

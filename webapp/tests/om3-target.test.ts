@@ -1,7 +1,7 @@
 // The E-P7-convention pack -> OM-3 card files translation (src/targets/om3.ts).
 import { describe, expect, it } from 'vitest';
 import libraryJson from '../src/data/packs/standard-1.0.json';
-import { COLORS, PER, profilesBin, readProfiles, validateBank } from '../src/om3';
+import { COLORS, PER, defaultBank, emptyBank, profilesBin, readProfiles, validateBank } from '../src/om3';
 import { blankLook, parseLook, parsePack, type Pack } from '../src/pack';
 import { looksBinToPack, packToBank } from '../src/targets/om3';
 import { CAMERAS } from '../src/cameras';
@@ -205,5 +205,48 @@ describe('OM-3 export for v0.28 and later', () => {
     const bank = om3LinkBank({ schema: 'caduceus-om3-bank/1', name: 'B', bank: [[j, null], [], [], []] });
     expect(bank.pack.looks.map((l) => l.name)).toEqual(['Link']);
     expect(bank.notes[0]).toMatch(/^Link: Tone Balance left out/);
+  });
+});
+
+// Caduceus for OM-3 v0.30 (RGB curves, Color Mix) and v0.40 (Border, Film Grain 1..5 / Grain Size), resync at 9fc2dc1 (their v0.40.2).
+// Their v0.40 to v0.40.2 ship the same LOOKS.BIN as v0.29.5 (sha256 ee3f1bde…, checked above), so the release tests
+// still hold.
+describe('OM-3 export for v0.30 and v0.40', () => {
+  const STD12 = parsePack(std12Json);
+  const rec = (b: Uint8Array, i: number) => b.subarray(32 + 64 * i, 96 + 64 * i);
+
+  it('their 20 films (the vendored om3films, FILM 1-20) make their v0.40.2 release LOOKS.BIN byte for byte', () => {
+    const b = profilesBin(defaultBank(LIB, (l) => l), 28);
+    expect(createHash('sha256').update(b).digest('hex')).toBe('ee3f1bdef6083ffcfbf88e1c9617adbea10af0594d03424214baf5ed1cd70365');
+  });
+
+  it('shared looks never set a v0.40 Border: +48 stays 0 for v0.28 and later', () => {
+    const b = looksBin(STD12, 28);
+    for (let i = 0; i < 20; i++) expect(rec(b, i)[48]).toBe(0);
+  });
+
+  it('a v0.40 Border in a card file comes in reported, never kept, and a white one is not read as an Art Effect', () => {
+    const bank = emptyBank(), white = blankLook('colour', 'White'), black = blankLook('colour', 'Black');
+    white.border = 3; black.border = -2;
+    bank[0][0] = white; bank[0][1] = black;
+    const file = profilesBin(bank, 28);
+    expect([(rec(file, 0)[48] << 24) >> 24, (rec(file, 1)[48] << 24) >> 24]).toEqual([3, -2]);
+    const { pack: p, notes } = looksBinImport(file, 'v040');
+    expect(p.looks.map((l) => l.art_effect)).toEqual(['off', 'off']);
+    p.looks.forEach((l) => expect(l).not.toHaveProperty('border'));
+    expect(notes).toEqual(['White: Border left out', 'Black: Border left out']);
+    expect(looksBin(p, 28)).toEqual(looksBin(pack([blankLook('colour', 'White'), blankLook('colour', 'Black')]), 28));
+  });
+
+  it('their v0.40 link fields (RGB curves, Color Mix, Border, Film Grain 1..5 / Grain Size) are reported, never kept', () => {
+    const j = { schema: 'caduceus-om3-look/1', ...blankLook('colour', 'New'), film_grain: 1, grain_strength: 1, grain_size: 3,
+      rgb: { r: [2, 0, 0, 0, -1], g: [0, 0, 0, 0, 0], b: [0, 1, 0, 0, 0] }, mix: [1, -1, 0, -2, 0, 1], border: -3 };
+    const r = om3LinkLook(JSON.parse(JSON.stringify(j)));
+    expect(r.changed).toEqual(['RGB curves left out', 'Color Mix left out', 'Border left out', 'Film Grain 1 kept as Low', 'Grain Size left out']);
+    for (const k of ['rgb', 'mix', 'border', 'grain_size', 'grain_strength']) expect(r.look).not.toHaveProperty(k);
+    expect(r.look.film_grain).toBe(1);
+    expect(validateLook(r.look)).toEqual([]);
+    const flat = om3LinkLook({ ...blankLook('colour', 'Flat'), rgb: { r: [0, 0, 0, 0, 0], g: [0, 0, 0, 0, 0], b: [0, 0, 0, 0, 0] }, mix: [0, 0, 0, 0, 0, 0] });
+    expect(flat.changed).toEqual([]);                              // flat curves and an empty mix change nothing
   });
 });

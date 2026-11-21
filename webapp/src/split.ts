@@ -1,4 +1,4 @@
-// Vendored from androidfanman/caduceus-om3 @ c209b69 (Apache-2.0, see NOTICE), unchanged. Update by copying; our glue is in ./targets/om3.ts.
+// Vendored from androidfanman/caduceus-om3 @ 9fc2dc1 (Apache-2.0, see NOTICE), unchanged. Update by copying; our glue is in ./targets/om3.ts.
 // Split toning (Caduceus for OM-3 v0.26): a Shadows and a Highlights tint, each one of the camera wheel's 12 colours
 // with a strength. The camera bends its R, G and B gamma curves (firmware st_run, research/splittone/model.py); this
 // module holds the same numbers for the preview and the editor.
@@ -7,6 +7,7 @@
 // (0, 0.5 .. 5): the camera's 0..10 is twice that, so a v0.26 look keeps its strength. v0.26's minus (the opposite
 // colour) is read as the opposite colour of the wheel with a plus.
 import type { Look } from './pack';
+import { CHANNELS, curveDelta, type RgbCurves } from './curves';
 
 export interface Split { sh_color: number; sh: number; hl_color: number; hl: number }
 /** The wheel's colours, clockwise from 12 o'clock, as on the camera (and their swatch colours for the editor). */
@@ -43,16 +44,18 @@ export function parseSplit(v: unknown): Split | undefined {
   return splitOk(s) && (s.sh || s.hl) ? s : undefined;
 }
 /** The curve bend on [0,1] RGB in place (img: n x 3 floats), as the camera does it on its 12-bit gamma output
- *  (research/splittone/model.py bend28): `balance` moves the hand-over point c = 2048 - 256 b. */
-export function bendSplit(img: Float32Array, n: number, s: Split, scale = 1, balance = 0) {
-  const ks = SPLIT_K[s.sh_color].map((k) => k * s.sh * scale), kh = SPLIT_K[s.hl_color].map((k) => k * s.hl * scale);
+ *  (research/splittone/model.py bend28): `balance` moves the hand-over point c = 2048 - 256 b. `curves` (the RGB row)
+ *  add their change in the same pass, as st_run does. */
+export function bendSplit(img: Float32Array, n: number, s: Split | undefined, scale = 1, balance = 0, curves?: RgbCurves) {
+  const ks = s ? SPLIT_K[s.sh_color].map((k) => k * s.sh * scale) : [0, 0, 0], kh = s ? SPLIT_K[s.hl_color].map((k) => k * s.hl * scale) : [0, 0, 0];
+  const cd = CHANNELS.map((c) => curveDelta(curves?.[c] ?? [0, 0, 0, 0, 0]));   // RGB curves: added in the same pass (st_run), then the clamp and running max
   const b = Math.max(-BALANCE_MAX, Math.min(BALANCE_MAX, Math.round(balance) || 0)), c = 2048 - 256 * b;
   const lut = [0, 1, 2].map((ch) => {
     const out = new Float32Array(256); let max = 0;
     for (let i = 0; i < 256; i++) {
       const t = i * 4095 / 255, u = t < c ? t * 2048 / c : 2048 + (t - c) * 2047 / (4095 - c);
       const r = 4095 - u, ws = u * r / 4096 * r / 4096, wh = u * u / 4096 * r / 4096;
-      max = Math.max(max, Math.min(4095, Math.max(0, t + (ks[ch] * ws + kh[ch] * wh) / 256)));
+      max = Math.max(max, Math.min(4095, Math.max(0, t + (ks[ch] * ws + kh[ch] * wh) / 256 + cd[ch](t))));
       out[i] = max / 4095;
     }
     return out;
