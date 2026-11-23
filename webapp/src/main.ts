@@ -1829,58 +1829,83 @@ const rrName = (n: string) => n.replace(/[^\w.-]+/g, '-').replace(/^-+|-+$/g, ''
 const downloadRr = (i: number) => download(`${rrName(S.pack.looks[i].name)}.rrpreset`, rrpreset(S.pack, i), 'application/json');
 const rrFiles = () => S.pack.looks.map((l, i) => ({ name: `${String(i + 1).padStart(2, '0')}-${rrName(l.name)}.rrpreset`, data: new TextEncoder().encode(rrpreset(S.pack, i)) }));
 function ep7Body(): HTMLElement {
+  const code = (t: string) => h('code', {}, t);
   const probs = validatePack({ ...S.pack, slots: {} });
   const slotLine = (s: SlotName) => {
     const k = S.pack.slots[s], name = k === undefined ? 'stock' : `${k + 1}. ${S.pack.looks[k]?.name ?? '?'}`;
     const prof = s.startsWith('COLOR') ? PROFILE_COLS().map(([t, o, key, df]) => `${t} ${o.find(([v]) => v === (profileOf(S.pack, s)[key] ?? df))?.[1] ?? '?'}`).join(' · ') : '';
     return h('li', {}, h('b', {}, s), ` ${name}`, prof ? h('span', { class: 'help' }, ` — ${prof}`) : null);
   };
-  const withBundles = h('input', { type: 'checkbox' });
   const fname = (S.pack.name || 'pack').replace(/[^\w.-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'pack';
   const looksBin = () => {
     try { return targetById('ep7-caduceus').export(S.pack)[0].data as Uint8Array; } catch (e) { toast(e instanceof PackError ? 'Fix the problems listed first' : (e as Error).message, 'err'); return null; }
   };
+  const bundlesBin = () => {
+    try { return encodeBundlesBin(S.pack); } catch (e) { toast((e as Error).message, 'err'); return null; }
+  };
   const packJson = () => JSON.stringify({ ...exportable(S.pack), schema: PACK_SCHEMA }, null, 1) + '\n';
+  const slotProbs = validatePack(S.pack).filter((p) => p.field === 'slots');
+  const filled = SLOT_NAMES.filter((s) => S.pack.slots[s] !== undefined).length;
+  const zLooks = h('input', { type: 'checkbox', checked: true }) as HTMLInputElement;
+  const zBundles = h('input', { type: 'checkbox' }) as HTMLInputElement;
+  const zPack = h('input', { type: 'checkbox', checked: true }) as HTMLInputElement;
+  const zipBtn = h('button', {
+    onclick: () => {
+      if (!zLooks.checked && !zBundles.checked) { toast('Tick LOOKS.BIN, BUNDLES.BIN or both', 'err'); return; }
+      const files: { name: string; data: Uint8Array }[] = [];
+      if (zLooks.checked) { const b = looksBin(); if (!b) return; files.push({ name: 'EP7MOD/LOOKS.BIN', data: b }); }
+      if (zBundles.checked) { const b = bundlesBin(); if (!b) return; files.push({ name: 'EP7MOD/BUNDLES.BIN', data: b }); }
+      if (zPack.checked) files.push({ name: `${fname}.caduceus.json`, data: new TextEncoder().encode(packJson()) });
+      download(`${fname}-card.zip`, makeZip(files), 'application/zip');
+    },
+  }, 'Download .zip') as HTMLButtonElement;
+  const syncZip = () => {
+    zipBtn.disabled = (!zLooks.checked && !zBundles.checked) || (zLooks.checked && probs.length > 0) || (zBundles.checked && slotProbs.length > 0);
+  };
+  [zLooks, zBundles].forEach((c) => c.addEventListener('change', syncZip));
+  syncZip();
   const body = h('div', { class: 'export' },
+    h('div', { class: 'ex-intro' },
+      h('p', {}, 'The camera reads two files from ', code('EP7MOD/'), ' on the card. You can export either one, or both:'),
+      h('ul', {},
+        h('li', {}, h('b', {}, 'LOOKS.BIN: your film library. '), 'The looks the Film page lists. Picking one there applies it to that profile. Replacing it is always safe: your slots and the edits you made on the camera stay as they are.'),
+        h('li', {}, h('b', {}, 'BUNDLES.BIN: what is in your 8 slots. '), 'Which look each of COLOR1–4 and MONO1–4 holds, plus its edits and profile settings (Grain, NR, Sharp). The camera rewrites it as you edit, so replacing it ', h('b', {}, 'resets your slots'), ' to what you set here.')),
+      h('p', { class: 'help' }, 'Just changed or added looks? Export LOOKS.BIN only. Setting up a card from scratch, or want your slots exactly as in this pack? Export both.')),
     probs.length
       ? h('div', { class: 'problems-box' }, h('b', {}, `${probs.length} problem(s) block LOOKS.BIN:`),
         h('ul', { class: 'problems' }, ...probs.slice(0, 12).map((p) => h('li', {}, fmtProblem(p)))))
-      : h('p', { class: 'ok' }, `✓ ${S.pack.looks.length} looks pass the camera's LOOKS.BIN checks (v0.19 firmware).`),
+      : h('p', { class: 'ok' }, `✓ ${S.pack.looks.length} looks pass the camera's LOOKS.BIN checks.`),
     h('div', { class: 'ex-row' },
-      h('div', {}, h('b', {}, 'LOOKS.BIN'), h('p', { class: 'help' }, 'The looks the camera\'s Film page offers (made for the firmware you chose: see the Firmware button). The firmware install already puts the 32 built-in looks on the card; download this only to use your own edits. Copy it to EP7MOD/ on the card (replacing LOOKS.BIN there) and half-press. No re-flash needed.')),
+      h('div', {}, h('b', {}, 'LOOKS.BIN (film library)'), h('p', { class: 'help' }, 'Made for the firmware you chose (see the Firmware button). The firmware install already puts the built-in looks on the card: download this to use your own. Copy it to EP7MOD/ (replacing the one there) and half-press. No re-flash needed.')),
       h('button', { class: 'primary', disabled: probs.length > 0, onclick: () => { const b = looksBin(); if (b) download('LOOKS.BIN', b); } }, 'Download')),
+    h('div', { class: 'ex-row ex-bundles' },
+      h('div', {},
+        h('b', {}, 'BUNDLES.BIN (slots)'),
+        h('p', { class: 'help' }, `${filled} of 8 slots set in this pack; an empty slot gets the camera's stock rendering. Replacing the card's BUNDLES.BIN resets the slots and the edits you made on the camera.`),
+        ...(slotProbs.length ? [h('ul', { class: 'problems' }, ...slotProbs.map((p) => h('li', {}, fmtProblem(p))))] : []),
+        h('details', {}, h('summary', {}, 'What goes in each slot'),
+          h('ul', { class: 'slot-sum' }, ...SLOT_NAMES.map(slotLine)),
+          h('button', { onclick: (e: Event) => {
+            (e.target as HTMLElement).closest('dialog')?.close();
+            profilesOpen = true; renderList();
+            document.querySelector('.slot-strip')?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+          } }, 'Edit slots and profile settings'))),
+      h('button', { disabled: slotProbs.length > 0, onclick: () => { const b = bundlesBin(); if (b) download('BUNDLES.BIN', b); } }, 'Download')),
     h('div', { class: 'ex-row' },
-      h('div', {}, h('b', {}, 'Pack file (.json)'), h('p', { class: 'help' }, 'Everything, including notes and advice. Open it here later or send it to someone.')),
+      h('div', {}, h('b', {}, 'Card folder (.zip)'), h('p', { class: 'help' }, 'The files you tick, in an EP7MOD/ folder. Unzip at the card root.'),
+        h('div', { class: 'ex-checks' },
+          h('label', { class: 'check' }, zLooks, h('span', {}, 'LOOKS.BIN')),
+          h('label', { class: 'check' }, zBundles, h('span', {}, 'BUNDLES.BIN (resets slots)')),
+          h('label', { class: 'check' }, zPack, h('span', {}, 'Pack file')))),
+      zipBtn),
+    h('div', { class: 'ex-row' },
+      h('div', {}, h('b', {}, 'Pack file (.json)'), h('p', { class: 'help' }, 'Everything, including notes and advice. Open it here later or send it to someone. The camera doesn\'t read it.')),
       h('button', { onclick: () => download(`${fname}.caduceus.json`, packJson(), 'application/json') }, 'Download')),
     h('div', { class: 'ex-row' },
       h('div', {}, h('b', {}, 'RapidRAW presets (.rrpreset)'), h('p', { class: 'help' }, 'One look, or every look as its own preset in a zip, for ORF files or raws from any camera. Unzip, then in RapidRAW: Presets › Import and select the files. Approximate: RapidRAW starts from its own raw rendering, so expect the look\'s character, not an exact match to the camera JPEG.')),
       h('div', { class: 'ex-btns' },
         h('button', { disabled: !cur(), onclick: () => { if (cur()) downloadRr(S.sel); } }, 'This look'),
         h('button', { disabled: !S.pack.looks.length, onclick: () => download(`${fname}-rapidraw.zip`, makeZip(rrFiles()), 'application/zip') }, `All ${S.pack.looks.length} (.zip)`))),
-    h('details', { class: 'ex-bundles' },
-      h('summary', {}, 'Starter slots (BUNDLES.BIN, optional)'),
-      h('p', { class: 'help' }, 'BUNDLES.BIN holds the looks currently in the 8 picture-mode slots. Your card\'s BUNDLES.BIN has your saved slot choices: only replace it if you want to reset them. Empty = the camera\'s stock rendering.'),
-      h('ul', { class: 'slot-sum' }, ...SLOT_NAMES.map(slotLine)),
-      h('button', { onclick: (e: Event) => {
-        (e.target as HTMLElement).closest('dialog')?.close();
-        profilesOpen = true; renderList();
-        document.querySelector('.slot-strip')?.scrollIntoView({ block: 'start', behavior: 'smooth' });
-      } }, 'Edit slots and profile settings')),
-    h('div', { class: 'ex-row' },
-      h('div', {}, h('b', {}, 'Card folder (.zip)'), h('p', { class: 'help' }, 'EP7MOD/LOOKS.BIN (+ BUNDLES.BIN if ticked) and the pack file. Unzip at the card root.'),
-        h('label', { class: 'check' }, withBundles, h('span', {}, 'Include starter BUNDLES.BIN'))),
-      h('button', {
-        disabled: probs.length > 0, onclick: () => {
-          const lb = looksBin();
-          if (!lb) return;
-          const files = [{ name: 'EP7MOD/LOOKS.BIN', data: lb }];
-          if (withBundles.checked) {
-            try { files.push({ name: 'EP7MOD/BUNDLES.BIN', data: encodeBundlesBin(S.pack) }); } catch (e) { toast((e as Error).message, 'err'); return; }
-          }
-          files.push({ name: `${fname}.caduceus.json`, data: new TextEncoder().encode(packJson()) });
-          download(`${fname}-card.zip`, makeZip(files), 'application/zip');
-        },
-      }, 'Download')),
     h('p', { class: 'help' }, 'Copy EP7MOD/ to the root of the card (never into DCOLYMP/). The camera checks every file and ignores one that fails.'));
   return body;
 }
