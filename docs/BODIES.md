@@ -21,6 +21,8 @@ code format, so looks and share codes work on every body. See [`CONTROL_PANEL.md
 | **E-M5 Mark III** | [olympus-firmware-notes](https://github.com/nsud-dev/olympus-firmware-notes) | nsud-dev | **Research only.** Firmware notes and tools; test builds not yet run. The owner has offered to help with a port ([issue #45](https://github.com/cakelesscoder/caduceus-ep7/issues/45)) |
 | **PEN-F** | [oly_fw_analysis](https://github.com/fishcu/oly_fw_analysis) | fishcu | **Alpha releases.** The PEN-F HSL mod that inspired Caduceus, plus shared firmware research and tools |
 
+Related E-P7 project: [omsystem-ep7](https://github.com/phocean/omsystem-ep7) by phocean, a personal build derived from Caduceus (the profile lever applies the last profile with no list, COLOR/MONO profiles never write RAW, and the M-mode dial sets ISO or exposure comp with a manual lens), in daily use on one E-P7.
+
 Related, not Caduceus ports: [EPM2Mod](https://github.com/cfu288/EPM2Mod) by cfu288 (PEN E-PM2: film looks in the Art
 Filters, interval shooting, level gauge, focus peaking; tested on the camera by its owner) and
 [em10_1](https://github.com/matozoid/em10_1) by matozoid (E-M10 Mark I firmware and Wi-Fi research).

@@ -3,6 +3,17 @@
 Caduceus firmware patches for the Olympus PEN E-P7 (firmware 1.1). Releases from v0.25 are betas; earlier ones
 were early-development pre-releases. Use at your own risk (see the README).
 
+## v0.35 — 2026-11-24 (beta)
+
+- **More dial functions (#60):** Custom Menu B › Dial Function now has four choices per mode. The two new ones put **ISO** or **flash comp** on the front dial; the rear dial keeps its job (P: program shift, A: aperture, S and M: shutter). Data only: the firmware already had the code for both (`docs/DIAL_FUNC.md`).
+- **M-mode dial for manual lenses (#53):** in M with a lens without contacts, the free dial sets ISO or exposure comp (Dial Function › M: {Shutter, Exp comp} or the stock {Shutter, FNo.}). With a contact lens it works as before. Ported from phocean's [omsystem-ep7](https://github.com/phocean/omsystem-ep7) (Apache-2.0).
+- **Fixes:**
+  - **Wheel from the Shortcut button (#52):** the Colour Profile page no longer flashes or loses text while you edit the wheel. Pressing Down onto the wheel now opens it over live view, as from the Super Control Panel; OK or MENU go back to live view.
+  - **Movie Extras rows (#54):** the movie Extras page shows the right row names again, Sharp included.
+- **Known issue:** the full Colour Profile page still doesn't show film names properly. Pick and edit films from the colour wheel in the Super Control Panel.
+- **Control Panel:** a Film pick now always sets a colour look's saturation and tone, even when its tone is neutral (#56). The Flat and Log base curves in the preview are fitted to a camera ColorChecker test and now match much better (#57).
+- Firmware screen shows `Caduceus: 0.35`. Card files unchanged from v0.34a.
+
 ## v0.34a — 2026-11-16 (beta)
 
 - **Halation on brighter scenes:** halation used to be skipped when more than a third of the frame was bright; the faster halation code now applies it up to four fifths of the frame. The heaviest frame it now allows still costs less than the heaviest the old code ran (`docs/HALATION_RED.md` §24).

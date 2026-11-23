@@ -1,0 +1,78 @@
+/* E-P7 1.1 page wheel (issue #52; ep7-firmware, our own code). patches/page_wheel/build.py.
+ *
+ * The full Colour Profile page (SsMenuLv state 29, screen (8, 463) at {page_scr}, actuator kind 52) hosts the COLOR wheel as
+ * its own column child: when the page's column (actuator +76) is on row 1 with a COLOR picture mode, the page actuator puts
+ * a Plural_Direct column for key 0x13b3 / 0x13b4 / 0x13b5 / 0x140c at +80, and every edit then repaints the whole page.
+ * pw_h takes state 29's handler word: it runs the stock handler first; when that stays in the state (rc 0) after a key
+ * or dial event (0x9000..0x903f), the page actuator is the stock class and its column is on row 1 with picture mode
+ * 54 / 55 / 56 / 64, it puts that COLOR wheel key in the state-7 key word {key_w} and returns rc (4, 7): state 29's exit
+ * closes the page, state 7 opens screen (18, key) over live view, as the SCP's OK does. The wheel then leaves as a
+ * state-7 wheel (OK: (18, 3) to the camera app, the same message the page sends when it closes, and live view).
+ * Anything else: the stock handler's rc, registers as stock leaves them.
+ * Stores: the stack and the u16 key word {key_w} (.bss / data of the GUI, as the SCP's OK handler stores it). */
+ .am33_2
+ .text
+ .global _start
+_start:
+pw_h:                             /* HSM handler (calls): d0 event, a1 lparam -> d0 rc */
+ movm [d2,d3,a2,a3],(sp)
+ add -8,sp                        /* (0) call slot, (4) facade out */
+ mov d0,d2
+ calls ep7_stock_h                /* d0, d1, a0, a1 as at entry */
+ cmp 0,d0
+ bne p_out
+ mov d2,d3
+ exthu d3
+ add -36864,d3                    /* event - 0x9000 */
+ cmp 64,d3
+ bcc p_zero
+ mov ({page_scr}),a2
+ cmp 0,a2
+ beq p_zero
+ mov (a2),a2                      /* the screen's actuator */
+ cmp 0,a2
+ beq p_zero
+ mov (a2),d3
+ cmp {page_vt},d3
+ bne p_zero
+ mov (76,a2),a0                   /* the page's column */
+ cmp 0,a0
+ beq p_zero
+ mov (a0),a1
+ mov (4,a1),a1
+ calls (a1)                       /* current row */
+ exthu d0
+ cmp 1,d0
+ bne p_zero
+ call ep7_facade,[],4             /* picture mode (111) */
+ mov (a0),a2
+ mov (8,a2),a2
+ mov sp,a1
+ add 4,a1
+ mov 111,d0
+ calls (a2)
+ cmp 0,d0
+ bne p_zero
+ mov (4,sp),d0
+ mov {k54},d1
+ cmp 54,d0
+ beq 1f
+ mov {k55},d1
+ cmp 55,d0
+ beq 1f
+ mov {k56},d1
+ cmp 56,d0
+ beq 1f
+ mov {k64},d1
+ cmp 64,d0
+ bne p_zero
+1:
+ mov {key_w},a0
+ movhu d1,(a0)
+ mov 0x407,d0                     /* rc (4, 7) */
+ bra p_out
+p_zero:
+ clr d0
+p_out:
+ ret [d2,d3,a2,a3],24
+pw_end:

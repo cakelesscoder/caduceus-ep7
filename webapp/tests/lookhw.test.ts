@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { FW_LATEST, checkBundlesBin, checkLooksBin, decodeLooksBin, encodeBundlesBin, encodeLooksBin, placeLook, setFirmware, validateLook } from '../src/format';
 import { blankLook, parseLook, PACK_SCHEMA, type Pack } from '../src/pack';
 import { decodePackCode, encodePackCode } from '../src/sharecode';
-import { curveLut, lookMatrix } from '../src/lookhw';
+import { CURVE_CHROMA, curveLut, lookMatrix } from '../src/lookhw';
 
 const look = () => ({ ...blankLook('colour', 'HW Look'), curve: 'flat' as const, matrix: [32, -32, 16, -8, -24, 40] });
 
@@ -64,6 +64,17 @@ describe('look_hw fields', () => {
     for (const r of lookMatrix([32, -32, 16, -8, -24, 40])) expect(r.reduce((a, b) => a + b, 0)).toBeCloseTo(1, 9);
     const lut = curveLut('standard');
     for (const i of [0, 256, 512, 900, 1024]) expect(lut[i]).toBeCloseTo(i / 1024, 2);
+  });
+
+  it('preview model: Flat and Log as measured on the camera (issue #57): highlights down, darks up, less chroma', () => {
+    for (const c of ['flat', 'log'] as const) {
+      const lut = curveLut(c);
+      expect(lut[Math.round(0.92 * 1024)]).toBeLessThan(0.86);   // white patch (L* 91.6) comes down
+      expect(lut[Math.round(0.47 * 1024)]).toBeLessThan(0.55);   // N5 stays near mid grey (old model 0.61 / 0.64)
+      expect(lut[Math.round(0.2 * 1024)]).toBeGreaterThan(0.24);  // N3.5 is lifted
+      expect(CURVE_CHROMA[c]).toBeLessThan(1);
+    }
+    expect(CURVE_CHROMA.pale).toBeUndefined();
   });
 });
 

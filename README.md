@@ -12,7 +12,7 @@ stills, and longer video recording.
 
 *Named after the caduceus, the staff of Hermes: messenger between gods and mortals and guide of travellers.*
 
-**Latest release: [v0.34a](https://github.com/cakelesscoder/caduceus-ep7/releases/tag/v0.34a)** ·
+**Latest release: [v0.35](https://github.com/cakelesscoder/caduceus-ep7/releases/tag/v0.35)** ·
 **[Install guide](docs/INSTALL.md)** · **[Changelog](CHANGELOG.md)** · **[Caduceus Control Panel](https://cakelesscoder.github.io/caduceus-ep7/)** (make and share looks in your browser) · The camera's Setup › Firmware screen shows the Caduceus version.
 
 > [!WARNING]
@@ -56,6 +56,8 @@ halation aren't drawn.*
 | **Split toning** | Tint the shadows and the highlights separately (12 colours, strength −5..+5 each), per COLOR profile, set on the new **Colour & Light** page or in the Control Panel. Looks carry their own (Standard 1.1 pack), and it shows in live view and photos. Same formula as Caduceus for OM-3. | **New in v0.32** |
 | **Two Extras pages** | INFO past Light gives **Effects** (Grain, Glow/Clarity, Halo, Art, Sharp, NR, VigFix), then **Colour & Light** (WB, Blacks, Whites, shadow and highlight tone). | **New in v0.32** |
 | **Framing lines** | With Displayed Grid on the diagonal grid, live view shows 65:24 and 21:9 frame lines; the Panorama aspect gets a rule-of-thirds grid. | **New in v0.32** |
+| **More dial functions** | Custom Menu B › Dial Function: ISO or flash comp on the front dial in P, A, S and M, the rear dial keeps its job (`docs/DIAL_FUNC.md`). | **New in v0.35** |
+| **M-mode dial for manual lenses** | In M with a lens without contacts, the free dial sets ISO or exposure comp (from phocean's omsystem-ep7). | **New in v0.35** |
 | **Japanese labels** | With the camera in 日本語, Caduceus's own editor labels show in Japanese (`docs/I18N_JA.md`, native-speaker review welcome). | **New in v0.34a** |
 | **Simplified Chinese labels** | With the camera in 简体中文, Caduceus's own editor labels show in Chinese ([#46](https://github.com/cakelesscoder/caduceus-ep7/issues/46), review welcome). | **New in v0.32** |
 | **Tinted halation** | A red/orange glow around bright lights, as on CineStill. Extras sector 11 **Halo** Off / Low / Med / High per profile; looks set their own (CineStill 800T Med, a few others Low). White cores stay white; adds 1–2 s to night shots with lights; stills only. Since v0.34a it also applies when up to 4/5 of the frame is bright (was 1/3). | **New in v0.31** |
@@ -92,8 +94,8 @@ The builder downloads OM's official 1.1 firmware from OM's server, checks it, an
   - Windows: `Build Caduceus (Windows).bat`
   - macOS: `Build Caduceus (Mac).command` (the first time: right-click › **Open**)
   - Linux: `build-caduceus-linux.sh`
-- **Or from a terminal** in that folder: `python3 caduceus.py build --release v0.34a`
-  (Windows: `py caduceus.py build --release v0.34a`).
+- **Or from a terminal** in that folder: `python3 caduceus.py build --release v0.35`
+  (Windows: `py caduceus.py build --release v0.35`).
 
 It creates a folder with:
 
@@ -172,6 +174,10 @@ read at boot). No `EP7MOD` folder = the camera behaves almost stock.
 1. Picture Mode → a **Colour Profile** (COLOR1–4); its name shows in the Picture Mode list.
 2. Open that profile's colour wheel, press **INFO** until the page shows `Film: <name>` (the Film page).
 3. Turn the dial to scroll looks (`Film: Velvia`, `Film: Portra 400`, … `Stock`). Leave the editor and **half-press** to save.
+
+> **Known issue:** the full **Colour Profile page** (the one the Shortcut button opens, with the `COLOR 1` badge)
+> doesn't show the film names properly: its guide line can keep the stock text. For now, **pick, change and edit
+> film looks from the colour wheel in the Super Control Panel**, which shows the names correctly.
 
 Picking a look sets that profile's colours, glow/clarity, WB shift, Art Effect and tone curve. Grain, NR and Sharp stay as you set them for each profile.
 Saturation stays yours. A `*` after the name means you've changed something since picking it.

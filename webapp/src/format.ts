@@ -7,7 +7,8 @@
 // v0.19 look tone (LOOKS.BIN stays version 3, 64-byte records): a COLOR look with a tone has +32 = 1 (tone flag),
 // +33 Blacks, +34 Whites (s8 -5..5), +35 Highlights, +36 Midtones, +37 Shadows (s8 -7..7), +38..44 = 0 and slot
 // mask 1 (COLOR only: +33..44 no longer carry the MONO saturation advice). In BUNDLES.BIN its COLOR slots get
-// Blacks/Whites at +47/+48 (MONO slots keep 0). The app writes the tone block when the look's tone is not all zero.
+// Blacks/Whites at +47/+48 (MONO slots keep 0). The app writes the tone block when the look's tone is not all zero,
+// and from v0.24 for every colour look (#56), so a Film pick always sets tone and saturation.
 // tests/encoder.test.ts checks the output against the Python tools and the released card files.
 import {
   ARTS, CURVES, MATRIX_MAX, matrixIsZero, EFFECTS, FILM_GRAINS, GRAINS, GRAIN_BYTE, grainFromByte, defaultProfile, profileOf, MAX_LOOKS, NAME_MAX, NOTE_MAX, PACK_SCHEMA, SLOT_NAMES, TINTS, TONE_BW_MAX, TONE_KEYS,
@@ -163,6 +164,9 @@ export function validatePack(pack: Pack): Problem[] {
 // ---- LOOKS.BIN
 /** A colour look with a non-zero tone gets the v0.19 tone block (and becomes COLOR-only). */
 export const hasTone = (l: Look) => l.kind === 'colour' && !!l.tone && !toneIsZero(l.tone);
+/** From v0.24 every colour look gets the tone block, even with a neutral tone, so a Film pick always sets its tone and
+ *  saturation (#56: a neutral-tone look used to keep the previous pick's saturation). Its LOOKS.BIN mask is then 1. */
+export const writesToneBlock = (l: Look) => l.kind === 'colour' && (hasTone(l) || FW >= 24);
 
 /** The look's 64-byte LOOKS.BIN record (bundle bytes 0..44 or the tone block, class, slot mask, bloom tint, name[16]). */
 export function lookRecord(l: Look): Uint8Array {
@@ -179,9 +183,9 @@ export function lookRecord(l: Look): Uint8Array {
   const mono = l.kind === 'mono';
   r[B_FLAGS] = mono ? 0 : FLAG_HL;
   r[CLASS_OFF] = mono ? 1 : 0;
-  if (hasTone(l)) {                     // ep7_looks_bin.with_tone
+  if (writesToneBlock(l)) {             // ep7_looks_bin.with_tone
     r[TONE_FLAG] = 1;
-    for (const k of TONE_KEYS) r[TONE_OFF[k]] = u8(l.tone[k]);
+    for (const k of TONE_KEYS) r[TONE_OFF[k]] = u8(l.tone?.[k] ?? 0);
     r[MASK_OFF] = 1;
     if (FW >= 24) {
       for (let k = 0; k < 12; k++) r[38 + (k >> 1)] |= (l.sat[k] & 15) << (4 * (k & 1));   // v0.24: a Film pick sets saturation
@@ -388,6 +392,7 @@ export function placeLook(l: Look, slot: string, prof: ProfileSettings = default
     profileBytes(b, prof);
   } else if (l.kind === 'colour') {
     if (hasTone(l)) throw new Error(`${slot}: a look with a tone cannot go in a MONO slot`);
+    for (let k = 0; k < 12; k++) b[B_SAT + k] = u8(l.sat[k]);   // the record may hold the (zero) tone block here (#56)
     b[B_COLOUR] = 1;
     b[B_FLAGS] = FLAG_HL | FLAG_RENDER_COLOUR;
   } else {

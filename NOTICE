@@ -30,6 +30,8 @@ Third-party:
 - 65:24 aspect fixes adapted from flickering-star's work (fork of oly_fw_analysis), with thanks.
   patches/aspect_fix (issue #23) uses that fork's site list and approach (branch ep7-aperture-ar, GPL-3.0);
   the stubs and data there are written for our ids 6/7, see docs/ASPECT.md section 1i.
+- patches/mdial (the M-mode dial for manual lenses) is ported from phocean/omsystem-ep7 (Apache-2.0, Copyright 2026
+  phocean): its patches/dial_iso and patches/dial_expcomp, with the same bytes; only the stub's address changes.
 - Community film recipes are credited to their authors in docs/LIBRARY_V1.md.
 
 "Olympus", "PEN", "OM SYSTEM" and film names are trademarks of their respective owners. Not affiliated

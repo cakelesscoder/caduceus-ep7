@@ -8,6 +8,7 @@ writes the update files for your SD card. Every output hash must match the
 release's SHA256SUMS exactly, otherwise nothing is written.
 
   python3 caduceus.py build --release v0.15 [--out DIR] [--stock FILE]
+                           [--owner-name NAME] [--owner-phone PHONE] [--no-owner]
   python3 caduceus.py verify DIR
   python3 caduceus.py list
 
@@ -37,7 +38,7 @@ from array import array
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
-RELEASES = ROOT / 'releases'
+RELEASES = Path(os.environ.get('CADUCEUS_RELEASES') or ROOT / 'releases')   # override: testing only
 
 STOCK_NAME = 'OLY_E_142_1100_0000_0000.BIN'
 STOCK_SHA = '9d1610124ad98f6edae4540182205f06c9c703d9033ef0c4f19847193f95eaeb'
@@ -178,6 +179,115 @@ def apply_edits(spec, stock):
     return patched, restore
 
 
+# ---------------------------------------------------------------- owner footer
+# Releases with the owner_footer layer (patches/owner_footer, docs/OWNER_FOOTER.md) carry an all-zero owner block in the
+# firmware image. When the user gives a name and/or phone, the build writes them into that block: one line at the bottom
+# of every menu page, fixed until the firmware is rebuilt. Nothing personal is written anywhere else.
+OWNER_MAGIC = 0x4f375045                 # 'EP7O'
+OWNER_NAME_MAX, OWNER_PHONE_MAX, OWNER_UNITS = 24, 20, 46
+# ASCII 0x20..0x7e glyph widths of the camera's text font (same in every language font); advance ~ width + 3
+OWNER_WIDTHS = (10, 5, 8, 18, 15, 22, 19, 3, 8, 8, 12, 15, 4, 10, 4, 11, 18, 10, 17, 17, 18, 17, 18, 17, 19, 18, 4, 4, 12,
+                15, 12, 15, 22, 19, 16, 17, 18, 15, 14, 19, 17, 4, 9, 17, 13, 21, 17, 19, 16, 19, 17, 16, 15, 17, 18, 23, 17,
+                17, 16, 7, 11, 7, 13, 14, 8, 15, 14, 14, 14, 14, 9, 15, 13, 4, 7, 14, 3, 20, 13, 15, 14, 15, 8, 13, 9, 14, 14,
+                21, 14, 15, 13, 8, 3, 8, 14)
+OWNER_MAXPX = 620
+
+
+def owner_text(name, phone):
+    """Validate -> the one line the camera shows ('' = no footer). Raises Refuse with a reason."""
+    name, phone = (name or '').strip(), (phone or '').strip()
+    if any(not (0x20 <= ord(c) <= 0x7e) for c in name + phone):
+        raise Refuse('owner name and phone: plain ASCII letters, digits and punctuation only (no accents or emoji)')
+    if len(name) > OWNER_NAME_MAX:
+        raise Refuse(f'owner name: at most {OWNER_NAME_MAX} characters')
+    if len(phone) > OWNER_PHONE_MAX or not re.fullmatch(r'[0-9 +()\-]*', phone):
+        raise Refuse(f'owner phone: at most {OWNER_PHONE_MAX} characters, digits, spaces and + - ( ) only')
+    text = '  '.join(x for x in (name, phone) if x)
+    px = sum(OWNER_WIDTHS[ord(c) - 0x20] + 3 for c in text)
+    if px > OWNER_MAXPX:
+        raise Refuse(f'owner line too wide for the screen (about {px} of {OWNER_MAXPX} px); shorten the name')
+    return text
+
+
+def owner_block(text, size):
+    if not text:
+        return bytes(size)
+    b = struct.pack('<IHH', OWNER_MAGIC, len(text), 0) + text.encode('utf-16-le')
+    if len(text) > OWNER_UNITS or len(b) + 2 > size:
+        raise Refuse('owner line too long')
+    return b + bytes(size - len(b))
+
+
+def owner_spec(spec, text):
+    """-> a copy of the release spec whose owner block holds text ('' -> the spec unchanged)."""
+    if not text:
+        return spec
+    info = spec.get('owner_footer')
+    if not info:
+        raise Refuse('this release has no owner footer; build without --owner-name / --owner-phone')
+    blk, n = int(info['block'], 16), info['block_len']
+    out = json.loads(json.dumps(spec))
+    for e in out['edits']:
+        if e['kind'] == '0x100' and not e['addr'].startswith('off:'):
+            a = int(e['addr'], 16)
+            new = bytearray.fromhex(e['new'])
+            if a <= blk and blk + n <= a + len(new):
+                if any(new[blk - a:blk - a + n]):
+                    raise Refuse('internal: release owner block is not empty')
+                new[blk - a:blk - a + n] = owner_block(text, n)
+                e['new'] = new.hex()
+                return out
+    raise Refuse('internal: no edit holds the owner block')
+
+
+def owner_unpatch(pkg, spec):
+    """The package with the owner block zeroed again (used to check a personalised build against the release)."""
+    info = spec.get('owner_footer')
+    if not info:
+        raise Refuse('release has no owner footer')
+    blk, n = int(info['block'], 16) - MAIN_BASE, info['block_len']
+    parts = []
+    for o, h, p, t in parse(pkg):
+        if kind(h) == 0x100:
+            q = bytearray(p)
+            q[blk:blk + n] = bytes(n)
+            q = bytes(q)
+            parts.append(h + encode(q) + reseal(h, q, t))
+        else:
+            parts.append(pkg[o:o + 64 + len(p)])
+    return b''.join(parts)
+
+
+def ask_owner(spec):
+    """Interactive: two optional questions. No terminal -> no footer."""
+    if 'owner_footer' not in spec or not (sys.stdin and sys.stdin.isatty()):
+        return ''
+    print('\nOptional owner footer: your name and phone shown in small text at the bottom of every camera menu page.\n'
+          'It is fixed in the firmware: to change or remove it, build and flash again. Press Enter to skip.')
+    while True:
+        try:
+            name = input(f'  Owner name (up to {OWNER_NAME_MAX} characters): ')
+            phone = input(f'  Phone (up to {OWNER_PHONE_MAX}: digits, spaces, + - ( )): ')
+        except (EOFError, OSError, RuntimeError):
+            return ''
+        try:
+            text = owner_text(name, phone)
+        except Refuse as e:
+            print(f'  {e}. Try again.')
+            continue
+        if text:
+            print(f'  The camera menus will show: {text}')
+        return text
+
+
+def get_owner(a, spec):
+    if getattr(a, 'owner_name', None) or getattr(a, 'owner_phone', None):
+        return owner_text(a.owner_name, a.owner_phone)
+    if getattr(a, 'no_owner', False):
+        return ''
+    return ask_owner(spec)
+
+
 # ---------------------------------------------------------------- download
 def fetch_stock():
     t = time.strftime('%Y%m%d%H%M%S', time.gmtime())
@@ -267,13 +377,20 @@ def cmd_build(a):
     if sha(stock) != STOCK_SHA:
         raise Refuse(f'stock firmware SHA-256 is {sha(stock)}\nexpected {STOCK_SHA}\n'
                      f'This is not the official E-P7 1.1 file {STOCK_NAME} ({STOCK_SIZE} bytes). Nothing written.')
+    owner = a.owner if hasattr(a, 'owner') else get_owner(a, spec)
     print(f'Stock firmware OK. Applying {len(spec["edits"])} edits from releases/{a.release}/edits.json ...')
     patched, restore = apply_edits(spec, stock)
-    files = {OUTPUTS['patched.pkg.bin']: patched, OUTPUTS['restore-stock.pkg.bin']: restore}
-    files.update(card)
     for rel_name, data in (('patched.pkg.bin', patched), ('restore-stock.pkg.bin', restore)):
         if sha(data) != sums[rel_name]:
             raise Refuse(f'{rel_name}: built hash {sha(data)} != release {sums[rel_name]}. Nothing written.')
+    if owner:                                   # same edits plus the owner block; must differ only inside that block
+        mine, _ = apply_edits(owner_spec(spec, owner), stock)
+        if mine == patched or owner_unpatch(mine, spec) != patched:
+            raise Refuse('internal: owner footer build differs from the release outside the owner block. Nothing written.')
+        patched = mine
+        print('Owner footer added.')
+    files = {OUTPUTS['patched.pkg.bin']: patched, OUTPUTS['restore-stock.pkg.bin']: restore}
+    files.update(card)
     # write into a temp dir next to the target, then move into place
     out.parent.mkdir(parents=True, exist_ok=True)
     tmp = Path(tempfile.mkdtemp(prefix='.caduceus-', dir=out.parent))
@@ -284,6 +401,8 @@ def cmd_build(a):
             f.write_bytes(data)
         (tmp / 'SHA256SUMS').write_text(''.join(f'{sha(d)}  {r}\n' for r, d in sorted(files.items())))
         (tmp / 'RELEASE').write_text(a.release + '\n')
+        if owner:
+            (tmp / 'OWNER_FOOTER').write_text('This build has an owner footer (its text is only inside the firmware file).\n')
         if out.exists():
             out.rmdir()
         os.replace(tmp, out)
@@ -293,7 +412,8 @@ def cmd_build(a):
     print(f'\nCaduceus {a.release} written to {out}:')
     for r in sorted(files):
         print(f'  {r}')
-    print('  SHA256SUMS\nAll hashes match the release. Next: docs/INSTALL.md (copy DCOLYMP/ and EP7MOD/ to the card;'
+    print('  SHA256SUMS\n' + ('Release hashes matched; the firmware file is the release plus your owner footer.' if owner else
+                             'All hashes match the release.') + ' Next: docs/INSTALL.md (copy DCOLYMP/ and EP7MOD/ to the card;'
           ' keep restore/ on your computer).')
     return 0
 
@@ -314,6 +434,12 @@ def cmd_verify(a):
         rs = read_sums(RELEASES / rel_name / 'SHA256SUMS')
         want = {OUTPUTS[n]: h for n, h in rs.items() if n in OUTPUTS}
         want.update({n[len('card/'):]: h for n, h in rs.items() if n.startswith('card/')})
+        fw = OUTPUTS['patched.pkg.bin']
+        if (d / 'OWNER_FOOTER').is_file() and (d / fw).is_file() and sums.get(fw) == sha((d / fw).read_bytes()):
+            spec = json.loads((RELEASES / rel_name / 'edits.json').read_text())
+            if sha(owner_unpatch((d / fw).read_bytes(), spec)) == want.get(fw):
+                want[fw] = sums[fw]             # personalised: the release firmware plus the owner block only
+                print(f'  OK    {fw}: release firmware + owner block')
         if want != sums:
             bad += 1
             print(f'  FAIL  file list/hashes differ from releases/{rel_name}/SHA256SUMS')
@@ -516,10 +642,11 @@ def cmd_easy(a):
     rel = latest_release()
     print(f'Caduceus one-press build: {rel}\n')
     out = here / f'Caduceus-{rel}'
+    owner = ask_owner(load_release(rel)[0])
     old = sorted(p.name for p in here.glob('Caduceus-v*') if p.is_dir() and p != out)
     if old:
         print(f'(older build folders, not used: {", ".join(old)})')
-    if out.exists() and build_matches(out, rel):
+    if out.exists() and not owner and build_matches(out, rel):
         print(f'{out.name} already exists and matches the release.')
     else:
         if out.exists():
@@ -539,7 +666,7 @@ def cmd_easy(a):
                 stock = here / 'cache' / STOCK_NAME
         else:
             print(f'Using the OM file already on this computer: {stock}')
-        cmd_build(argparse.Namespace(out=str(out), release=rel, stock=str(stock) if stock else None))
+        cmd_build(argparse.Namespace(out=str(out), release=rel, stock=str(stock) if stock else None, owner=owner))
     print('\nLooking for a camera SD card ...')
     cards = sd_cards()
     copied = False
@@ -574,6 +701,9 @@ def main(argv=None):
     b.add_argument('--release', required=True, help='e.g. v0.15 (see: caduceus.py list)')
     b.add_argument('--out', default='out', help='new or empty output directory (default: out)')
     b.add_argument('--stock', help=f'use an already downloaded {STOCK_NAME} instead of downloading')
+    b.add_argument('--owner-name', help=f'owner footer: name shown on the menu pages (up to {OWNER_NAME_MAX} ASCII characters)')
+    b.add_argument('--owner-phone', help=f'owner footer: phone (up to {OWNER_PHONE_MAX}: digits, spaces, + - ( ))')
+    b.add_argument('--no-owner', action='store_true', help='no owner footer and no questions')
     b.set_defaults(fn=cmd_build)
     v = sub.add_parser('verify', help='re-check a build directory')
     v.add_argument('dir')

@@ -2,6 +2,9 @@
 // already carry the camera's standard curve, so a look's curve is drawn as standard^-1 then the look's curve, per channel.
 // Curves: 17 points (inputs 0, 16, .., 240, 255 of the 256-entry tables, output 0..1), our rounding of the E-P7 1.1 gamma
 // tables 1, 3, 5, 7, 15, 51, 52 (RE_RESOURCES F.6); linear between points.
+// Flat and Log (the movie tables) are not their tables: "standard^-1 then the table" was far too bright in the midtones
+// on a real E-P7 (issue #57, ColorChecker, ΔE2000 9.5 / 8.2), so their points are fitted to that measurement, and the
+// camera also cuts chroma on them (CURVE_CHROMA). Fitted: ΔE2000 1.4 (Flat) / 2.2 (Log) over the 24 patches.
 import type { Curve } from './pack';
 
 const X = [...Array.from({ length: 16 }, (_, i) => i * 16 / 255), 1];
@@ -11,9 +14,11 @@ export const CURVE_PTS: Record<Curve, number[]> = {
   pale: [0, 0.292, 0.432, 0.537, 0.627, 0.701, 0.767, 0.827, 0.877, 0.916, 0.945, 0.966, 0.981, 0.992, 0.998, 1, 1],
   light: [0, 0.369, 0.525, 0.633, 0.718, 0.782, 0.834, 0.879, 0.914, 0.94, 0.959, 0.973, 0.984, 0.992, 0.998, 1, 1],
   pop: [0, 0.154, 0.301, 0.422, 0.525, 0.614, 0.691, 0.758, 0.814, 0.859, 0.895, 0.925, 0.952, 0.975, 0.993, 1, 1],
-  flat: [0, 0.461, 0.599, 0.68, 0.737, 0.781, 0.819, 0.849, 0.876, 0.902, 0.926, 0.949, 0.969, 0.985, 0.994, 1, 1],
-  log: [0, 0.51, 0.634, 0.708, 0.76, 0.801, 0.834, 0.863, 0.888, 0.908, 0.927, 0.944, 0.961, 0.979, 0.992, 1, 1],
+  flat: [0, 0.349, 0.465, 0.552, 0.613, 0.662, 0.706, 0.744, 0.776, 0.82, 0.855, 0.882, 0.908, 0.932, 0.955, 0.978, 1],
+  log: [0, 0.408, 0.523, 0.603, 0.654, 0.703, 0.743, 0.776, 0.805, 0.845, 0.874, 0.896, 0.917, 0.938, 0.959, 0.98, 1],
 };
+/** Chroma kept after the curve (scaled around Rec.601 luma, display values), measured on the camera (issue #57). */
+export const CURVE_CHROMA: Partial<Record<Curve, number>> = { flat: 0.94, log: 0.91 };
 
 function lerp(xs: number[], ys: number[], x: number): number {
   if (x <= xs[0]) return ys[0];

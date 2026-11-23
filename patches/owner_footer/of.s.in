@@ -1,0 +1,168 @@
+/* E-P7 1.1 owner footer (ep7-firmware, our own code). docs/OWNER_FOOTER.md.
+ *
+ * One line of owner text (name + phone, typed at build time by caduceus.py) at the bottom of every main-menu 2CNL page.
+ * Nothing on the camera or the card can change it: the text lives in the owner block of_block inside this layer's claim,
+ * written only when the firmware is built. Empty block (release default: all zero) or a bad block = draw nothing.
+ *
+ *   of_paint <- jmp at the GE window paint routine's children call 0x60d005fb `mov (160,a2),a2; calls (a2)` (+ nop).
+ *              Replays it (the children paint, every layer, every dirty rect), then calls of_draw, keeps d0/d1, and
+ *              jumps back to 0x60d00601. d2/d3/a2/a3 come back through of_draw's call frame; the code after the site
+ *              reloads a0/a1 and never reads a2 before setting it.
+ *   of_draw  (a1 painter, d3 window). Draws only when
+ *              - the owner block is valid: magic 'EP7O', 1 <= n <= {omax}, word +6 == 0, every unit 0x20..0x7e, unit n == 0;
+ *              - the 2CNL menu page panel is open: stock word {alive} != 0 (set by the panel's show / data-notify
+ *                methods, cleared by its destructor; no stock reader);
+ *              - painter and gc (*(painter+8)) are non-zero, the painted window is the current window *{curwin},
+ *                the painter has >= 2 layers and the window is multi-layer (vtbl +680 == 1, as the paint routine asks).
+ *              Then, as stock paints a part: painter_set_layer(2) (GUI layer 1, where the menu text lives), select
+ *              text style 1 (the menu labels' style) with 0x60d0fce0, gc+0x34 = 2 (0x60d0fd83), and for each dirty
+ *              rect of layer 2 in the window's region (window+1464: rects at +0/+8/+16, count at +24, capped at 3) set the
+ *              clip to it (0x60d0618c) and draw the text with the stock string drawer 0x60d075a7 (style 25, 15, 15,
+ *              centred, rect of_rect). Release the font (0x60d10708), restore the painter layer, then put the gc's clip
+ *              (+4..+11), font (+0x4c) and mode (+0x34) back as found.
+ * Stores: the stack, and the gc fields above (put back as found). No absolute stores, no mul/div/setlb, no fb forms.
+ */
+ .am33_2
+ .text
+ .global _start
+_start:
+of_paint:
+ mov (160,a2),a2
+ calls (a2)                       /* the stock children paint, unchanged */
+ add -12,sp                       /* (0) call slot, (4) d0, (8) d1; the paint routine's (4,sp) painter is now (16,sp) */
+ mov d0,(4,sp)
+ mov d1,(8,sp)
+ mov (16,sp),a1
+ call of_draw,[d2,d3,a2,a3],64
+ mov (4,sp),d0
+ mov (8,sp),d1
+ add 12,sp
+ jmp ep7_paint_back
+
+/* frame 64 (saved regs at 48..63): (16) old layer, (20)/(24) gc clip words, (28) gc+0x4c, (32) gc+0x34, (36) font, (40) region rect ptr */
+of_draw:
+ mov a1,a2                        /* a2 = painter */
+ mov of_block,a0
+ mov (a0),d0
+ cmp {omagic},d0
+ bne o_out
+ movhu (6,a0),d0
+ cmp 0,d0
+ bne o_out
+ movhu (4,a0),d2                  /* n */
+ mov d2,d0
+ add -1,d0
+ cmp {omax},d0                    /* n - 1 >= omax (or n == 0) -> out */
+ bcc o_out
+ mov a0,a1
+ add 8,a1
+o_chk:
+ movhu (a1),d0
+ cmp 0x20,d0
+ bcs o_out
+ cmp 0x7f,d0
+ bcc o_out
+ add 2,a1
+ add -1,d2
+ bne o_chk
+ movhu (a1),d0                    /* unit n == 0 */
+ cmp 0,d0
+ bne o_out
+ mov ({alive}),d0                 /* 2CNL menu page panel open */
+ cmp 0,d0
+ beq o_out
+ cmp 0,a2
+ beq o_out
+ mov (8,a2),a3                    /* gc = *(painter+8), as the paint routine (0x60d060e3) */
+ cmp 0,a3
+ beq o_out
+ mov ({curwin}),d0                /* only the current window */
+ cmp d3,d0
+ bne o_out
+ movhu (20,a2),d0                 /* painter layer count */
+ cmp 2,d0
+ bcs o_out
+ mov d3,a0                        /* multi-layer window? (vtbl +680, as 0x60d00547) */
+ mov (a0),a1
+ mov (680,a1),a1
+ calls (a1)
+ exth d0
+ cmp 1,d0
+ bne o_out
+ movhu (4,a2),d0                  /* save: painter layer, gc clip, font, mode */
+ mov d0,(16,sp)
+ mov (4,a3),d0
+ mov d0,(20,sp)
+ mov (8,a3),d0
+ mov d0,(24,sp)
+ mov (76,a3),d0
+ mov d0,(28,sp)
+ movhu (52,a3),d0
+ mov d0,(32,sp)
+ mov a2,a0
+ mov 2,d0
+ call ep7_setlayer,[d2,a2,a3],20  /* painter_set_layer(2): GUI layer 1, as the paint routine's layer loop (0x60d00829) */
+ mov a3,a0
+ mov {tstyle},d0
+ call ep7_setfont,[a2],8          /* 0x60d0fce0: a0 gc, d0 text-style id -> a0 font or 0 */
+ mov a0,(36,sp)
+ cmp 0,a0
+ beq o_rest
+ mov a3,a0
+ mov 2,d0
+ call ep7_setmode,[],0            /* 0x60d0fd83: gc+0x34 = 2, as the label draw */
+ mov d3,a0
+ add {region},a0                  /* the window's layer-2 region: rects +0/+8/+16, count +24 */
+ mov a0,(40,sp)
+ mov (24,a0),d2
+ cmp 4,d2
+ bcs o_n
+ mov 3,d2
+o_n:
+ cmp 0,d2
+ beq o_rel
+o_rect:
+ mov (40,sp),a1
+ mov a2,a0
+ call ep7_clip,[],4               /* 0x60d0618c: clip the gc to this dirty rect, as the layer loop (0x60d008a1) */
+ mov of_style,d0
+ mov of_text,d1
+ mov a3,a0
+ mov of_rect,a1
+ call ep7_drawtext,[d2,d3,a2,a3],252
+ mov (40,sp),d0
+ add 8,d0
+ mov d0,(40,sp)
+ add -1,d2
+ bne o_rect
+o_rel:
+ mov (36,sp),a0
+ call ep7_frel,[],4               /* 0x60d10708: release the font, as every stock text draw */
+o_rest:
+ mov a2,a0
+ mov (16,sp),d0
+ call ep7_setlayer,[d2,a2,a3],20  /* the layer the children paint left */
+ mov (20,sp),d0                   /* gc back as found */
+ mov d0,(4,a3)
+ mov (24,sp),d0
+ mov d0,(8,a3)
+ mov (28,sp),d0
+ mov d0,(76,a3)
+ mov (32,sp),d0
+ movhu d0,(52,a3)
+o_out:
+ ret [d2,d3,a2,a3],64
+
+ .balign 4
+of_style:                         /* 24-B text style: colour 25 (menu text), 15, 15, h-align 1 (centre), v-align 1 */
+ .long 25, 15, 15
+ .byte 1, 1, 0, 0
+ .long 0, 0
+of_rect:                          /* x0, y0, x1, y1 (window coordinates, 720 x 480 layout) */
+ .hword {rx0}, {ry0}, {rx1}, {ry1}
+ .balign 4
+of_block:                         /* owner block: written by caduceus.py at build time; all zero in the release */
+ .long 0, 0
+of_text:
+ .fill {otext}, 1, 0
+of_end:

@@ -64,11 +64,11 @@ The command-line route (`caduceus.py build --release ...`, below) still works if
 
 Windows:
 ```
-py caduceus.py build --release v0.34a
+py caduceus.py build --release v0.35
 ```
 macOS / Linux:
 ```
-python3 caduceus.py build --release v0.34a
+python3 caduceus.py build --release v0.35
 ```
 
 The command:
@@ -76,10 +76,10 @@ The command:
 1. downloads `OLY_E_142_1100_0000_0000.BIN` (111 MB) from OM Digital Solutions' update server, the same
    request OM Workspace makes;
 2. checks its SHA-256 (`9d1610124ad98f6edae4540182205f06c9c703d9033ef0c4f19847193f95eaeb`);
-3. applies `releases/v0.34a/edits.json`. Every byte it replaces must match stock;
-4. checks every output against `releases/v0.34a/SHA256SUMS`. If any hash differs, it writes nothing.
+3. applies `releases/v0.35/edits.json`. Every byte it replaces must match stock;
+4. checks every output against `releases/v0.35/SHA256SUMS`. If any hash differs, it writes nothing.
 
-If you already have the OM file: `python3 caduceus.py build --release v0.34a --stock path/to/OLY_E_142_1100_0000_0000.BIN`.
+If you already have the OM file: `python3 caduceus.py build --release v0.35 --stock path/to/OLY_E_142_1100_0000_0000.BIN`.
 Use `--out DIR` for a different output folder (it must be new or empty). `python3 caduceus.py list` shows releases.
 
 Output (`out/`):
@@ -150,7 +150,7 @@ cannot read them, it quietly falls back to stock behaviour. Check, in order:
 1. **Setup > Firmware shows a `Caduceus` row with the version?** If not, the update did not run or you flashed
    `restore/E1429999.BIN` (the stock file, which has the same name). Flash `DCOLYMP/E1429999.BIN` from the build.
 2. **Card layout:** on the card's top level, next to `DCIM`, there must be `DCOLYMP` and `EP7MOD` (not inside
-   another folder such as `Caduceus-v0.34a`), with `EP7MOD/LOOKS.BIN` (2624 bytes, or 2112 for an older v3 file), `EP7MOD/BUNDLES.BIN` (680 bytes), `EP7MOD/MOVIE.BIN` (96 bytes, for Movie colour) and `EP7MOD/AP.BIN` (96 bytes, for AP Custom colour).
+   another folder such as `Caduceus-v0.35`), with `EP7MOD/LOOKS.BIN` (2624 bytes, or 2112 for an older v3 file), `EP7MOD/BUNDLES.BIN` (680 bytes), `EP7MOD/MOVIE.BIN` (96 bytes, for Movie colour) and `EP7MOD/AP.BIN` (96 bytes, for AP Custom colour).
 3. **Eject properly.** On macOS use the eject button in Finder; on Windows "Eject"; on Linux "Unmount". Pulling the
    card early can leave the files cut short, which the camera ignores. Copy them again and eject first.
 4. **Half-press the shutter once** after switching on, then reopen the colour wheel.
@@ -163,6 +163,7 @@ If it still looks stock, open an issue with the answers to 1–3 and the card's 
 ## Known issues
 
 - Art Effects on colour profiles: the live-view preview does not always update straight away. The photo is right.
+- The full Colour Profile page (opened by the Shortcut button) doesn't show film names properly in its guide line. Pick and edit film looks from the colour wheel in the Super Control Panel instead.
 - XPan and 21:9 reset to 4:3 at each power-on (on purpose).
 - Halation is desktop-only; bloom works in the camera.
 - Builds are only reproducible from the exact OM 1.1 file. Any other file is refused.

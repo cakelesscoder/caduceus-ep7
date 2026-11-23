@@ -83,7 +83,12 @@ describe('built-in library', () => {
     expect([r[45], r[46]]).toEqual([0, 1]);
     const plain = blankLook('colour', 'P'); plain.sat[0] = 4;
     const pr = lookRecord(plain);
-    expect([pr[32], pr[33], pr[46]]).toEqual([0, 4, 3]);              // zero tone: no block, sat kept, COLOR+MONO
+    expect([pr[32], pr[33], pr[38], pr[44], pr[46]]).toEqual([1, 0, 4, 1, 1]);   // #56: zero tone still gets the block (sets sat), COLOR only
+    setFirmware(23);
+    try {
+      const old = lookRecord(plain);
+      expect([old[32], old[33], old[46]]).toEqual([0, 4, 3]);        // before v0.24: no block, sat advice kept, COLOR+MONO
+    } finally { setFirmware(FW_LATEST); }
   });
 
   it('imports the released LOOKS.BIN and its own export with tone', () => {
@@ -250,7 +255,7 @@ function randomLook(r: () => number, i: number): Look {
   if (!mono) l.tone = randomTone(r);
   return l;
 }
-function toPython(p: Pack) {
+function toPython(p: Pack, allTone = false) {   // allTone: every colour look gets a tone block (LOOKS.BIN from v0.24, #56)
   const recipes: Record<string, unknown> = {}, looks: Record<string, unknown> = {}, slots: Record<string, string> = {},
     art: Record<string, number> = {};
   p.looks.forEach((l, i) => {
@@ -261,10 +266,11 @@ function toPython(p: Pack) {
     if (l.effect) look.effect = l.effect;
     if (l.vignette) look.vignette = l.vignette;
     if (l.notes) look.notes = l.notes;
-    if (!toneIsZero(l.tone)) look.tone = l.tone;    // missing = no tone block
+    if (!toneIsZero(l.tone) || (allTone && l.kind === 'colour')) look.tone = l.tone;    // missing = no tone block
     looks[k] = look;
   });
   for (const [s, i] of Object.entries(p.slots)) {
+    if (allTone && s.startsWith('MONO')) continue;   // LOOKS.BIN doesn't depend on slots
     slots[s] = `k${i}`;
     if (s.startsWith('COLOR')) art[s] = ARTS.indexOf(p.looks[i!].art_effect);
   }
@@ -295,7 +301,7 @@ describe.skipIf(!python)('cross-check with the repo\'s Python tools (v3 + v0.19 
     packs.push(library());
     // v0.27: slots take NR from the profile (default Camera), not the look, so Python gets the looks with NR Camera for BUNDLES.BIN
     const camNr = packs.map((p) => ({ ...p, looks: p.looks.map((l) => ({ ...l, grain: 'off' as const })) }));
-    const out = runPy(ROOT, packs.map(toPython)), outB = runPy(ROOT, camNr.map(toPython));
+    const out = runPy(ROOT, packs.map((p) => toPython(p, true))), outB = runPy(ROOT, camNr.map((p) => toPython(p)));
     packs.forEach((p, i) => {
       expect(out[i].error).toBeUndefined();
       expect(out[i].looks_check).toEqual([]);

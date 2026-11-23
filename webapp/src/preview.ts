@@ -8,7 +8,7 @@
 import { FILM_GRAINS, GRAINS, toneIsZero, type FilmGrain, type Look } from './pack';
 import { previewToneLut } from './tone';
 import { bendSplit, hasSplit } from './split';
-import { curveLut, lookMatrix } from './lookhw';
+import { CURVE_CHROMA, curveLut, lookMatrix } from './lookhw';
 import { matrixIsZero } from './pack';
 
 // Firmware COLOR table (generated/color/ep7_color_table.json, UI order): sector centre / width (0..32767 = 360 deg)
@@ -162,6 +162,11 @@ export function renderLook(src: ImageData, dst: ImageData, look: Look, opt: Prev
   if (!mono && look.curve && look.curve !== 'standard') {
     const cl = curveLut(look.curve);
     for (let i = 0; i < n * 3; i++) img[i] = cl[Math.max(0, Math.min(1024, (img[i] * 1024 + 0.5) | 0))];
+    const kc = CURVE_CHROMA[look.curve];
+    if (kc !== undefined) for (let i = 0; i < n * 3; i += 3) {
+      const y = 0.299 * img[i] + 0.587 * img[i + 1] + 0.114 * img[i + 2];
+      for (let c = 0; c < 3; c++) img[i + c] = clamp01(y + (img[i + c] - y) * kc);
+    }
   }
   // 2. contrast advice + the look's tone (luminance), 3. 12-sector colour engine, 4. mono
   const con = opt.advice ? look.advice.contrast ?? 0 : 0;

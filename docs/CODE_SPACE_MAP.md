@@ -421,3 +421,32 @@ movie_quality and shortcut_cycle_v2 (no shared bytes).
 | **0x607ccf62–0x607cd660 (1790 B claim)** | 5 | **i18n_ja** token table (data only, read by `ja_gd` through `mov ep7_tok,a2`), 1740 B at 0x607ccf72. The whole run 0x607ccf61–0x607cd660 of the same scan less its first byte. 16 B stock guards; **free inside: 0x607cd63e–0x607cd650** (18 B: more tokens need another run) |
 | 0x6025aa98 (data) | .data init image | guide part word lu_guide -> ja_gd (runs lu_guide's chain first, then translates kind-5 labels when the loaded strings are Japanese) |
 <!-- i18n_ja: end -->
+
+<!-- owner_footer: begin -->
+## owner_footer (patches/owner_footer, docs/OWNER_FOOTER.md; v0.34a dev layer after i18n_ja; emulator-verified, not camera-tested)
+
+| Range | Sec | Owner / notes |
+|---|---|---|
+| **0x607e2200–0x607e2600 (1 KB claim)** | 5 | **owner_footer** `of_paint` / `of_draw` + style, rect and the 104-B owner block `of_block` 0x607e238c (all zero in the release; caduceus.py writes it at build time), 484 B at 0x607e2210. Dead `sdk api` handlers (CODE_SPACE_SURVEY §2; needs extras_pages' sdk cut). No reference from outside the dead code into it (scan of 0x607c9c20–0x607e87c5 on the v0.34a image, four aliases + d16 / d32 call / calls / jmp; build check `JA.check_claim`). 16 B stock guards; **free inside: 0x607e23f4–0x607e25f0** |
+| 0x60d005fb (6 B) | 6, hook | GE window paint, the only vtbl +160 (children paint) call: `mov (160,a2),a2; calls (a2)` -> `jmp of_paint` + nop, back to 0x60d00601. Runs on every window paint from boot (the draw is gated). **A layer that hooks this call must chain** |
+<!-- owner_footer: end -->
+
+<!-- mdial: begin -->
+## mdial (patches/mdial; port of phocean/omsystem-ep7 dial_iso + dial_expcomp, Apache-2.0; camera-tested there, not in this chain)
+
+| Range | Sec | Owner / notes |
+|---|---|---|
+| **0x607e3a00–0x607e3c00 (512 B claim)** | 5 | **mdial** `dl_fn` (76 B at 0x607e3a10, phocean's code; their address 0x60210900 is our bundle table). Same scan and check as owner_footer's claim. **Free inside: 0x607e3a5c–0x607e3bf0** |
+| 0x60cdc837 (9 B) | 6, hook | dial routine 0x60cdc82c `mov d0,a3; call 0x60cc8be9,[d2,d3],8` -> `jmp dl_fn` + 4 nop, resume 0x60cdc840 |
+| 0x604bb43c (8 B), 0x611d6d32 (2 B), 0x611d6d4a (2 B), 0x6044afda (1 B) | 2 / 6 data | dial_expcomp: M/B list first entry {3,4} -> {4,2}; the two M/B label lists; rule-engine byte (exp comp allowed in M) |
+<!-- mdial: end -->
+
+<!-- dial_func: begin -->
+## dial_func (patches/dial_func, docs/DIAL_FUNC.md; issue #60; v0.35c dev layer after page_wheel; emulator-verified, not camera-tested)
+
+| Range | Sec | Owner / notes |
+|---|---|---|
+| **0x607deb00–0x607df100 (1536 B claim)** | 5 | **dial_func** data block, 1472 B at 0x607deb10: 4 element lists (4 x 64 B, P / A / S / M), 4 alt code lists (4 x u32), 8 label lists (4 x 12 B). Dead `sdk api` handlers (CODE_SPACE_SURVEY §2; needs extras_pages' sdk cut). No reference from outside the dead code into it (scan of the v0.35b image; build check `JA.check_claim`). 16 B stock guards; **free inside: 0x607df0d0–0x607df0f0** |
+| 0x604ccd3c / 0x604ccd50 / 0x604ccd64 / 0x604ccd78 (10 B each) | data | validator records of sids 70 / 74 / 72 / 76 (Dial Function P / A / S / M), +4..+14: list, alt, bytes 128 -> 256 |
+| 0x611d714e / 62 / 76 / 8a (2 B), 0x611d7154 / 68 / 7c / 90 (8 B) | data | view-56 records param 0..3: count 2 -> 4; list1 / list2 -> the new label lists |
+<!-- dial_func: end -->
