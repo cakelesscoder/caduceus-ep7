@@ -1,6 +1,7 @@
 // Pack model (schema "caduceus-pack/1") and its structural parsing. The value vocabulary is the one of the repo's
 // library/bundle JSON (bundles/*.json, patches/bundles/build.py) so packs read naturally next to the Python tools.
 import { SPLIT_MAX, type Split } from './split';
+import type { RgbCurves } from './curves';
 
 export const SECTORS = ['Yellow', 'Orange', 'Orange-red', 'Red', 'Magenta', 'Violet', 'Blue', 'Blue-cyan', 'Cyan',
   'Green-cyan', 'Green', 'Yellow-green'] as const;
@@ -176,6 +177,12 @@ export interface Look {
   tone_balance?: number;   // OM-3 Tone Balance -5..5
   halation?: number;       // OM-3 Halation 1..5 (ours is the `effect` halo)
   film_wb?: FilmWb;        // OM-3 WB mode per film
+  // Caduceus for OM-3 v0.30 / v0.40 (resync at their v0.40.2), the same way: only on OM-3 bank looks, never in a pack.
+  rgb?: RgbCurves;         // OM-3 v0.30 RGB curves: R / G / B, 5 points each, -7..7 (their CURVES.BIN, not LOOKS.BIN)
+  mix?: number[];          // OM-3 v0.30 Color Mix: hue, strength for R, G, B, -7..7 (their CURVES.BIN)
+  border?: number;         // OM-3 v0.40 Border -5..5 (+ white, - black), LOOKS.BIN +48
+  grain_size?: number;     // OM-3 v0.40 Grain Size 1 Fine / 3 Coarse (set on the camera, in no card file)
+  grain_strength?: number; // OM-3 v0.40 Film Grain 1 or 4 (set on the camera; LOOKS.BIN keeps the level, film_grain)
   origin?: string;     // app-only: the built-in library look this one came from (for Reset look); not exported
   lib?: string;        // app-only: fingerprint of the library values it was copied from (unmodified = still equal)
 }

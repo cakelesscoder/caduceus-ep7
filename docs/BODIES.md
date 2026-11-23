@@ -12,7 +12,7 @@ code format, so looks and share codes work on every body. See [`CONTROL_PANEL.md
 
 | Body | Project | Owner | Where it stands |
 |---|---|---|---|
-| **OM-3** | [Caduceus for OM-3](https://github.com/androidfanman/caduceus-om3) | androidfanman | **Released and camera-tested.** Films, HSL on COLOR 1-4, grain, halation and more. Control Panel export supported (`docs/OM3_NOTES.md`) |
+| **OM-3** | [Caduceus for OM-3](https://github.com/androidfanman/caduceus-om3) | androidfanman | **Released and camera-tested.** Films, HSL on COLOR 1-4, grain, halation and more. Control Panel export supported, synced to its v0.40.2 (`docs/OM3_NOTES.md`) |
 | **E-M10 Mark I** | [om10mi-mods](https://github.com/Meghnus/om10mi-mods) | Meghnus | **Released, tested by its owner.** Film looks with their own colour, a 12-sector colour editor and a 60-minute video limit. Its own builder; uses Caduceus as a design reference |
 | **E-M1 Mark II** | [emudojo/caduceus](https://github.com/emudojo/caduceus/tree/omdem12-implement-colors-more) (branch `omdem12-implement-colors-more`) | emudojo | **In progress, first camera runs.** Looks from the card, focus stacking on every lens, longer video, 65:24 and 21:9. No public release yet |
 | **OM-5** | [tadejs/caduceus-om5](https://github.com/tadejs/caduceus-om5/tree/om5-port) (branch `om5-port`) | tadejs | **Paused.** The first five safety steps passed on a camera; no features yet. Notes: [przestaw/OM-5-firmware-patches](https://github.com/przestaw/OM-5-firmware-patches) (research only) |

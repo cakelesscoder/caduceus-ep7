@@ -12,13 +12,14 @@ Third-party:
   part of Caduceus and keeps its own licences: its original contributions are Apache-2.0 (since a61498e), with the
   exceptions it documents in its RIGHTS-AND-PROVENANCE.md (GPL-3.0 for the GNU simulator integration, font-derived
   artwork, third-party material). It is not needed to build or install Caduceus.
-- webapp/src/om3.ts, webapp/src/om3names.ts, webapp/src/split.ts, webapp/src/om3films.ts, webapp/src/data/om3films.json
-  (its film sims, androidfanman's own designs) and webapp/tests/om3.test.ts are from Caduceus for OM-3
-  (androidfanman/caduceus-om3 @ c209b69, its v0.29.5, Apache-2.0, Copyright 2026 androidfanman), unchanged, with a
-  source line added to each .ts file (the test file also has our library path and three cases skipped). The OM-3 WB
-  mode list, Kelvin range and film-WB parser in webapp/src/pack.ts (WB_MODES, KELVIN, parseFilmWb) are from its
-  webapp/src/pack.ts at the same commit. webapp/tests/om3-v0.29.5-looks.ts holds its releases/v0.29.5/LOOKS.BIN
-  (its 20 film sims) as base64, as a test fixture.
+- webapp/src/om3.ts, webapp/src/om3names.ts, webapp/src/split.ts, webapp/src/curves.ts, webapp/src/om3films.ts,
+  webapp/src/data/om3films.json (its film sims, androidfanman's own designs) and webapp/tests/om3.test.ts are from
+  Caduceus for OM-3 (androidfanman/caduceus-om3 @ 9fc2dc1, its v0.40.2, Apache-2.0, Copyright 2026
+  androidfanman), unchanged, with a source line added to each .ts file (the test file also has our library path and
+  three cases skipped). The OM-3 WB mode list, Kelvin range and film-WB parser in webapp/src/pack.ts (WB_MODES,
+  KELVIN, parseFilmWb) are from its webapp/src/pack.ts at c209b69 (its v0.29.5; unchanged since).
+  webapp/tests/om3-v0.29.5-looks.ts holds its releases/v0.29.5/LOOKS.BIN (its 20 film sims; its v0.40 ships the same
+  file, as do v0.40.1 and v0.40.2) as base64, as a test fixture.
 - The colour-grain method (CPU grain on the developed photo through the bus window) follows Caduceus for OM-3
   (androidfanman/caduceus-om3, Apache-2.0), research/grain/model.py and firmware/src/xblock.s. The E-P7 code in
   patches/grain_cpu is our own.

@@ -1,10 +1,11 @@
-// Vendored from androidfanman/caduceus-om3 @ c209b69 (Apache-2.0, see NOTICE), unchanged. Update by copying; our glue is in ./targets/om3.ts.
+// Vendored from androidfanman/caduceus-om3 @ 9fc2dc1 (Apache-2.0, see NOTICE), unchanged. Update by copying; our glue is in ./targets/om3.ts.
 // The film sims for the OM-3: our own looks, designed by hand from public descriptions of each film and tuned by eye
 // (scripts/films.py makes src/data/om3films.json from short recipes). Each becomes an ordinary OM-3 look: Hue / Light
 // / Saturation per sector, Highlights / Shadows / Midtones, Blacks / Whites, Contrast, Sharp and the WB shift. No grain,
 // Glow / Clarity or Art Effects: those stay the user's choice.
 import filmsJson from './data/om3films.json';
 import { blankLook, type Look } from './pack';
+import type { RgbCurves } from './curves';
 
 export interface Film {
   name: string; group: FilmGroup; film: string; desc: string;
@@ -13,6 +14,8 @@ export interface Film {
   sharp: number;   // firmware v0.22 Sharp, the camera's numbers (0 = its normal)
   split?: { sh_color: number; sh: number; hl_color: number; hl: number };   // v0.26 split toning
   matched?: boolean;   // colour matched: graded against film scans of a colour chart (else hand-tuned from descriptions)
+  rgb?: RgbCurves;     // the camera's 20 (2026-11-15): RGB curves and colour mix of the regrade (test firmware; not in LOOKS.BIN)
+  mix?: number[];
 }
 export type FilmGroup = 'fuji' | 'slide' | 'neg' | 'instant' | 'print';
 export const FILM_GROUPS: [FilmGroup, string][] = [
@@ -46,6 +49,8 @@ export function filmLook(f: Film): Look {
   l.advice = { contrast: f.contrast, sharpness: f.sharp ?? 0 };
   l.wb = f.wb ? { ...f.wb } : null;
   if (f.split) l.split = { ...f.split };
+  if (f.rgb) l.rgb = { r: [...f.rgb.r], g: [...f.rgb.g], b: [...f.rgb.b] };
+  if (f.mix) l.mix = [...f.mix];
   l.notes = f.desc;
   return l;
 }
